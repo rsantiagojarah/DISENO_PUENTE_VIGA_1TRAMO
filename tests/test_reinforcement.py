@@ -1,0 +1,177 @@
+import pytest
+
+from bridge_design.domain.loads import LiveLoads, PedestrianLoad, VehicleLoadModel
+from bridge_design.domain.materials import (
+    ConcreteProperties,
+    LinearWeightProperties,
+    MaterialProperties,
+    SteelProperties,
+    SurfaceLayerProperties,
+)
+from bridge_design.domain.crack_control import (
+    maximum_crack_control_spacing_m,
+    review_transverse_slab_crack_control,
+)
+from bridge_design.domain.rebar_catalog import (
+    REINFORCING_BAR_CATALOG,
+    SpacingGrid,
+    generate_spacing_options,
+)
+from bridge_design.domain.reinforcement import (
+    SlabReinforcementParameters,
+    design_transverse_slab_reinforcement,
+    flexural_steel_area_cm2,
+)
+from bridge_design.domain.transverse_slab import (
+    TransverseLoadLayout,
+    TransverseSlabGeometry,
+    solve_transverse_slab_design,
+)
+
+
+def _materials() -> MaterialProperties:
+    return MaterialProperties(
+        concrete=ConcreteProperties.from_inputs(
+            specific_weight_tn_m3=2.4,
+            compressive_strength_kg_cm2=280.0,
+        ),
+        steel=SteelProperties(),
+        asphalt=SurfaceLayerProperties("asfalto", 2.2, 0.05),
+        sidewalk=SurfaceLayerProperties("vereda", 2.4, 0.20),
+        railing=LinearWeightProperties("baranda", 100.0),
+        barrier=LinearWeightProperties("barrera", 500.0),
+    )
+
+
+def test_flexural_steel_area_solves_rectangular_section() -> None:
+    steel_area = flexural_steel_area_cm2(
+        design_moment_tn_m=10.0,
+        strip_width_cm=100.0,
+        effective_depth_cm=15.0,
+        concrete_strength_kg_cm2=280.0,
+        steel_yield_kg_cm2=4200.0,
+    )
+
+    assert round(steel_area, 3) == 19.986
+
+
+def test_reinforcing_bar_catalog_contains_project_bars() -> None:
+    assert tuple((bar.label, bar.area_cm2) for bar in REINFORCING_BAR_CATALOG) == (
+        ("6 mm", 0.28),
+        ("8 mm", 0.50),
+        ('3/8"', 0.71),
+        ('1/2"', 1.29),
+        ('5/8"', 2.00),
+        ('3/4"', 2.84),
+        ('1"', 5.00),
+    )
+
+
+def test_spacing_options_round_down_to_025_m_grid() -> None:
+    options = generate_spacing_options(
+        "Acero prueba",
+        required_area_cm2_m=4.0,
+        spacing_grid=SpacingGrid(step_m=0.025, minimum_m=0.10, maximum_m=0.30),
+    )
+    by_bar = {option.bar.label: option for option in options.options}
+
+    assert by_bar["6 mm"].spacing_m == 0.05
+    assert by_bar["6 mm"].is_compliant is True
+    assert by_bar["8 mm"].spacing_m == 0.125
+    assert by_bar["8 mm"].provided_area_cm2_m == 4.0
+    assert options.recommended == by_bar["8 mm"]
+
+
+def test_spacing_options_cap_low_required_steel_at_maximum_spacing() -> None:
+    options = generate_spacing_options(
+        "Ask longitudinal por cara",
+        required_area_cm2_m=0.659,
+        spacing_grid=SpacingGrid(step_m=0.025, minimum_m=0.10, maximum_m=0.30),
+    )
+    by_bar = {option.bar.label: option for option in options.options}
+
+    assert by_bar["6 mm"].spacing_m == 0.30
+    assert by_bar["6 mm"].provided_area_cm2_m == pytest.approx(0.933333)
+    assert by_bar['1"'].spacing_m == 0.30
+    assert by_bar['1"'].provided_area_cm2_m == pytest.approx(16.666667)
+    assert options.recommended == by_bar["6 mm"]
+
+
+def test_crack_control_spacing_limit_uses_aashto_expression() -> None:
+    maximum_spacing_m, beta_s = maximum_crack_control_spacing_m(
+        steel_stress_kg_cm2=2520.0,
+        dc_cm=5.95,
+        slab_thickness_cm=20.0,
+    )
+
+    assert round(beta_s, 3) == 1.605
+    assert round(maximum_spacing_m, 3) == 0.191
+
+
+def test_flexural_steel_area_rejects_unreachable_moment() -> None:
+    with pytest.raises(ValueError, match="excede la capacidad"):
+        flexural_steel_area_cm2(
+            design_moment_tn_m=100.0,
+            strip_width_cm=100.0,
+            effective_depth_cm=15.0,
+            concrete_strength_kg_cm2=280.0,
+            steel_yield_kg_cm2=4200.0,
+        )
+
+
+def test_transverse_slab_reinforcement_returns_requested_steel_groups() -> None:
+    geometry = TransverseSlabGeometry(
+        girder_spacing_m=2.10,
+        overhang_m=0.825,
+        girder_count=4,
+        slab_thickness_m=0.20,
+        girder_total_height_m=1.20,
+        girder_width_m=0.30,
+    )
+    layout = TransverseLoadLayout(
+        asphalt_start_m=1.075,
+        asphalt_end_m=6.875,
+        sidewalk_width_m=0.825,
+        railing_left_m=0.13,
+        barrier_left_m=0.825,
+        barrier_width_m=0.25,
+        vehicle_move_start_m=0.825,
+        vehicle_move_end_m=7.125,
+        vehicle_step_m=0.50,
+    )
+    analysis = solve_transverse_slab_design(
+        geometry=geometry,
+        materials=_materials(),
+        live_loads=LiveLoads(
+            pedestrian=PedestrianLoad.mtc_sidewalk_default(),
+            vehicular=VehicleLoadModel.mtc_hl93_default(),
+        ),
+        layout=layout,
+    )
+
+    reinforcement = design_transverse_slab_reinforcement(
+        geometry=geometry,
+        materials=_materials(),
+        analysis=analysis,
+        parameters=SlabReinforcementParameters(),
+    )
+
+    assert reinforcement.negative.required_area_cm2_m > 0.0
+    assert reinforcement.positive.required_area_cm2_m > 0.0
+    assert round(reinforcement.temperature.required_area_cm2_m, 3) == 3.600
+    assert round(reinforcement.distribution.percent_of_positive_steel, 1) == 67.0
+    assert reinforcement.distribution.required_area_cm2_m == pytest.approx(
+        0.67 * reinforcement.positive.required_area_cm2_m
+    )
+
+    crack_review = review_transverse_slab_crack_control(
+        geometry=geometry,
+        materials=_materials(),
+        analysis=analysis,
+        reinforcement=reinforcement,
+    )
+
+    assert crack_review.negative_main.label == "E.1 Acero principal negativo"
+    assert crack_review.positive_main.label == "E.2 Acero principal positivo"
+    assert crack_review.negative_main.maximum_spacing_m > 0.0
+    assert crack_review.positive_main.maximum_spacing_m > 0.0

@@ -1,0 +1,544 @@
+
+
+===== PDF PAGE 95 =====
+ 
+Manual de  Puentes  Página 91  
+ 
+2.4.3.1a Factores para las Cargas Durante la Constr ucción 
+(3.4.2 AASHTO)  
+Ver Artículo 2.4.5.4 
+2.4.3.2 Cargas Vivas de Vehículos 
+(3.6.1.1 AASHTO) 
+2.4.3.2.1 Número de Vías 
+(3.6.1.1.1 AASHTO)  
+En general, el número de carriles de diseño se debería determinar tomando la parte entera de la relación 
+w/12.0 (w/3.60 en m.), siendo w el ancho libre de c alzada entre sardineles, cordones y/o barreras, en 
+ft; (mm). También se deberían considerar posibles c ambios futuros en las características físicas o 
+funcionales del ancho libre de calzada. 
+En aquellos casos en los cuales los carriles de circulación tienen menos de 12.0 ft (3.60 m.) de ancho, 
+el número de carriles de diseño deberá ser igual al  número de carriles de circulación, y el ancho del 
+carril de diseño se deberá tomar igual al ancho del carril de circulación. 
+Los anchos de calzada comprendidos entre 20.0 a 24. 0 ft (6.00 y 7.20 m.) deberán tener dos carriles 
+de diseño, cada uno de ellos de ancho igual a la mitad del ancho de calzada. 
+2.4.3.2.2 Diseño con Cargas Vivas de Vehículos 
+(3.6.1.2 AASHTO)  
+2.4.3.2.2.1 Generalidades  
+(3.6.1.2.1 AASHTO) 
+La carga viva designada es el HL-93, que consiste de una combinación de: 
+• Camión de diseño o tándem de diseño y, 
+• Carga distribuida de diseño.  
+Para el estado límite de fatiga sólo se considerará la carga correspondiente al camión de diseño, según 
+se indica en el Artículo 2.4.3.2.4 (3.6.1.4 AASHTO) . 
+Para el cómputo de flexiones se tomará el mayor de los resultados obtenidos con el camión de diseño 
+solo, o con la suma de la sobrecarga distribuida má s 25% del camión de diseño (3.6.1.3.2 AASHTO) .   
+2.4.3.2.2.2 Camión de Diseño 
+(3.6.1.2.2 AASHTO) 
+Las cargas por eje y los espaciamientos entre ejes serán los indicados en la Figura 2.4.3.2.2.2-1, la 
+distancia entre los dos ejes de 32.0-kips será toma da como aquella que, estando entre los límites de 
+14.0 ft  y 30.0 ft, resulta en los mayores efectos.  
+Las cargas del camión de diseño deberán incrementarse por efectos dinámicos en los casos indicados 
+en Artículo 2.4.3.3 (3.6.2 AASHTO) . 
+
+===== PDF PAGE 96 =====
+ 
+Manual de  Puentes  Página 92  
+ 
+ 
+ Figura 2.4.3.2.2.2-1.  Características del Camión de Diseño       (3.6.1.2.2-1 AASHTO)  
+2.4.3.2.2.3 Tándem de Diseño 
+(3.6.1.2.3 AASHTO)  
+El tándem de diseño consistirá en un conjunto de do s ejes, cada uno con una carga de 25.0 kip, 
+espaciados a 4.0 ft. La distancia entre las ruedas de cada eje, en dirección transversal, será de 6.0 ft. 
+Estas cargas deberán incrementarse por efectos dinámicos en los casos indicados en el Artículo 2.4.3.3 
+(3.6.2 AASHTO) . 
+2.4.3.2.2.4 Sobrecarga Distribuida (Carga del Carri l de Diseño) 
+(3.6.1.2.4 AASHTO)  
+Se considerará una sobrecarga de 0.64 klf (954 kgf/ m), uniformemente distribuida en dirección 
+longitudinal sobre aquellas porciones del puente en  las que produzca un efecto desfavorable. Se 
+supondrá que esta sobrecarga se distribuye uniforme mente sobre un ancho de 10.0 ft en dirección 
+transversal. Esta sobrecarga se aplicará también sobre aquellas zonas donde se ubique el camión o el 
+tándem de diseño. No se considerarán efectos dinámi cos para esta sobrecarga. 
+2.4.3.2.2.5 Área de Contacto de los Neumáticos 
+(3.6.1.2.5 AASHTO) 
+El área de contacto de una rueda consistente de una o dos neumáticos se asumirá como un rectángulo 
+de 20.0 in de ancho en dirección transversal del pu ente y 10.0 in en el sentido del eje longitudinal d el 
+mismo. 
+Se supondrá que los neumáticos ejercen una presión uniforme sobre el área de contacto. 
+Se supondrá que la presión de los neumáticos se distribuye de la siguiente manera: 
+• En superficies continuas, uniformemente sobre el área de contacto especificada, y 
+• En superficies discontinuas, uniformemente sobre el área de contacto real dentro de la huella, 
+aumentando la presión en función de la relación entre el área de contacto especificada y la real. 
+Para el diseño de tableros ortotrópicos y superfici es de desgaste sobre los tableros ortotrópicos, las  
+ruedas delanteras se asumirán como un simple rectángulo cuyo ancho y largo sean de 10.0 in como se 
+especifica en el Artículo 2.4.3.2.4.1 
+(3.6.1.4.1 AASHTO) . 
+
+
+===== PDF PAGE 97 =====
+ 
+Manual de  Puentes  Página 93  
+ 
+2.4.3.2.2.6 Presencia Múltiple de Sobrecargas 
+(3.6.1.1.2 AASHTO)  
+Los requisitos de este artículo no se aplicarán al estado límite de fatiga para el cual se utiliza un camión 
+de diseño, independientemente del número de carrile s de diseño. Si en lugar de emplear la ley de 
+momentos y el método estático se utilizan los factores de distribución aproximados para carril único de 
+los Artículos 2.6.4.2.2 (4.6.2.2 AASHTO)  y 2.6.4.2.3 (4.6.2.3 AASHTO) , las solicitaciones se deberán dividir 
+por 1.20. 
+A menos que en este documento se especifique lo con trario, la solicitación extrema correspondiente a 
+sobrecarga se deberá determinar considerando cada una de las posibles combinaciones de número de 
+carriles cargados, multiplicando por un factor de p resencia múltiple correspondiente para tomar en 
+cuenta la probabilidad de que los carriles estén oc upados simultáneamente por la totalidad de la 
+sobrecarga de diseño HL93. En ausencia de datos esp ecíficos del sitio, los valores de la Tabla 
+2.4.3.2.2.6-1 (3.6.1.1.2-1 AASHTO) . 
+• Se deberán utilizar al investigar el efecto de un carril cargado, 
+• Se podrán utilizar al investigar el efecto de tres  o más carriles cargados. 
+A los fines de determinar el número de carriles cua ndo la condición de carga incluye las cargas 
+peatonales especificadas en el Artículo 2.4.3.7 (3.6.1.6 AASHTO)  combinadas con uno o más carriles con 
+la sobrecarga vehicular, las cargas peatonales se pueden considerar como un carril cargado. 
+Los factores especificados en la Tabla 2.4.3.2.2.6- 1 (3.6.1.1.2-1 AASHTO)  no se deben aplicar 
+conjuntamente con los factores de distribución de c arga aproximados especificados en los Artículos 
+2.6.4.2.2 (4.6.2.2 AASHTO)  y 2.6.4.2.3 (4.6.2.3 AASHTO), excepto si se aplica la ley de momentos o si se 
+utilizan requisitos especiales para vigas exteriore s en puentes de vigas y losas, especificados en el 
+Artículo 2.6.4.2.2.2d (4.6.2.2.2d AASHTO) , son usados. 
+Tabla 2.4.3.2.2.6-1 Presencia  de Factores Múltiples, m  
+(3.6.1.1.2-1 AASHTO) 
+Número de 
+Vías Cargadas 
+Presencia de Factores 
+Múltiples, m 
+1 1.20 
+2 1.00 
+3 0.85 
+˃ 3 0.65 
+2.4.3.2.3 Aplicación de las Cargas Vivas Vehiculare s 
+(3.6.1.3 AASHTO) 
+2.4.3.2.3.1 Generalidades 
+(3.6.1.3.1 AASHTO)  
+Posición de las Cargas en Dirección Longitudinal 
+En la dirección longitudinal, el puente será cargado en forma continua o discontinua según resulte más 
+crítico para el efecto en estudio, considerando los siguientes casos: 
+• Tándem de diseño más carga distribuida. 
+• Camión de diseño más carga distribuida. La distanc ia entre los ejes de 32.0 kips, ver 
+Artículo 
+2.4.3.2.2.2 , será aquella que produzca el efecto más desfavora ble en cada caso. 
+• Tanto para momento negativo entre puntos de contra  flexión bajo una carga uniforme en todos 
+los tramos como para reacción en pilas interiores s olamente, 90 por ciento de la solicitación 
+debida a dos camiones de diseño separados como míni mo 50.0 ft entre el ultimo eje del primer 
+camión hasta el eje delantero del camión que le sig ue, combinada con 90 por ciento de la 
+
+===== PDF PAGE 98 =====
+ 
+Manual de  Puentes  Página 94  
+ 
+solicitación debida a la carga del carril de diseño  (carga distribuida). La distancia entre los ejes 
+de 32.0 kip de cada camión se deberá tomar como 14. 0 ft. Los dos camiones de diseño serán 
+colocados en tramos adyacentes para producir los má ximos esfuerzos 
+Los ejes que no contribuyen a la solicitación extrema considerada se deberán despreciar. 
+Posición de las Cargas en Dirección Transversal 
+Tanto los carriles de diseño como el ancho cargado de 10.0 ft cada carril se deberá ubicar de manera 
+que produzcan solicitaciones extremas. El camión y tandem de diseño se deberá ubicar 
+transversalmente de manera que ninguno de los centr os de las cargas de rueda esté a menos de: 
+• Para el diseño del voladizo del tablero – 1.0 ft. a partir de la cara del sardinel o de la baranda, y  
+• Para el diseño de todos los demás componentes – 2. 0 ft. a partir del borde del carril de diseño. 
+A menos que se especifique lo contrario, las longit udes de los carriles de diseño o de las partes de l os 
+carriles de diseño que contribuyen a la solicitación extrema bajo consideración, se deberán cargar con  
+la carga del carril de diseño. 
+2.4.3.2.3.2 Carga para la Evaluación Opcional de la  Deflexión por Sobrecarga 
+(3.6.1.3.2 AASHTO)  
+A menos que se disponga de otro modo, ver Artículo 2.9.1.4.4.5.1b (2.5.2.6.2 AASHTO) , la deflexión se 
+deberá tomar como el mayor valor entre: 
+• La que resulta del camión de diseño solamente, o 
+• La que resulta del 25 por ciento del camión de dis eño considerado juntamente con la carga del 
+carril de diseño. 
+2.4.3.2.3.3 Cargas de Diseño para Tableros, Sistema s de Tableros y Losas Superiores de 
+Alcantarillas Rectangulares  
+(3.6.1.3.3 AASHTO) 
+Los requisitos de este artículo no se aplicarán a l os tableros diseñados bajo los requisitos del Artíc ulo 
+2.9.1.4.6.2, Método de Diseño Empírico. 
+Si se usa el método aproximado de las fajas para an alizar tableros y losas superiores de alcantarillas  
+rectangulares, las solicitaciones se deberán determ inar en base a lo siguiente: 
+• Cuando la losa trabaja principalmente en el sentid o transversal solamente los ejes del camión de 
+diseño o el tándem de diseño serán aplicados a la l osa del tablero o a la losa superior de las 
+alcantarillas cajón. 
+• Cuando la losa trabaja principalmente en la direcc ión longitudinal. 
+o Para losas superiores de alcantarillas cajón y par a los otros casos incluyendo puentes tipo 
+losa donde el tramo no exceda, 15.0 ft., solamente las cargas del eje del camión de diseño o 
+el tándem de diseño respectivamente, serán aplicado s. 
+o Para todos los otros casos, incluyendo puentes tip o losa (excluyendo las losas superiores de 
+alcantarillas cajón) donde el tramo excede 15.0 ft.  todas las cargas especificadas en el 
+Artículo 2.4.3.2.2 
+(3.6.1.2 AASHTO)  serán aplicadas. 
+Cuando los métodos refinados son usados para analizar tableros, las solicitaciones serán determinadas 
+sobre las siguientes bases: 
+• Si las fajas principales son de dirección transver sal, solamente los ejes del camión de diseño o 
+tándem de diseño serán aplicados a la losa del tablero. 
+
+===== PDF PAGE 162 =====
+ 
+Manual de  Puentes  Página 158  
+ 
+2.6.4.2.1.1a Análisis Transversal  
+(4.6.2.9.4 AASHTO) 
+El diseño transversal a flexión de los segmentos de  una viga cajón deberá considerar el segmento 
+como un marco rígido tipo cajón. Las alas se deberá n analizar como Secciones de altura variable, 
+considerando los chaflanes o esquinas redondeadas e ntre las alas y las almas. Las cargas de rueda 
+se deberán posicionar de manera que produzcan los m áximos momentos, y se deberá utilizar un 
+análisis elástico para determinar la distribución l ongitudinal efectiva de las cargas de rueda para ca da 
+posición. Se deberá considerar el aumento del corte  del alma y otros efectos sobre la sección 
+transversal debidos a la presencia de cargas excéntricas o la falta de simetría de la estructura. 
+Para evaluar los momentos debidos a la sobrecarga más las cargas de impacto en el ala superior de la 
+sección tipo cajón se pueden utilizar los requisitos del Artículo 2.6.4.2.1 y métodos refinados de análisis 
+de superficies de influencia tales como las present adas por Homberg (1968) y Pucher (1964), u otros 
+procedimientos de análisis elástico 
+En el análisis transversal se deberá considerar el acortamiento elástico (shrinkage) y la fluencia len ta 
+(creep) transversales debidos al pretensado y la co ntracción. 
+El efecto de los momentos secundarios debidos al pr etensado se deberá incluir en el cálculo de 
+esfuerzos correspondientes al estado límite de serv icio y en la evaluación de la construcción. En el 
+estado límite de resistencia las solicitaciones secundarias inducidas por el pretensado con un factor de 
+carga igual a 1.0 se deberán sumar algebraicamente a las solicitaciones debidas a las cargas 
+permanentes y sobrecargas factorizadas y demás carg as aplicables. 
+2.6.4.2.1.2 Aplicabilidad 
+(4.6.2.1.2 AASHTO)  
+El uso de ayudas de diseño para tableros que contie nen elementos prefabricados puede ser permitido 
+en lugar de realizar algún análisis, siempre que el  comportamiento del tablero está documentado y 
+avalado por suficiente evidencia técnica. El ingeni ero será responsable de la exactitud e 
+implementación de cualquier ayuda de diseño que use . 
+Para puentes losa y losas de concreto de más de 15. 0 ft (4.60 m.) de longitud que se extiendan 
+fundamentalmente en la dirección paralela al tráfic o, se deberán aplicar los requisitos del Artículo 
+2.6.4.2.3  (4.6.2.3 AASHTO) .  
+2.6.4.2.1.3 Ancho Equivalente de Franjas Interiores  
+(4.6.2.1.3 AASHTO)  
+El ancho de franja equivalente de un tablero puede ser tomado como se especifica en la Tabla 
+2.6.4.2.1.3-1 (4.6.2.1.3-1 AASHTO) . Si la dirección principal del tablero es paralela al tráfico, las franjas que 
+soportan una carga de eje no serán más grande que 4 0.0 in para emparrillados abiertos y para los 
+demás tableros no será más de 144 in donde múltiple s carriles cargados están siendo investigados.  
+Para los voladizos de tableros, cuando sea aplicabl e, se pueden utilizar, en lugar del ancho de franja  
+especificado en la Tabla 2.6.4.2.1.3-1,los requisit os del Artículo 2.4.3.2.3.4  (3.6.1.3.4 AASHTO),  que 
+especifica lo siguiente: Para el diseño del voladiz o de tablero, si la distancia entre el eje de la vi ga 
+exterior y la cara de una baranda de concreto estructuralmente continua es menor o igual que 6.0 ft, la 
+fila exterior de cargas de rueda se puede remplazar  por una carga lineal uniformemente distribuida de 
+1.0 k/f (14.6N/mm = 1500kg/m) ubicada a 1.0 ft de la cara de la baranda. 
+ Las franjas equivalentes para tableros cuya direcc ión principal es perpendicular al tráfico no están 
+sujetas a límites de ancho. La siguiente notación es aplicada en la tabla 1: 
+S = espaciamiento de elementos de apoyo (ft).   
+h = espesor del tablero (in). 
+
+===== PDF PAGE 163 =====
+ 
+Manual de  Puentes  Página 159  
+ 
+L = longitud del tramo del tablero (ft). 
+P = carga por eje (kip). 
+]
+¢ = espaciamiento de las barras de emparrillado (in) . 
++M = momento positivo.  
+-M = momento negativo. 
+X = distancia desde la aplicación de la carga al pu nto de apoyo (ft). 
+Tabla 2.6.4.2.1.3-1 Franjas Equivalentes  
+(4.6.2.1.3-1 AASHTO) 
+Tipo de Tablero 
+Dirección de franja 
+principal relativa a la 
+dirección de tráfico 
+Ancho de franjas 
+principales (in) 
+Ancho de franjas 
+principales (mm) 
+Concreto: 
+• Colocado en el lugar 
+Cantilever 
+Paralelo o 
+Perpendicular 
+45.0+10.0X 
++M: 26.0 + 6.6S 
+-M: 48.0 + 3.0S 
+1140 + 0.833 X 
++M: 660 + 0.55S 
+-M: 1220 + 0.25S 
+• Colocado en el lugar 
+con encofrados perdidos  
+Paralelo o 
+Perpendicular 
++M: 26.0 + 6.6S 
+-M: 48.0 + 3.0S 
++M: 660 + 0.55S 
+-M: 1220 + 0.25S 
+• Prefabricado, 
+postensado. 
+Paralelo o 
+Perpendicular 
++M: 26.0 + 6.6S 
+-M: 48.0 + 3.0S 
++M: 660 + 0.55S 
+-M: 1220 + 0.25S 
+Acero: 
+• Emparrillado abierto 
+ 
+Barras principales 
+ 
+1.25P+4.0 
+]¢ 
+ 
+0.007P+ 4.0 ]¢ 
+• Emparrillado lleno o 
+parcialmente lleno 
+Barras principales Aplicar (Art. 
+2.6.4.2.1.8) 
+Aplicar (Art. 
+2.6.4.2.1.8) 
+• Emparrillado 
+compuesto, no lleno 
+Barras principales Aplicar (Art. 
+2.6.4.2.1.8) 
+Aplicar (Art. 
+2.6.4.2.1.8) 
+Madera :    
+• Prefabricado colado    
+- No interconectado Paralelo 
+Perpendicular 
+2.0h+30.0 
+2.0h+40.0 
+2.0h + 760 
+2.0h + 1020 
+- Interconectado Paralelo 
+Perpendicular 
+90.0+0.84L 
+4.0h+30.0 
+2280 + 0.07L 
+4.0h + 760 
+• Laminada y tesada Paralelo  
+Perpendicular 
+0.8S +108.0 
+10.0S+24.0 
+0.066S + 2740 
+0.84S + 610 
+• Laminada y clavada    
+- Tableros continuos 
+o paneles 
+interconectados. 
+Paralelo  
+Perpendicular 
+2.0h+30.0 
+4.0h+40.0 
+2.0h + 760 
+4.0h + 1020 
+- Paneles no 
+interconectados. 
+Paralelo  
+Perpendicular 
+2.0h+30.0 
+2.0h+40.0 
+2.0h + 760 
+2.0h + 1020 
+Los tableros de tablones de madera se deberán diseñ ar para la carga de rueda del camión de diseño 
+distribuida en la totalidad del área de contacto de  los neumáticos. Para los tablones transversales, e s 
+decir para los tablones perpendiculares a la dirección del tráfico: 
+• Si i ≥ 10.0 in, se deberá asumir que la totalidad del ancho del tablón soporta la carga de rueda. 
+• Si i< 10.0 in, la porción de la carga de rueda soportad a por un tablón se deberá determinar 
+como la relación entre i y 10.0 in. 
+Para los tablones longitudinales: 
+• Si i≥ 20.0 in, se deberá asumir que la totalidad del ancho del tablón soporta la carga de rueda. 
+• Si i< 20.0 in, la porción de la carga de rueda soportad a por un tablón se deberá determinar 
+como la relación entre i y 20.0 in. 
+Donde: 
+i  = ancho del tablón in. 
+
+===== PDF PAGE 164 =====
+ 
+Manual de  Puentes  Página 160  
+ 
+2.6.4.2.1.4 Ancho de las Franjas Equivalentes en lo s Bordes de las Losas  
+(4.6.2.1.4 AASHTO)  
+2.6.4.2.1.4a Requisitos Generales  
+(4.6.2.1.4a AASHTO)  
+Para los fines del diseño, la viga de borde ideal s e deberá tomar como una franja de tablero de ancho 
+reducido aquí especificada, más cualquier aumento d e altura localizado o protuberancia similar que 
+actúe como rigidizador del tablero. Se asumirá que las vigas de borde soportan una línea de ruedas y, 
+cuando corresponda, una porción tributaria de la carga de carril de diseño. 
+2.6.4.2.1.4b Bordes Longitudinales 
+(4.6.2.1.4b AASHTO)  
+Se asumirá que las vigas de borde soportan una líne a de ruedas, y donde sea apropiado, una porción 
+tributaria de la carga viva distribuida.  
+Donde el tablero se extiende fundamentalmente en la  dirección del tráfico, el ancho efectivo de una 
+franja, con o sin viga de borde, se puede tomar com o la sumatoria de la distancia entre el borde del 
+tablero y la cara interna de la barrera, más 12.0 i n, más ¼ del ancho de franja especificada en los 
+Artículos 2.6.4.2.1.3 
+(4.6.2.1.3 AASHTO)  o 2.6.4.2.3 (4.6.2.3 AASHTO) , según corresponda, pero no excederá 
+la mitad del ancho total de la franja o 72.0 in. 
+2.6.4.2.1.4c Bordes Transversales 
+(4.6.2.1.4c AASHTO) 
+La viga transversal de borde se asume que soporta un eje del camión de diseño, en uno o más carriles 
+de diseño, ubicados para producir las máximas solic itaciones. Se deberá aplicar los factores de 
+presencia múltiple y de amplificación dinámica. 
+El ancho efectivo de una franja, con o sin viga de borde, se puede tomar como la sumatoria de la 
+distancia entre el borde transversal del tablero y el eje de la primera línea de apoyo del tablero, 
+generalmente tomada como el alma de una viga, más l a mitad del ancho de franja especificado en el 
+Artículo 2.6.4.2.1.3 
+(4.6.2.1.3 AASHTO) . El ancho efectivo no deberá ser mayor que el ancho de franja total 
+especificado en el Artículo 2.6.4.2.1.3 (4.6.2.1.3 AASHTO). 
+2.6.4.2.1.5 Distribución de las Cargas de Rueda 
+(4.6.2.1.5 AASHTO)  
+Si la separación de los componentes de apoyo en la dirección secundaria es mayor que 1,5 veces la 
+separación en la dirección principal, se deberá con siderar que todas las cargas de rueda están 
+aplicadas en la franja principal, y en la dirección secundaria se pueden aplicar los requisitos del Artículo 
+2.9.1.4.6.3.2 (9.7.3.2. AASHTO) . 
+Si la separación de los componentes de apoyo en la dirección secundaria es menor que 1,5 veces la 
+separación en la dirección primaria, el tablero se deberá modelar como un sistema de franjas que se 
+intersecan. 
+El ancho de las franjas equivalentes en ambas direc ciones se puede tomar como se especifica en la 
+Tabla 2.6.4.2.1.3-1 
+(4.6.2.1.3-1. AASHTO).  
+Cada carga de rueda se deberá distribuir entre dos fajas que se intersecan. La distribución se deberá 
+determinar como la relación entre la rigidez de la faja y la sumatoria de las rigideces de las franjas que 
+se intersecan. En ausencia de cálculos más precisos, la rigidez de la franja, nK, se puede estimar como: 
+nK = $ g
+]Q  
+ 
+
+===== PDF PAGE 364 =====
+ 
+Manual de  Puentes  Página 360  
+ 
+altura de la losa y hay una barrera de concreto est ructuralmente continua actuando de forma 
+compuesta con el voladizo; 
+• La resistencia a la compresión especificada a 28 d ías del concreto del tablero es mayor o igual 
+que 4.0 ksi (28.0 MPa); y 
+• El tablero trabaja de forma compuesta con los comp onentes estructurales sobre los cuales se 
+apoya. 
+Para los propósitos del presente artículo, en la re gión de momento negativo de las superestructuras 
+continuas de acero se deberán proveer como mínimo dos conectores de corte con una separación entre 
+centros de 24.0 in (600 mm).También se deberán sati sfacer los requisitos de las secciones metálicas 
+compuestas. En el caso de las vigas de concreto, el  uso de estribos que se extiendan hacia el interior  
+del tablero se considerará suficiente para satisfacer este requisito. 
+2.9.1.4.6.2.5 Requerimientos de Reforzamiento 
+(9.7.2.5 AASHTO) 
+En las losas diseñadas empíricamente se deberán dis poner cuatro capas de armadura isótropa. Se 
+deberá ubicar armadura tan próxima a las superficie s exteriores como lo permitan los requisitos de 
+recubrimiento. Se deberá proveer armadura en cada c ara de la losa, con las capas más externas 
+ubicadas en la dirección de la longitud efectiva. L a mínima cantidad de armadura será de 0.27 in 2/ft 
+(0.570 mm 2/mm) de acero para cada capa inferior y de 0.18 in 2/ft (0.380 mm 2/mm) de acero para cada 
+capa superior. La separación del acero deberá ser menor o igual que 18.0 in (450 mm). Las armaduras 
+deberán ser de acero 60 (Grado 420) o superior. Tod a la armadura deberá consistir en barras rectas, 
+excepto que se podrán proveer ganchos donde sean re queridos. 
+Estará permitido utilizar tanto empalmes solapados como empalmes mecánicos. Los empalmes 
+mecánicos deberán ser ensayados y aprobados para ve rificar que satisfagan los límites de 
+resbalamiento del Artículo 2.6.5.6.4.2.2 (5.11.5.2.2 AASHTO)  Conexiones Mecánicas, y los requisitos de 
+fatiga del Artículo 2.7.1.1.3.4 (5.5.3.4 AASHTO)  Empalmes Mecánicos o Soldados en las Armaduras. No 
+estará permitido utilizar acoples tipo cuña cubierta en armaduras revestidas. 
+Si el ángulo de oblicuidad es mayor que 25º, la armadura especificada en ambas direcciones se deberá 
+duplicar en las zonas de los extremos del tablero. Cada zona de un extremo se deberá considerar como 
+una distancia longitudinal igual a la longitud efec tiva de la losa especificada en el Artículo 2.9.1.6 .5.3 
+(9.7.2.3 AASHTO)  
+2.9.1.4.6.2.6 Tableros con Encofrados Perdidos 
+(9.7.2.6 AASHTO) 
+Para los tableros fabricados con encofrados de meta l corrugado se deberá asumir que la profundidad 
+de diseño de la losa es igual a la mínima profundid ad de concreto. 
+No estará permitido utilizar encofrados perdidos de  concreto si se utiliza el método de diseño empíric o 
+para losas de concreto. 
+2.9.1.4.6.3 Diseño Tradicional 
+(9.7.3 AASHTO) 
+2.9.1.4.6.3.1 Generalidades 
+(9.7.3.1 AASHTO) 
+Los requisitos del presente artículo se deberán aplicar a las losas de concreto que tienen cuatro capas 
+de armadura, dos en cada dirección, y que satisface n el Artículo 2.9.1.6.4.2  (9.7.1.1 AASHTO) 
+2.9.1.4.6.3.2 Armadura de Distribución 
+(9.7.3.2 AASHTO) 
+En la parte inferior de las losas se deberá disponer armadura en la dirección secundaria; esta armadura 
+se deberá calcular como un porcentaje de la armadur a principal para momento positivo: 
+
+===== PDF PAGE 365 =====
+ 
+Manual de  Puentes  Página 361  
+ 
+• Si la armadura principal es paralela al tráfico: 
+100 √] ≤ 50 por  c i ento .⁄   
+• Si la armadura principal es perpendicular al tráfi co: 
+• 220 √S  ≤ 67 por  c i ento ⁄ .  
+Donde: 
+] = longitud de tramo efectiva considerada igual a l a longitud efectiva especificada en el 
+Artículo 2.9.1.6.5.3  (9.7.2.3 AASHTO)  ft, (mm) 
+2.9.1.4.6.4 Diseño de Superestructuras Tipo Losa 
+(5.14.4 AASHTO) 
+2.9.1.4.6.4.1 Generalidades  
+Generalmente el método de diseño de puentes tipo lo sa es muy similar al de puentes de vigas con 
+aplicaciones que se hacen notar a continuación  
+2.9.1.4.6.4.2 Comprobación del Peralte Mínimo Recom endado 
+Ver el Artículo 2.9.1.4.4.5.3 de este Manual; (2.5.2.6.3 AASHTO)  
+2.9.1.4.6.4.3 Determinación del Ancho de Franja par a la Carga Viva 
+Ver el Artículo 2.6.4.2.3 de este Manual; (4.6.2.3 AASHTO). 
+2.9.1.4.6.4.4 Aplicabilidad de la Carga Viva a los Tableros y Sistemas de Tablero  
+Ver Artículo 2.4.3.2.3.3 de este Manual; (3.6.1.3.3 AASHTO)  
+2.9.1.4.6.4.5 Diseño de Vigas de Borde 
+Ver Artículo 2.9.1.4.6.1.4 de este Manual; (9.7.1.4 AASHTO) 
+2.9.1.4.6.4.6 Superestructuras de Losas Macizas Col adas In Situ 
+(5.14.4.1 AASHTO) 
+Las losas coladas in situ armadas longitudinalmente pueden tener armadura convencional o armadura 
+pretensada, y se pueden utilizar como puentes tipo losa o como losa superior de una alcantarilla. 
+La distribución de la sobrecarga se puede determina r mediante un análisis bidimensional o bien como 
+se especifica en el Artículo 2.6.4.2.3 (4.6.2.3 AASHO) . 
+Las losas y los puentes de losa diseñados para momento de acuerdo con el Artículo 2.6.4.2.3 se pueden 
+considerar satisfactorios desde el punto de vista del corte. 
+Se deberán proveer vigas de borde como se especific a Artículo 9.1.4.6.1.4 (9.7.1.4 AASHTO). 
+Se deberá colocar armadura transversal de distribuc ión en la parte inferior de todas las losas, except o 
+en las losas superiores de alcantarillas o losas de puente, si la altura del relleno sobre la losa es mayor 
+que 2.0 ft (600mm). La cantidad de armadura transve rsal inferior se puede determinar mediante un 
+análisis bidimensional, o bien la cantidad de armad ura de distribución se puede tomar como el 
+porcentaje de la armadura principal requerida para momento positivo de la siguiente manera: 
+• Para construcciones de concreto armadas longitudin almente: 
+100 
+√F
+≤ 50%  2.9.1.4.6.4.6-1  (5.14.4.1-1 AASHTO) 
+
+===== PDF PAGE 366 =====
+ 
+Manual de  Puentes  Página 362  
+ 
+• Para construcciones pretensadas longitudinalmente:  
+100 
+√F
+ i3 
+60 ≤50%  2.9.1.4.6.4.6-2   (5.14.4.1-2 AASHTO)  
+Donde: 
+F = longitud de tramo (ft). 
+ 
+i3  = tensión efectiva en el acero de pretensado despu és de las pérdidas (ksi). 
+La armadura transversal de contracción y temperatur a en la parte superior de las losas deberá 
+satisfacer los requisitos del Artículo 2.9.1.5.0.8 (5.10.8. AASHTO)  
+2.9.1.4.6.4.7 Superestructuras de Losas Aligeradas (Huecas) Coladas In Situ 
+(5.14.4.2 AASHTO) 
+2.9.1.4.6.4.7.1 Dimensiones de la Sección Transvers al 
+(5.14.4.2.1 AASHTO) 
+Las superestructuras de losas aligeradas coladas in  situ se pueden postensar tanto longitudinal como 
+transversalmente. Para el caso de vacíos circulares , la separación entre los centros de los vacíos no 
+debería ser menor que la altura total de la losa, y  el mínimo espesor del concreto tomado en el eje de l 
+vacío perpendicular a la superficie exterior no deberá ser menor que 5.5 in (140 mm). 
+Para el caso de vacíos rectangulares, el ancho tran sversal del vacío no debería ser mayor que 1.5 
+veces la altura del vacío, el espesor del alma entr e los vacíos no debería ser menor que 20 por ciento  
+de la altura total del tablero, y el mínimo espesor  del concreto sobre los vacíos no deberá ser menor 
+que 7.0 in. (175 mm). 
+La altura del ala inferior deberá satisfacer los requisitos especificados en el Artículo 2.9.1.4.1b 
+(5.14.1.5.1b 
+AASHTO) . 
+Si los vacíos satisfacen estos requisitos dimension ales y si la relación de vacíos determinada en base  
+al área de la sección transversal no es mayor que 4 0 por ciento, la superestructura se puede analizar 
+como si fuera una losa, usando ya sea los requisito s del Artículo 2.6.4.2.3 (4.6.2.3 AASHTO)  o bien un 
+análisis bidimensional para placas isótropas. 
+Si la relación de vacíos es mayor que 40 por ciento , la superestructura se deberá tratar como una 
+construcción celular y se deberá analizar como: 
+• Un cajón monolítico de múltiples celdas, como se e specifica en el Artículo 2.6.4.2.2.1 en la Tabla 
+2.6.4.2.2.1-1 Tipo d, 
+(4.6.2.2.1-1 AASHTO),   
+• Una placa ortótropa, o 
+• Un continuo tridimensional. 
+2.9.1.4.6.4.7.2 Número Mínimo de Apoyos 
+(5.14.4.2.2 AASHTO) 
+Las columnas se pueden enmarcar en la superestructura, o bien se pueden utilizar apoyos simples para 
+los apoyos internos de las estructuras continuas. En los extremos se deberán utilizar como mínimo dos 
+apoyos. 
+La rotación transversal de la superestructura no de berá ser mayor que 0.5 por ciento en los estados 
+límites de servicio. 
+2.9.1.4.6.4.7.3 Secciones Macizas en los Extremos 
+(5.14.4.2.3 AASHTO) 
+En cada uno de los extremos de un tramo se deberá p roveer una sección maciza de al menos 3.0 ft 
+(900 mm) de longitud, pero esta longitud no debe se r menor que 5 por ciento de la longitud del tramo. 

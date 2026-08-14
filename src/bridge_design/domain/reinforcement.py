@@ -1,0 +1,319 @@
+"""Reinforcement design for transverse concrete bridge slabs."""
+
+from dataclasses import dataclass
+
+from bridge_design.codes.mtc_2018 import (
+    DEFAULT_FLEXURAL_RESISTANCE_FACTOR,
+    DEFAULT_SHRINKAGE_TEMPERATURE_RATIO,
+    DISTRIBUTION_REINFORCEMENT_REFERENCE,
+    FLEXURAL_STRENGTH_REFERENCE,
+    TEMPERATURE_REINFORCEMENT_REFERENCE,
+    mtc_distribution_reinforcement_percent_for_transverse_primary,
+)
+from bridge_design.domain.load_combinations import (
+    CombinedMomentResult,
+    combine_transverse_slab_moments,
+)
+from bridge_design.domain.materials import MaterialProperties
+from bridge_design.domain.rebar_catalog import (
+    DEFAULT_MAX_SPACING_M,
+    DEFAULT_MIN_SPACING_M,
+    DEFAULT_SPACING_STEP_M,
+    ReinforcementCaseOptions,
+    SpacingGrid,
+    generate_spacing_options,
+)
+from bridge_design.domain.transverse_slab import (
+    TransverseSlabAnalysisResult,
+    TransverseSlabGeometry,
+)
+from bridge_design.validation.input_validators import require_non_negative, require_positive
+
+@dataclass(frozen=True)
+class SlabReinforcementParameters:
+    """Detailing assumptions used by the slab reinforcement design."""
+
+    concrete_cover_cm: float = 5.0
+    main_bar_diameter_cm: float = 1.59
+    flexural_resistance_factor: float = DEFAULT_FLEXURAL_RESISTANCE_FACTOR
+    shrinkage_temperature_ratio: float = DEFAULT_SHRINKAGE_TEMPERATURE_RATIO
+    spacing_step_m: float = DEFAULT_SPACING_STEP_M
+    minimum_spacing_m: float = DEFAULT_MIN_SPACING_M
+    maximum_spacing_m: float = DEFAULT_MAX_SPACING_M
+
+    def __post_init__(self) -> None:
+        require_non_negative(self.concrete_cover_cm, "recubrimiento")
+        require_positive(self.main_bar_diameter_cm, "diametro de barra principal")
+        require_positive(self.flexural_resistance_factor, "phi flexion")
+        if self.flexural_resistance_factor > 1.0:
+            raise ValueError("phi flexion no debe exceder 1.0.")
+        require_positive(self.shrinkage_temperature_ratio, "rho temperatura")
+        require_positive(self.spacing_step_m, "paso de espaciamiento")
+        require_positive(self.minimum_spacing_m, "espaciamiento minimo")
+        require_positive(self.maximum_spacing_m, "espaciamiento maximo")
+        if self.maximum_spacing_m < self.minimum_spacing_m:
+            raise ValueError("El espaciamiento maximo debe ser mayor o igual al minimo.")
+
+
+@dataclass(frozen=True)
+class FlexuralSteelDesign:
+    """Positive or negative flexural reinforcement result."""
+
+    label: str
+    direction: str
+    controlling_combination_name: str
+    position_m: float
+    design_moment_tn_m: float
+    effective_depth_cm: float
+    strength_area_cm2_m: float
+    minimum_area_cm2_m: float
+    required_area_cm2_m: float
+    spacing_options: ReinforcementCaseOptions | None = None
+    reference: str = FLEXURAL_STRENGTH_REFERENCE
+
+
+@dataclass(frozen=True)
+class TemperatureSteelDesign:
+    """Shrinkage and temperature reinforcement result."""
+
+    ratio: float
+    gross_area_cm2_m: float
+    required_area_cm2_m: float
+    spacing_options: ReinforcementCaseOptions | None = None
+    reference: str = TEMPERATURE_REINFORCEMENT_REFERENCE
+
+
+@dataclass(frozen=True)
+class DistributionSteelDesign:
+    """Longitudinal distribution reinforcement result."""
+
+    effective_span_m: float
+    percent_of_positive_steel: float
+    positive_main_area_cm2_m: float
+    required_area_cm2_m: float
+    spacing_options: ReinforcementCaseOptions | None = None
+    reference: str = DISTRIBUTION_REINFORCEMENT_REFERENCE
+
+
+@dataclass(frozen=True)
+class TransverseSlabReinforcementDesign:
+    """Grouped reinforcement design requested for the transverse slab."""
+
+    negative: FlexuralSteelDesign
+    positive: FlexuralSteelDesign
+    temperature: TemperatureSteelDesign
+    distribution: DistributionSteelDesign
+    parameters: SlabReinforcementParameters
+
+
+def design_transverse_slab_reinforcement(
+    geometry: TransverseSlabGeometry,
+    materials: MaterialProperties,
+    analysis: TransverseSlabAnalysisResult,
+    parameters: SlabReinforcementParameters | None = None,
+) -> TransverseSlabReinforcementDesign:
+    """Return negative, positive, temperature and distribution steel for the slab."""
+    params = parameters or SlabReinforcementParameters()
+    effective_depth_cm = _effective_depth_cm(geometry, params)
+    strip_width_cm = geometry.strip_length_m * 100.0
+    slab_height_cm = geometry.slab_thickness_m * 100.0
+    minimum_area = _minimum_temperature_area_cm2_m(
+        strip_width_cm=strip_width_cm,
+        slab_height_cm=slab_height_cm,
+        strip_length_m=geometry.strip_length_m,
+        ratio=params.shrinkage_temperature_ratio,
+    )
+    spacing_grid = _spacing_grid(params)
+    strength_rows = tuple(
+        row
+        for row in combine_transverse_slab_moments(analysis)
+        if row.limit_state == "Resistencia"
+    )
+
+    positive = _design_flexural_steel(
+        label="Acero positivo",
+        direction="M+",
+        row=max(
+            (row for row in strength_rows if row.direction == "M+"),
+            key=lambda item: item.combined_moment_tn_m,
+        ),
+        strip_width_cm=strip_width_cm,
+        strip_length_m=geometry.strip_length_m,
+        effective_depth_cm=effective_depth_cm,
+        minimum_area_cm2_m=minimum_area,
+        materials=materials,
+        phi=params.flexural_resistance_factor,
+        params=params,
+    )
+    negative = _design_flexural_steel(
+        label="Acero negativo",
+        direction="M-",
+        row=min(
+            (row for row in strength_rows if row.direction == "M-"),
+            key=lambda item: item.combined_moment_tn_m,
+        ),
+        strip_width_cm=strip_width_cm,
+        strip_length_m=geometry.strip_length_m,
+        effective_depth_cm=effective_depth_cm,
+        minimum_area_cm2_m=minimum_area,
+        materials=materials,
+        phi=params.flexural_resistance_factor,
+        params=params,
+    )
+    temperature = TemperatureSteelDesign(
+        ratio=params.shrinkage_temperature_ratio,
+        gross_area_cm2_m=strip_width_cm * slab_height_cm / geometry.strip_length_m,
+        required_area_cm2_m=minimum_area,
+        spacing_options=generate_spacing_options(
+            "Acero temperatura",
+            minimum_area,
+            spacing_grid,
+        ),
+    )
+    distribution = _design_distribution_steel(geometry, positive, spacing_grid)
+    return TransverseSlabReinforcementDesign(
+        negative=negative,
+        positive=positive,
+        temperature=temperature,
+        distribution=distribution,
+        parameters=params,
+    )
+
+
+def flexural_steel_area_cm2(
+    design_moment_tn_m: float,
+    strip_width_cm: float,
+    effective_depth_cm: float,
+    concrete_strength_kg_cm2: float,
+    steel_yield_kg_cm2: float,
+    phi: float = DEFAULT_FLEXURAL_RESISTANCE_FACTOR,
+) -> float:
+    """Return required singly reinforced rectangular steel area.
+
+    Units:
+        design_moment_tn_m: factored moment in Tn*m.
+        strip_width_cm, effective_depth_cm: section dimensions in cm.
+        concrete_strength_kg_cm2, steel_yield_kg_cm2: material strengths.
+        return: As in cm2 for the analyzed strip width.
+
+    Reference:
+        Manual de Puentes MTC 2018, Seccion 2.9.4.2 (5.7.3 AASHTO):
+        phi*Mn >= Mu, with Mn = As*fy*(d - a/2).
+    """
+    require_non_negative(design_moment_tn_m, "Mu")
+    require_positive(strip_width_cm, "b")
+    require_positive(effective_depth_cm, "d")
+    require_positive(concrete_strength_kg_cm2, "f'c")
+    require_positive(steel_yield_kg_cm2, "fy")
+    require_positive(phi, "phi")
+    if phi > 1.0:
+        raise ValueError("phi no debe exceder 1.0.")
+    if design_moment_tn_m == 0.0:
+        return 0.0
+
+    mu_kg_cm = design_moment_tn_m * 100000.0
+    quadratic_a = steel_yield_kg_cm2**2.0 / (
+        2.0 * 0.85 * concrete_strength_kg_cm2 * strip_width_cm
+    )
+    quadratic_b = steel_yield_kg_cm2 * effective_depth_cm
+    discriminant = quadratic_b**2.0 - 4.0 * quadratic_a * mu_kg_cm / phi
+    if discriminant < 0.0:
+        raise ValueError(
+            "El momento ultimo excede la capacidad de una seccion rectangular "
+            "simplemente reforzada con la profundidad efectiva disponible."
+        )
+    return (quadratic_b - discriminant**0.5) / (2.0 * quadratic_a)
+
+
+def _design_flexural_steel(
+    label: str,
+    direction: str,
+    row: CombinedMomentResult,
+    strip_width_cm: float,
+    strip_length_m: float,
+    effective_depth_cm: float,
+    minimum_area_cm2_m: float,
+    materials: MaterialProperties,
+    phi: float,
+    params: SlabReinforcementParameters,
+) -> FlexuralSteelDesign:
+    strength_area = flexural_steel_area_cm2(
+        design_moment_tn_m=abs(row.combined_moment_tn_m),
+        strip_width_cm=strip_width_cm,
+        effective_depth_cm=effective_depth_cm,
+        concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+        steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+        phi=phi,
+    ) / strip_length_m
+    return FlexuralSteelDesign(
+        label=label,
+        direction=direction,
+        controlling_combination_name=row.combination_name,
+        position_m=row.position_m,
+        design_moment_tn_m=abs(row.combined_moment_tn_m),
+        effective_depth_cm=effective_depth_cm,
+        strength_area_cm2_m=strength_area,
+        minimum_area_cm2_m=minimum_area_cm2_m,
+        required_area_cm2_m=max(strength_area, minimum_area_cm2_m),
+        spacing_options=generate_spacing_options(
+            label,
+            max(strength_area, minimum_area_cm2_m),
+            _spacing_grid(params),
+        ),
+    )
+
+
+def _design_distribution_steel(
+    geometry: TransverseSlabGeometry,
+    positive: FlexuralSteelDesign,
+    spacing_grid: SpacingGrid,
+) -> DistributionSteelDesign:
+    percent = mtc_distribution_reinforcement_percent_for_transverse_primary(
+        geometry.girder_spacing_m
+    )
+    required_area = positive.required_area_cm2_m * percent / 100.0
+    return DistributionSteelDesign(
+        effective_span_m=geometry.girder_spacing_m,
+        percent_of_positive_steel=percent,
+        positive_main_area_cm2_m=positive.required_area_cm2_m,
+        required_area_cm2_m=required_area,
+        spacing_options=generate_spacing_options(
+            "Acero distribucion",
+            required_area,
+            spacing_grid,
+        ),
+    )
+
+
+def _spacing_grid(parameters: SlabReinforcementParameters) -> SpacingGrid:
+    return SpacingGrid(
+        step_m=parameters.spacing_step_m,
+        minimum_m=parameters.minimum_spacing_m,
+        maximum_m=parameters.maximum_spacing_m,
+    )
+
+
+def _effective_depth_cm(
+    geometry: TransverseSlabGeometry,
+    parameters: SlabReinforcementParameters,
+) -> float:
+    depth = (
+        geometry.slab_thickness_m * 100.0
+        - parameters.concrete_cover_cm
+        - parameters.main_bar_diameter_cm / 2.0
+    )
+    require_positive(depth, "peralte efectivo")
+    return depth
+
+
+def _minimum_temperature_area_cm2_m(
+    strip_width_cm: float,
+    slab_height_cm: float,
+    strip_length_m: float,
+    ratio: float,
+) -> float:
+    require_positive(strip_width_cm, "b")
+    require_positive(slab_height_cm, "h")
+    require_positive(strip_length_m, "ancho longitudinal de analisis")
+    require_positive(ratio, "rho temperatura")
+    return ratio * strip_width_cm * slab_height_cm / strip_length_m

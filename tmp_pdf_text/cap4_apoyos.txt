@@ -1,0 +1,1137 @@
+
+===== PAGE 223 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+223 
+SOLICITACIONES EN DISPOSITIVOS DE APOYOS
+Apoyo semicubierto Apoyo recubierto
+CAPÍTULO 4:  DISPOSITIVOS DE APOYO 
+ 
+4.1 DEFINICIÓN 
+Son dispositivos ubicados entre la superestructura y la infraestructura de un puente 
+cuya función es transmitir cargas y posibilitar desplazamientos y rotaciones.  
+Las cargas incluyen el peso propio de la supe restructura, cargas vehiculares, de 
+viento, sismo, frenado, fuerza centrífuga, entre otras. Los desplazamientos 
+transversales y longitudinales, y las rotaciones, resultan de la acción de estas cargas 
+así como de variaciones de temperatura, flujo plástico, retracción, fatiga, etc.  
+ 
+ 
+ 
+ 
+ 
+Fig. 4.1 Solicitaciones en dispositivos de apoyo 
+ 
+ 
+4.2  TIPOS DE DISPOSITIVOS 
+Pueden ser clasificados como fijos y de expansión. Los fijos permiten rotaciones 
+pero restringen los movimientos translacionales. Los de expansión  permiten 
+movimientos translacionales y rotaciones. 
+ 
+4.3  APOYOS DE ELASTÓMERO 
+Utilizan caucho natural o sintético (neopreno) que posibilita translaciones y 
+rotaciones, sustituyendo los complicados dispositivos tradicionales de rótulas y 
+péndulos de concreto armado o metálicos. 
+Son flexibles en cortante pero a la vez muy rígidos para los cambios volumétricos; 
+en compresión, se expanden lateralmente.  
+En puentes de tramos medio a corto, donde las cargas son bajas, es posible utilizar 
+elastómeros simples. Par a cargas sustanciales es posible reforzar el elastómero con 
+acero (zunchos) o fibra de vidrio. 
+Los dispositivos de elastómero zunchados están conformados por capas de 
+neopreno y láminas de acero alternadas adheridas al caucho por vulcanización. 
+ 
+Dispositivos de elastómero semicubiertos y recubiertos  
+Los dispositivos de apoyo de elastómero zunchado poseen capas externas de 
+elastómero cuyo espesor generalmente es la mitad del espesor de las capas internas. 
+Pueden ser: 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(a )           (b) 
+ 
+                    Fig. 4.2  (a) Apoyo semirecubierto y (b) Apoyo recubierto 
+ 
+
+===== PAGE 224 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+224 
+5
+10
+10
+10
+5
+40 mm de 
+elastómero
+4 zunchos de 3 mm
+400 mm
+400 mm
+a)  Semi-recubiertos  
+ 
+Se realizan por cortes de placas madres de grandes dimensiones. Los cantos de 
+los zunchos son aparentes en las caras laterales y están protegidos contra la corrosión 
+con la ayuda de un revestimiento especial a base de resinas epóxicas.  
+Se designan por sus dimensiones en planta (mm) seguidas por el número de láminas 
+de elastómero y zunchos metálicos así como su espesor respectivo (mm). 
+ 
+Ej: Neopreno 400x400x4(10+3) 
+ 
+- Mide en planta 400 mm por 400 mm 
+- Contiene 3 capas de elastómero de 10 mm de espesor y 2 semielásticas externas 
+de 5 mm. El espesor total de elastómero es 40 mm. 
+- Contiene 4 zunchos metálicos de 3 mm. El espesor total del dispositivo es 52 mm. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Fig. 4.3  Distribución del elastómero y las planchas de acero en el dispositivo 
+ 
+b)   Recubiertos 
+ 
+Se realizan por moldeado individual. Los cantos no aparentes de los zunchos están 
+protegidos contra la corrosión por una capa de elastómero de 5 mm de es pesor 
+medio, vulcanizado en la fabricación.  
+Se designan por sus dimensiones en planta (mm) seguidas por el espesor total 
+(mm). La denominación de un apoyo recubierto de la misma constitución y dimensiones 
+en planta que el ejemplo anterior, es 400x400x52. 
+ 
+Espesores de placas de elastómero y de zunchos (acero dulce) usuales: 
+ 
+telastóm (mm) tzuncho (mm) 
+8 2 
+10 3 
+12 3 
+15 4 
+ 
+Se brinda a continuación datos técnicos de dispositivos de apoyo standard 
+Freyssinet semirecubiertos: 
+ 
+ 
+ 
+ 
+ 
+ 
+
+===== PAGE 225 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+225 
+Tablas 4.1  Dispositivos de apoyo estándar Freyssinet semirecubiertos y recubiertos 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+===== PAGE 226 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+226 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+===== PAGE 227 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+227 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+===== PAGE 228 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+228 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+===== PAGE 229 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+229 
+4.4.  ESPECIFICACIONES AASHTO LRFD 
+De los métodos A y B propuestos por las Especificaciones, el Método A brinda 
+por limitaciones de esfuerzo, apoyos de menor capacidad que los diseñados con el 
+Método B. Sin embargo, aquellos diseñados por el Método B requi eren de pruebas y 
+control de calidad adicionales). 
+ 
+Apoyos de Elastómero Reforzados con Acero – MÉTODO A (Art. 14.7. 6 AASHTO 
+LRFD) 
+ 
+1. GENERALIDADES      (Art.14.7.6.1) 
+ 
+En dispositivos de elastómero rectangulares reforzados con acero el Método A 
+es aplicable cuando 
+22n/S2 i , y cuando la rotación principal ocurre alrededor de un 
+eje paralelo al eje transversal del puente.  Cuando son cuadrados, cercanamente 
+cuadrados o circulares la relación se limita a 16. También si n es mayor o igual que 3, la 
+relación se limita a 20 (C14.7.6.1). 
+En la relación anterior, (Si ) es el factor de forma de una capa interna y n es el 
+número de capas interiores. Cuando el grosor de una capa exterior es mayor o igual 
+que la mitad de una capa interior, n puede increment arse en 0.5 por cada capa 
+exterior. 
+Todas las capas interiores tendrán el mismo grosor y las capas exteriores no 
+tendrán más del 70% del grosor de una capa interior. 
+El diseño por rotación está implícito en la geometría y los esfuerzos límites 
+propuestos por el Método A (C14.7.6.1). 
+ 
+ 
+2. FACTOR DE FORMA      (Art.14.7.5.1) 
+ 
+El factor de forma de una capa de un dispositivo de elastómero Si, se toma como 
+el área plana de una capa dividida por el área del perímetro libre para expandirse. S i y 
+hri, a menos que se indique lo contrario, corresponden a una capa interior.   
+Para dispositivos rectangulares sin agujeros, el factor de forma de una capa es: 
+)WL(h2
+LWS
+ri i
+  (14.7.5.1-1) 
+ 
+Para dispositivos circulares sin agujeros, el factor de forma de una capa es: 
+rih4
+DS i
+   (14.7.5.1-2) 
+donde: 
+L = dimensión del dispositivo en planta perpendicular al eje de rotación considerado 
+(generalmente paralelo al eje global longitudinal del puente). 
+W= dimensión del dispositivo en planta paralelo al eje de rota ción considerado 
+(generalmente paralelo al eje global transversal del puente). 
+D  = diámetro del dispositivo. 
+hri = grosor de la capa considerada. 
+ 
+ 
+3. PROPIEDADES       (Art. 14.7.6.2) 
+ 
+El módulo de cortante G en dispositivos de elastómero reforzados con acero que 
+tengan PTFE (polytetrafluorethylene =teflón) o un deslizador equivalente en la parte 
+
+===== PAGE 230 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+230 
+superior, estará entre 5.62kg/cm² y 17.58kg/cm² (o entre dureza 50 y 70 de acuerdo 
+a la escala Shore A). Si no cuentan con él, estará entre 5.62kg/cm² y 12.30kg/cm² 
+(dureza 50 y 60). 
+Cuando el material es especificado por su dureza, el módulo de corte G se toma 
+como el menor valor del rango establecido en la Tabla 14.7.6.2-1, para propósitos de 
+diseño (Art. 14.7.6.2). Si el material se especifica por el módulo de corte G, se toma 
+como el menor valor de los rangos referenciados en Art. 14.7.5.2 (entre 5.62kg/cm ² 
+y 12.30kg/cm²). 
+ 
+Tabla 14.7.6.2-1, AASHTO - Propiedades del elastómero 
+ 
+Detalle Dureza (Shore A) 
+50 60 701 
+Módulo de corte G @ 23°C 
+(kg/cm²) 
+6.68-9.14 9.14-14.06 14.06-21.09 
+Deflexión por creep @ 25 años 
+dividida por la deflexión inicial 
+0.25 0.35 0.45 
+1 Sólo para PEP  (apoyos de elastómero simples) , FGP (apoyos reforzados con capas discretas de fibra de vidrio) , y 
+dispositivos de elastómero reforzado con ace ro que cuenten con PTFE  (teflón) o un deslizador equivalente en su 
+parte superior.  
+ 
+4. REQUERIMIENTOS DE DISEÑO 
+ 
+Esfuerzo de compresión 
+En el estado límite de Servicio el esfuerzo en compresión promedio para dispositivos 
+de elastómero rectangulares reforzados con acero cumplirá: 
+iGS25.1s σ
+    (14.7.6.3.2-7) 
+2
+s cm/kg9.87σ
+   (14.7.6.3.2-8) 
+Siendo: 
+Si = factor de forma de una capa interior 
+ 
+Deflexión por compresión      (Art. 14.7.6.3.3) 
+La deflexión por compresión debido a la carga muerta  inicial y la carga viva instantánea 
+en una cara interna de un dispositivo de elastómero reforzado con acero en el estado 
+límite de servicio y sin impacto no excederá 0.09h ri, siendo hri el espesor de una capa 
+interna del dispositivo.  
+La Figura C14.7.6.3. 3-1 que se adjunta proporciona una ayuda de diseño para 
+determinar la deformación en una capa de elastómero basada en la dureza y el factor de 
+forma.      
+Son aplicables también las disposiciones del Art. 14.7.5.3.6: 
+ 
+- Las cargas se consideran en el estado límite de Servicio con todos los factores 
+de carga iguales a 1.0 
+- La deflexión por carga viva instantánea se toma como: 
+ 
+riihLL 
+   (14.7.5.3.6-1) 
+ Donde: 
+ iL
+ deformación por compresión instantánea debido a la carga viva e n una 
+capa del elastómero. 
+ 
+rih grosor de la capa de elastómero considerada 
+ 
+
+===== PAGE 231 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+231 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Fig. C14.7.6.3.3-1, AASHTO - Curvas esfuerzo-deformación 
+ 
+- La deflexión inicial por carga muerta se toma como: 
+ 
+riihdd 
+   (14.7.5.3.6-2) 
+ donde: 
+
+===== PAGE 232 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+232 
+ id
+ deformación por compresión inicial debido a la carga muerta en una capa 
+del elastómero. 
+ 
+rih grosor de la capa de elastómero considerada 
+- La deflexión por carga muerta a lo largo del tiempo que incluya los efectos del 
+creep se toma como: 
+ 
+dd  crlt a
+  (14.7.5.3.6-3) 
+ donde: 
+cra
+ deflexión por creep dividida por la deflexión inicial de la carga muerta. A 
+falta de pruebas puede utilizarse la Tabla 14.7.6.2-1 
+ 
+rih grosor de la capa del elastómero considerada 
+ 
+- Se sugiere una deflexión por carga viva relativa máxima a trav és de una junta de 
+1/8”. Las juntas sensibles a las deflexiones pueden requerir límites más 
+estrictos (C14.7.5.3.6). 
+ 
+Corte (Art. 14.7.6.3.4) 
+La deformación máxima por corte del dispositivo en el estado límite de Servicio, ∆ s, se 
+tomará como el desplazamiento horizontal máximo de la superestructura, reducido al 
+considerar la flexibilidad del pilar y modificado por procedimientos constructivos. 
+Para un dispositivo de elastómero reforzado con acero: 
+ 
+sr 2h i
+   (14.7.6.3.4-1) 
+donde: 
+hri =  el grosor menor del elastómero en el dispositivo 
+∆s= deformación por corte total máxima del apoyo debido a las cargas de servicio 
+aplicables 
+ 
+Rotación (Art. 14.7.6.3.5) 
+El diseño por rotación está implícito en la geometría y los esfuerzos límites propuestos 
+por el Método A,  tal como se refiere en C14.7.6.1 
+ 
+Estabilidad (Art. 14.7.6.3.6) 
+Para asegurar la estabilida d del dispositivo, su grosor total no excederá el menor de 
+L/3, W/3, ó D/4. 
+donde: 
+L= dimensión del dispositivo en planta perpendicular al eje de rotación considerado 
+(generalmente paralelo al eje global longitudinal del puente). 
+W= dimensión del dispositi vo en planta paralelo al eje de rotación considerado 
+(generalmente paralelo al eje global transversal del puente). 
+D= diámetro del dispositivo. 
+ 
+Refuerzo (Art. 14.7.6.3.7) 
+El refuerzo para los dispositivos de elastómero reforzados con acero estará en 
+concordancia con los requerimientos señalados en el Art. 14.7.5.3.5: 
+- El grosor mínimo del refuerzo de acero, hs, debe ser 1/16”.  
+- El grosor mínimo también cumplirá: 
+ En el estado límite de Servicio: 
+y
+sr
+s
+F
+h3h  i
+   (14.7.5.3.5-1) 
+
+===== PAGE 233 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+233 
+ En el estado límite de Fatiga: 
+TH
+Lir
+s
+F
+h2h 
+
+   (14.7.5.3.5-2) 
+donde: 
+∆FTH= constante de amplitud de fatiga crítica para la Categoría A, como lo 
+especificado en el Art. 6.6 
+hri   =  grosor de la capa interna del elastómero 
+L    = esfuerzo en compresión promedio por carga viva en el estado límite de Servicio 
+(factor de carga=1.0). 
+S  = esfuerzo en compresión promedio por carga total para el estado límite de 
+Servicio aplicable. 
+Fy   = esfuerzo de fluencia del acero de refuerzo. 
+ 
+Constante de Amplitud de Fatiga Crítica (F)TH  
+ 
+             Tabla 6.6.1.2.3-1, AASHTO (resumen) 
+ 
+Categoría (F)TH  
+(kg/cm2) 
+A 1687 
+B 1125 
+B’ 844 
+C 703 
+C’ 844 
+D 492 
+E 316 
+E’ 183 
+ 
+ 
+  
+ 
+ 
+La Categoría A  corresponde 
+a miembros planos laminados  
+o de superficie limpia  
+(excepto aquellos que 
+muestran desgaste y no son 
+recubiertos), con bordes 
+cortados con llama de gas y 
+un valor de rugosidad de 
+1000µ-in ó menos. 
+Anclaje del dispositivo (Art. 14.8.3) 
+Los dispositivos serán anclados adecuadamente al apoyo para prevenir su movimiento 
+fuera del siti o durante la construcción o después en la vida útil del puente. Los 
+dispositivos de elastómero se pueden dejar sin anclaje si cuentan con la fricción 
+adecuada. Un coeficiente de diseño de fricción de 0.2 puede asumirse entre el 
+elastómero y la superficie limpia del concreto o acero (C14.8.3.1). 
+ 
+La fuerza debido a la deformación de un dispositivo de elastómero se tomará como:  
+    
+rt
+u
+bu
+hGAH     (14.6.3.1-2) 
+donde: 
+G = módulo de corte del elastómero 
+A = área plana del dispositivo de elastómero 
+∆u= deformación por corte de las combinaciones de carga aplicables de resistencia y 
+evento extremo 
+hrt= grosor total del elastómero 
+ 
+ 
+ 
+ 
+
+===== PAGE 234 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+234 
+PROBLEMAS 
+ 
+PROBLEMA  4.1 Diseñar un dispositivo de elastómero de expansión reforzado con 
+acero para un apoyo de puente sob re el que inciden las cargas de gravedad: 65 T por 
+peso propio, 5T por superficie de rodadura y 22 T por carga viva. La longitud de  las 
+vigas postensadas es 30m  y el ancho de las mismas 0.45m. El acortamiento por 
+postensado es 1.0 cm, y el debido a la retracción del concreto 0.9 cm. El elastómero 
+a usar es de dureza 60 y  las placas de refuerzo son de acero A 36 (F y = 253 0 
+kg/cm2). El puente se ubica en zona de Sierra. La temperatura de instalación es de 
+25°C. Utilizar el Método A.  
+ 
+Solución.- 
+ 
+a) Área en planta del elastómero (Área=L x W) 
+ 
+PDC = 65,000 kg 
+PDW =   5,000 kg 
+PLL  = 22,000 kg 
+PT   = 92,000 kg (Estado límite de Servicio) 
+ 
+Siendo: 
+2
+s cm/kg9.87σ    (14.7.6.3.2-8) 
+ 
+Luego: 
+2
+2
+S
+T
+req cm047,1
+cm/kg9.87
+kg000,92PA  σ
+ 
+ 
+Para el ancho de viga b= 45 cm, escogemos W = 45 cm 
+ 
+cm27.23cm45
+cm047,1L
+2
+
+ (a lo largo de la longitud de viga) 
+ 
+Adoptado L = 30 cm y W = 45 cm (Área = 1,350 cm2 > 1,047 cm2) 
+ 
+b)  Máxima deformación por corte en el dispositivo (∆s) 
+ 
+La máxima deformación por corte del dispositivo se toma como el máx imo 
+desplazamiento horizontal de la superestructura (Art. 14.7.6.3.4).  
+ 
+Por temperatura 
+Considerando la zona de Sierra, de la Tabla 2.4.3.9. 2-1 del Manual de Diseño de 
+Puentes-Perú se tiene el rango de temperatura: tsup= 35°C y tinf= -10°C 
+ 
+También: 
+tinsta=  25°C 
+t = 25°C - (-10°C)= 35°C 
+L  = 3000cm 
+ = 10.8x10-6 / º C      (Art. 5.4.2.2) 
+ 
+Luego: 
+cm13.1C35x)C/10x8.10(cmx000,3..L o6
+ttemp  
+ 
+
+===== PAGE 235 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+235 
+Por postensado 
+ 
+cm0.1post 
+ 
+ 
+Por retracción de fragua 
+ 
+cm9.0retrac 
+ 
+ 
+Con TU = 1.2      (Tabla 3.4.1-1) 
+ 
+Acortamiento total de viga, estado límite de Servicio: 
+ 
+)( retracposttempTUs 
+ = 1.2(1.13cm + 1.0 cm + 0.9 cm) 
+ 
+cm64.3)cm03.3(2.1s 
+ 
+ 
+c) Espesor requerido de elastómero (hrt) 
+ 
+srt 2h 
+        (14.7.6.3.4-1) 
+cm28.7)cm64.3(22h srt 
+ 
+ 
+d) Factor de Forma mínimo en una capa interior de neopreno (Si) 
+ 
+Siendo: 
+G= 9.14 kg/cm² (Dureza 60)                     (Tabla 14.7.6.2-1 y Art. 14.7.6.2) 
+2
+2
+T
+s cm/kg15.68
+cm350,1
+kg000,92
+A
+P σ
+ 
+ 
+Con 
+iGS25.1s σ      (14.7.6.3.2-7) 
+ 
+  
+96.5
+cm/kg14.9x25.1
+cm/kg15.68
+G25.1S 2
+2
+S i   
+ 
+e) Grosor de una capa interior del elastómero (hri) 
+ 
+Como 
+)WL(h2
+LWS
+ri i   
+)WL(S2
+LWhr
+
+i
+i   (14.7.5.1-1) 
+ 
+Luego: 
+cm51.1)cm45cm30)(96.5(2
+)cm45(cm30hr i
+ 
+ 
+Grosor de capa interior adoptado:  hri = 1.50 cm  (15 mm) 
+  
+Con este grosor de capa interior, el factor de forma para una capa interior es: 
+ 
+96.5S0.6)cm45cm30)(50.1(2
+)cm45)(cm30(S mín¡¡ 
+  OK! 
+
+===== PAGE 236 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+236 
+f) Grosor de las capas exteriores (hre) 
+ 
+hre ≤ 0.7 hri     (Art. 14.7.6.1) 
+ 
+hre ≤ 0.7(1.5cm)=1.05cm 
+ 
+hre = 0.8cm (adoptado) 
+ 
+Con este grosor de capa exterior, el factor de forma para una capa exterior es: 
+ 
+25.11)cm45cm30)(8.0(2
+)cm45)(cm30(Se 
+  
+ 
+g) Número de capas interiores (n) 
+ 
+Siendo:  
+rerrt h2nhh  i  
+ 
+  7.28cm=n(1.50cm)+2(0.80cm) 
+ 
+  n= 3.79  n= 4  
+ 
+Se verifica además: 
+ 
+20n
+S2
+i
+, para dispositivos rectangulares con n≥3  (C14.7.6.1) 
+ 
+202.7)5.05.04(
+62
+
+   OK! 
+ 
+h) Espesor total de elastómero (hrt) 
+ 
+cm6.7)cm8.0(2)cm50.1(4h2nhh reirrt 
+ 
+ 
+i) Espesor de las placas de refuerzo (hs) 
+ 
+En el estado límite de Servicio: 
+ 
+y
+Smáx
+s
+F
+h3h 
+     (14.7.5.3.5-1) 
+cm121.0
+cm/kg2530
+)cm/kg15.68)(cm50.1(3h 2
+2
+s 
+ 
+ 
+Con 
+cm50.1hh irmáx   
+ 
+En el estado límite de Fatiga: 
+ 
+TH
+Lmáx
+s
+F
+h2h  σ
+     (14.7.5.3.5-2) 
+ 
+
+===== PAGE 237 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+237 
+ 
+cm029.0
+cm/kg1687
+)cm/kg30.16)(cm50.1(2h 2
+2
+s   
+ 
+ Siendo: 
+FTH = 1687 kg/cm2 , Categoría A   (Tabla 6.6.1.2.3-1) 
+ 
+2
+2
+LL
+L cm/kg30.16
+cm350,1
+kg000,22
+A
+P σ
+ 
+ 
+Adoptamos hs = 2 mm = 0.2 cm > 0.121 cm 
+ 
+        hs = 2 mm ≥ 1/16” OK!   (Art. 14.7.5.3.5) 
+ 
+j) Altura total del dispositivo de elastómero reforzado (H) 
+ 
+ 
+cm6.8)cm2.0)(14(cm6.7h)1n(hH srt   
+ 
+k) Verificaciones 
+ 
+k.1) Estabilidad del dispositivo 
+ 
+3/WHy3/LH 
+     (Art. 14.7.6.3.6) 
+ 
+cm153/cm45cm6.8y!OKcm103/cm30cm6.8 
+ OK! 
+ 
+k.2) Esfuerzo de compresión por carga total (s) 
+ 
+Se tiene: 
+ 
+iSG25.1s σ      (14.7.6.3.2-7) 
+ 
+²cm/kg55.68)6²)(cm/kg14.9(25.1²cm/kg15.68 
+  OK! 
+ 
+ 
+²cm/kg9.87s σ      (14.7.6.3.2-8) 
+ 
+²cm/kg9.87²cm/kg15.68 
+  OK! 
+ 
+k.3) Deformaciones por compresión en el dispositivo (Art. 14.7.6.3.3 y  
+Art. 14.7.5.3.6) 
+ 
+ksi74.0cm/kg85.51
+cm350,1
+kg000,70
+A
+P 2
+2
+DWDC
+D  σ
+ 
+ 
+ksi97.0cm/kg15.68 2
+s σ
+ 
+  
+ 
+ 
+ 
+ 
+ 
+
+===== PAGE 238 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+238 
+Deformaciones por compresión para elastómero dureza 60 
+utilizando la Fig. C14.7.6.3.3-1, AASHTO 
+CAPA CARGA S (ksi) (%) 
+Interior Muerta 6.0 0.74 3.60 
+Total 6.0 0.97 4.45 
+Exterior Muerta 11.25 0.74 2.90 
+Total 11.25 0.97 3.50 
+ 
+Deflexión por compresión inicial del dispositivo (14.7.5.3.6-1 y 14.7.5.3.6-2) 
+ 
+)035.0)(cm8.0(2)0445.0)(cm5.1(4h2nh extreintir 
+   
+ 
+cm323.0
+ 
+ 
+Deflexión por compresión inicial debido a la carga muerta (14.7.5.3.6-2) 
+ 
+)029.0)(cm8.0(2)036.0)(cm5.1(4h2nh extDreintDirDC 
+  
+ 
+cm262.0DC 
+ 
+ 
+Deflexión por compresión debido a la carga viva 
+ 
+cm061.0cm262.0cm323.0DCLL 
+   
+ 
+Deflexión por creep      (14.7.5.3.6-3) 
+ 
+Cd=0.35, para Dureza 60     (Tabla 14.7.6.2-1) 
+ 
+cm092.0)262.0(35.0C DCdcreep 
+   
+ 
+Deflexión debido al creep y la carga viva   (C14.7.5.3.6) 
+ 
+cm32.0"8/1cm153.0cm061.0cm092.0LLcreep  
+ OK!  
+ 
+Deflexión por compresión inicial de una capa interior de elastómero 
+ 
+iii rrint h09.0h 
+       (14.7.6.3.3) 
+ 
+09.0int 
+ 
+ 
+09.00445.0 
+ OK! 
+ 
+l) Anclaje del dispositivo      (Art.14.8.3) 
+ 
+Fuerza cortante generada en el apoyo debido al desplazamiento: 
+rt
+u
+u
+hAGH 
+    (14.6.3.1-2) 
+T09.9cm6.7
+cm64.3²)cm1350²(cm/kg06.14Hu 
+ 
+
+===== PAGE 239 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+239 
+8mm
+H=86mm
+5 zunchos de 2 mm
+W=450 mm
+L=300 mm
+8mm
+Dirección
+del tráfico
+4 capas
+@15mm
+donde: 
+ 
+G=14.06kg/cm² (máximo valor) 
+cm64.3)cm03.3(2.1sTUu 
+ 
+ 
+Con µ=0.2 (C14 .8.3.1) y la carga permanente mínima en servicio P DC=65T, la 
+fuerza de fricción que se desarrolla es: 
+ 
+Ff =µPDC = 0.2(65T)=13T 
+ 
+Como 9.09T<13T, no se requieren anclajes         (C14.8.3.1) 
+ 
+n) Rotación del dispositivo            (Art.14.7.6.3.5 y C14.7.6.1) 
+ 
+El diseño por rotación está implícito en la geometría y requerimientos límites de 
+esfuerzo que corresponden al Método A. No se requieren por lo tanto cálculos de 
+rotación adicionales. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Fig.  4.4  Composición final del dispositivo de elastómero dureza 60 
+
+===== PAGE 240 =====
+ 
+PUENTES                                                              MSc. Ing. Arturo Rodríguez Serquén 
+240 
+CAPÍTULO 5: ESTRIBOS 
+ 
+5.1 ESTRIBOS   
+Son estructuras que sirven de apoyo extremo al puente y que además de soportar la carga 
+de la superestructura sirven de contención de los terraplenes de acceso y por consiguiente están 
+sometidos al empuje de tierra. 
+Los estribos al igual que los muros de contención pueden ser de gravedad, semi-gravedad, y 
+en voladizo sin gravedad o anclados.  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Fig. 5.1  Muros de gravedad y semi-gravedad rígidos típicos 
+ 
+Los muros de gravedad  obtienen su capacidad para  resistir cargas laterales del suelo a 
+través de una combinación de peso muerto y resistencia al deslizamiento. Los muros de gravedad 
+se pueden subdividir en muros de gravedad rígidos, muros de gravedad modulares prefabricados y 
+muros de gravedad de tierra estabilizada mecánicamente (MSE). 
+Los muros de semi-gravedad dependen más de la resistencia estructural a través de la acción 
+en voladizo del vástago del muro. Generalmente el relleno de un muro de semi -gravedad descansa 
+sobre parte de la zapata del muro.  El relleno, en combinación con el peso de la pared y la base, 
+proporciona el peso muerto para la resistencia. Un ejemplo de muro de semi -gravedad es un muro 
+de hormigón armado. 
+Los muros en voladizo de no gravedad se basan estrictamente en la resistencia estructural 
+del muro en el que los elementos verticales del muro están parcialmente incrustados en el suelo o 
+la roca para proporcionar fijación. Estos elementos verticales pueden consistir en pilotes (de acero 
+o tablestacas, por ejemplo), cajones o pozos perforados. Los elementos verticales pueden formar 
+toda la cara de la pared o se pueden extender estructuralmente utilizando cubiertas de madera u 
+otros materiales para formar la cara de la pared. 
+Los muros anclados obtienen su capacidad lateral a través d e anclajes incrustados en suelo 
+estable o roca debajo o detrás de todas las posibles superficies de falla del suelo/roca. Los muros 
+anclados son similares a los muros en voladizo sin gravedad, excepto que los anclajes incrustados 
+en el suelo/roca se unen a la estructura del muro para proporcionar resistencia lateral. 
+ 
+ 

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bridge-design"
+version = "0.1.0"
+description = "Programa de diseno de puente tipo viga-losa."
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+bridge-design = "bridge_design.main:main"
+bridge-abutment-design = "bridge_design.abutment_main:main"
+bridge-cantilever-wall-design = "bridge_design.cantilever_wall_main:main"
+bridge-muro-cantilever = "bridge_design.cantilever_wall_main:main"
+bridge-design-apoyos = "bridge_design.cli.bearing_cli:main"
+bridge-design-apoyos-pep = "bridge_design.cli.pep_bearing_cli:main"
+bridge-design-apoyos-neopreno = "bridge_design.cli.simple_neoprene_cli:main"
+diseno-tablero = "bridge_design.main:main"
+diseno-estribos = "bridge_design.abutment_main:main"
+diseno-apoyos = "bridge_design.cli.bearing_cli:main"
+diseno-apoyos-PEP = "bridge_design.cli.pep_bearing_cli:main"
+diseno-apoyos-pep = "bridge_design.cli.pep_bearing_cli:main"
+diseno-apoyos-neopreno = "bridge_design.cli.simple_neoprene_cli:main"
+diseno-muros = "bridge_design.cantilever_wall_main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

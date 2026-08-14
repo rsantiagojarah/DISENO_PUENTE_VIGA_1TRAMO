@@ -1,0 +1,171 @@
+
+
+===== PDF PAGE 78 =====
+ 
+PUENTES                                                             MSc. Ing. Arturo Rodríguez Serquén 
+78 
+3.5  ANCHOS DE FAJA EQUIVALENTE INTERIORES PARA TABLEROS CON  
+      ARMADURA PRINCIPAL PERPENDICULAR AL TRÁFICO 
+Se pueden tomar como se especifica en la Tabla siguiente: 
+ 
+Tabla 4.6.2.1.3-1, AASHTO - Fajas equivalentes 
+  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+donde: 
+S  = separación de los elementos de apoyo (m) 
+H  = altura del tablero (m) 
+L   = longitud del tramo del tablero (m) 
+P   = carga de eje (kg) 
+Sb  = separación de las barras del emparrillado (m) 
++M= momento positivo 
+- M= momento negativo 
+X   = distancia entre la carga y el punto de apoyo (m) 
+
+===== PDF PAGE 134 =====
+134 
+PUENTES                                                             MSc. Ing. Arturo Rodríguez Serquén 
+ 
+Para un carril cargado, y afectado del factor de presencia múltiple m (Art. 
+3.6.1.1.2): 
+M(-) = [7.26T(-0.216m)+7.26T(-0.166m)]1.2= -2.77Tm x 1.2=-3.33Tm 
+ 
+Para dos carriles cargados: 
+ 
+Tal como se apre cia en la gráfica, el caso no es crítico por la presencia de 
+ordenadas positivas. 
+ 
+El ancho de franja en que se distribuye es: 
+ 
+E(-) = 1.22+0.25 S’     (Tabla 4.6.2.1.3-1) 
+ 
+         = 1.22+0.25(2.10)= 1.75m 
+ 
+Entonces, el momento negativo crítico en B, incl uido el efecto de carga 
+dinámica y el ancho de franja es: 
+ 
+MB(-)LL+IM= - 
+33.1x75.1
+33.3 -2.53Tm 
+Conociendo la posición de cargas que genera el máximo momento negativo en 
+B, calculamos también los momentos en la cara de la viga a la izquierda y 
+derecha resolviendo la losa hiperestática apoyada sobre las cuatro vigas  
+(SAP2000): 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Fig. 3.20  Diagrama de momentos en la losa debido a la posición crítica del camón 
+estándar 
+ 
+De donde se obtiene: 
+ 
+M(-)LL+IM      = 
+Tm51.275.1
+33.1x2.1x75.2   (en el eje B, similar a -2.53Tm  
+         valor obtenido con la línea de influencia MB) 
+
+===== PDF PAGE 139 =====
+139 
+PUENTES                                                             MSc. Ing. Arturo Rodríguez Serquén 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Fig. 3.22  Línea de influencia del momento flector en x=0.4L y posición crítica de 
+los ejes del camión estándar 
+ 
+Para un carril cargado, y con el factor de presencia múltiple m (Art. 3.6.1.1.2): 
+ 
+M(+)= [7.26T(0.429m)+7.26T(-0.061m)]1.2=2.672Tmx1.2=3.21Tm 
+ 
+Para dos carriles cargados: 
+ 
+M(+)=[7.26T(0.429m)+7.26T(-0.061m)+7.26T(0.007m)+7.26T(0.004)]1.0 
+   
+     = 2.75T-m 
+ 
+El ancho de franja en que se distribuye es: 
+ 
+E(+)= 0.66+0.55 S’     (Tabla 4.6.2.1.3-1) 
+         = 0.66+0.55(2.1)= 1.82 m 
+ 
+Entonces, el momento positivo crítico considerando el efecto de carga 
+dinámica (33% para el Estado Límite de Resistencia) y el ancho de franja, es: 
+ 
+M(+)LL+IM= 
+Tm35.233.1x82.1
+21.3   
