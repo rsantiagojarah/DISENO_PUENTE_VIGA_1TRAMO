@@ -10,6 +10,8 @@ requires-python = ">=3.10"
 dependencies = [
     "PyYAML>=6.0",
     "reportlab>=4.0",
+    "python-docx>=1.1",
+    "Pillow>=10.0",
 ]
 
 [project.scripts]

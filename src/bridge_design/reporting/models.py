@@ -20,14 +20,22 @@ class DeckReportData:
     interior_shear: Any
     interior_selected: tuple[tuple[str, Any], ...]
     interior_detail: Any
+    interior_crack: Any
+    interior_fatigue: Any
+    interior_service: Any
     exterior_result: Any
     exterior_reinforcement: Any
     exterior_shear: Any
     exterior_selected: tuple[tuple[str, Any], ...]
     exterior_detail: Any
+    exterior_crack: Any
+    exterior_fatigue: Any
+    exterior_service: Any
     barrier_result: Any
     cantilever_result: Any
     cantilever_selected: tuple[tuple[str, Any], ...]
+    cantilever_crack: Any
+    cantilever_development: Any
     diaphragm_result: Any
     diaphragm_reinforcement: Any
     diaphragm_selected: tuple[tuple[str, Any], ...]

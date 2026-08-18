@@ -35,6 +35,7 @@ from bridge_design.domain.abutment import (
     rankine_passive_coefficient,
     solve_abutment_design,
 )
+from bridge_design.reporting.abutment_docx import generate_abutment_docx_with_dialog
 
 
 def run_abutment_design(
@@ -53,6 +54,7 @@ def run_abutment_design(
     secondary_stability_title: str = "SIN PUENTE",
     include_bridge_inputs: bool = True,
     include_stem_reinforcement_cut: bool = True,
+    generate_word_report: bool = True,
 ) -> None:
     """Run the cantilever retaining structure design workflow."""
     if inputs is None:
@@ -86,6 +88,8 @@ def run_abutment_design(
             include_stem_reinforcement_cut=include_stem_reinforcement_cut,
         )
     )
+    if generate_word_report:
+        generate_abutment_docx_with_dialog(result)
 
 
 def _consider_footing_width_when_contact_fails(

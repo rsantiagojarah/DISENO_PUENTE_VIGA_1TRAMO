@@ -100,12 +100,12 @@ def main(argv: list[str] | None = None) -> None:
         print(
             "Uso:\n"
             "  bridge-design              Flujo completo del puente\n"
-            "  bridge-design tablero      Diseno de tablero y memoria de calculo PDF automatica\n"
+            "  bridge-design tablero      Diseno de tablero y memoria de calculo Word automatica\n"
             "  bridge-design apoyos       Diseno de apoyos elastomericos Metodo A\n"
             "  bridge-design apoyos-neopreno  Apoyos neopreno simple: fijo con barras / movil con placas\n"
             "  bridge-design muro         Diseno de muro de concreto armado en cantilever con sismo\n"
             "  diseno-tablero             Comando simple para tablero completo\n"
-            "                              Al finalizar solicita donde guardar el PDF\n"
+            "                              Al finalizar solicita donde guardar el documento Word\n"
             "  diseno-estribos            Comando simple para estribos\n"
             "  diseno-apoyos              Comando simple para apoyos\n"
             "  diseno-apoyos-neopreno     Comando simple para apoyos de neopreno con detalles fijo/movil\n"
@@ -225,6 +225,20 @@ def run_bridge_design(project_inputs=None) -> None:
     )
     print(interior_crack_report)
     selected_girder_main = _selected_main_placement(girder_selected)
+    girder_fatigue_review = review_interior_girder_fatigue(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+        main_placement=selected_girder_main,
+    )
+    girder_service_review = verify_interior_girder_service_stresses(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+        main_placement=selected_girder_main,
+    )
     interior_service_report = format_interior_girder_selected_main_reviews(
         geometry=project_inputs.interior_girder,
         materials=project_inputs.materials,
@@ -275,6 +289,27 @@ def run_bridge_design(project_inputs=None) -> None:
     )
     print(exterior_selection_report)
     selected_main = _selected_main_placement(exterior_selected)
+    exterior_crack_review = review_exterior_girder_crack_control(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        main_placement=selected_main,
+    )
+    exterior_fatigue_review = review_exterior_girder_fatigue(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        main_placement=selected_main,
+    )
+    exterior_service_stresses = verify_exterior_girder_service_stresses(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        main_placement=selected_main,
+    )
     exterior_service_report = format_exterior_girder_selected_main_reviews(
         geometry=project_inputs.exterior_girder,
         materials=project_inputs.materials,
@@ -323,6 +358,25 @@ def run_bridge_design(project_inputs=None) -> None:
         selected=cantilever_selected,
     )
     print(cantilever_review_report)
+    from bridge_design.domain._cantilever_slab_calculations import design_development
+    from bridge_design.domain._cantilever_slab_checks import review_crack_control
+
+    selected_cantilever_flexural = _selected_spacing(cantilever_selected, "A.")
+    cantilever_development = design_development(
+        geometry=project_inputs.transverse_slab.geometry,
+        materials=project_inputs.materials,
+        params=cantilever_result.parameters,
+        flexural=cantilever_result.flexural_steel,
+        selected_spacing=selected_cantilever_flexural,
+    )
+    cantilever_crack = review_crack_control(
+        geometry=project_inputs.transverse_slab.geometry,
+        materials=project_inputs.materials,
+        params=cantilever_result.parameters,
+        combinations=cantilever_result.combinations,
+        flexural=cantilever_result.flexural_steel,
+        selected_spacing=selected_cantilever_flexural,
+    )
 
     diaphragm_result = solve_diaphragm_design(
         geometry=project_inputs.diaphragm,
@@ -354,7 +408,7 @@ def run_bridge_design(project_inputs=None) -> None:
     )
     print(reaction_report)
 
-    from bridge_design.reporting import DeckReportData, generate_deck_pdf_with_dialog
+    from bridge_design.reporting import DeckReportData, generate_deck_docx_with_dialog
 
     report_data = DeckReportData(
         project_inputs=project_inputs,
@@ -367,14 +421,22 @@ def run_bridge_design(project_inputs=None) -> None:
         interior_shear=girder_shear,
         interior_selected=girder_selected,
         interior_detail=interior_detail,
+        interior_crack=girder_crack_review,
+        interior_fatigue=girder_fatigue_review,
+        interior_service=girder_service_review,
         exterior_result=exterior_result,
         exterior_reinforcement=exterior_reinforcement,
         exterior_shear=exterior_shear,
         exterior_selected=exterior_selected,
         exterior_detail=exterior_detail,
+        exterior_crack=exterior_crack_review,
+        exterior_fatigue=exterior_fatigue_review,
+        exterior_service=exterior_service_stresses,
         barrier_result=barrier_result,
         cantilever_result=cantilever_result,
         cantilever_selected=cantilever_selected,
+        cantilever_crack=cantilever_crack,
+        cantilever_development=cantilever_development,
         diaphragm_result=diaphragm_result,
         diaphragm_reinforcement=diaphragm_reinforcement,
         diaphragm_selected=diaphragm_selected,
@@ -398,9 +460,9 @@ def run_bridge_design(project_inputs=None) -> None:
         ),
     )
     try:
-        generate_deck_pdf_with_dialog(report_data)
+        generate_deck_docx_with_dialog(report_data)
     except (OSError, RuntimeError, ValueError) as exc:
-        print(f"No se pudo generar el reporte PDF: {exc}")
+        print(f"No se pudo generar la memoria Word: {exc}")
 
 
 def collect_reinforcement_spacing_selection(reinforcement) -> tuple[

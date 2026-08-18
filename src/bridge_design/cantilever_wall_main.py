@@ -35,6 +35,7 @@ def _run_wall_design(inputs=None) -> None:
         report_title="DISENO DE MURO DE CONCRETO ARMADO EN CANTILEVER",
         primary_stability_title="MURO PURO",
         include_bridge_inputs=False,
+        generate_word_report=False,
     )
 
 

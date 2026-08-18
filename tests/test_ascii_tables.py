@@ -37,6 +37,8 @@ def test_terminal_output_uses_single_professional_accent(monkeypatch) -> None:
 
 
 def test_forced_color_uses_single_professional_accent(monkeypatch) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("BRIDGE_DESIGN_NO_COLOR", raising=False)
     monkeypatch.setenv("BRIDGE_DESIGN_FORCE_COLOR", "1")
 
     block_lines = audit_block_title("1", "DISENO DE LOSA", 40)

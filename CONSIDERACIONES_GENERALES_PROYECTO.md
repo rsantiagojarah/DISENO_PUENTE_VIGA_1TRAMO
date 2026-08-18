@@ -442,9 +442,9 @@ Alcance normativo y de calculo:
 - Diseno estructural de pantalla, talon y puntera.
 - Control de fisuracion, desarrollo/anclaje y cuadro de acero.
 
-## 18. Memoria de calculo PDF del tablero
+## 18. Memoria de calculo Word del tablero
 
-El comando `diseno-tablero` genera automaticamente una memoria de calculo PDF
+El comando `diseno-tablero` genera automaticamente una memoria de calculo Word
 despues de completar el analisis y la seleccion de armaduras. Una ventana nativa
 permite elegir el nombre y la ubicacion del archivo; si se cancela la ventana,
 los resultados de terminal se conservan y no se crea el documento.
@@ -459,8 +459,11 @@ Caracteristicas del reporte:
 - Diagramas de las envolventes factorizadas de momento y cortante empleadas en
   el diseno, ubicados junto al componente correspondiente.
 - Tablas reservadas para comparaciones y resumenes donde mejoran la lectura.
-- Anexo de trazabilidad con la salida numerica completa, opciones de acero,
-  verificaciones de servicio, fatiga, fisuracion, desarrollo y detalle.
+- Desarrollo numerico limitado a las estaciones criticas y a la opcion de acero
+  adoptada, con verificaciones de servicio, fatiga, fisuracion, desarrollo y
+  detalle.
+- Comentario tecnico posterior a cada comprobacion, indicando el criterio que
+  gobierna y la medida necesaria si la verificacion no cumpliera.
 
 La capa de reporte consume resultados ya calculados y el acero seleccionado por
 el usuario; no modifica ni duplica el nucleo de calculo estructural.
