@@ -100,6 +100,11 @@ def test_interior_girder_solves_loads_combinations_and_reinforcement() -> None:
     assert analysis.truck_ll_im.support_reactions_tn[0][1] > 0.0
     assert analysis.fatigue_truck.max_positive_moment_tn_m > 0.0
     assert analysis.ll_im_envelope.max_shear_tn > 0.0
+    assert analysis.ll_im_envelope.min_moment_samples_tn_m is not None
+    assert analysis.ll_im_envelope.max_shear_samples_tn is not None
+    assert analysis.ll_im_envelope.min_shear_samples_tn is not None
+    assert max(value for _, value in analysis.ll_im_envelope.max_shear_samples_tn) > 0.0
+    assert min(value for _, value in analysis.ll_im_envelope.min_shear_samples_tn) < 0.0
     assert round(analysis.fatigue_truck.distribution_factor_g, 3) == 0.420
     assert analysis.fatigue_truck.distribution_factor_g < analysis.distribution_factor_g
     reactions = dict(analysis.truck_ll_im.support_reactions_tn)

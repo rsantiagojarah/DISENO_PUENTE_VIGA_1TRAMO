@@ -441,3 +441,26 @@ Alcance normativo y de calculo:
   - Para fisuracion se usa `Servicio I` con la presion lineal de servicio.
 - Diseno estructural de pantalla, talon y puntera.
 - Control de fisuracion, desarrollo/anclaje y cuadro de acero.
+
+## 18. Memoria de calculo PDF del tablero
+
+El comando `diseno-tablero` genera automaticamente una memoria de calculo PDF
+despues de completar el analisis y la seleccion de armaduras. Una ventana nativa
+permite elegir el nombre y la ubicacion del archivo; si se cancela la ventana,
+los resultados de terminal se conservan y no se crea el documento.
+
+Caracteristicas del reporte:
+
+- Formato A4 con fuente Arial Narrow, encabezado, pie y numeracion de paginas.
+- Desarrollo de formula general, leyenda, sustitucion numerica, resultado,
+  criterio adoptado y referencia normativa.
+- Secciones para datos de entrada, losa transversal, vigas interior y exterior,
+  barrera, losa en voladizo, diafragmas y reacciones para estribos.
+- Diagramas de las envolventes factorizadas de momento y cortante empleadas en
+  el diseno, ubicados junto al componente correspondiente.
+- Tablas reservadas para comparaciones y resumenes donde mejoran la lectura.
+- Anexo de trazabilidad con la salida numerica completa, opciones de acero,
+  verificaciones de servicio, fatiga, fisuracion, desarrollo y detalle.
+
+La capa de reporte consume resultados ya calculados y el acero seleccionado por
+el usuario; no modifica ni duplica el nucleo de calculo estructural.

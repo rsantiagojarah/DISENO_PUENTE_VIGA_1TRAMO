@@ -100,11 +100,12 @@ def main(argv: list[str] | None = None) -> None:
         print(
             "Uso:\n"
             "  bridge-design              Flujo completo del puente\n"
-            "  bridge-design tablero      Diseno completo de tablero: losa, vigas, barrera y diafragmas\n"
+            "  bridge-design tablero      Diseno de tablero y memoria de calculo PDF automatica\n"
             "  bridge-design apoyos       Diseno de apoyos elastomericos Metodo A\n"
             "  bridge-design apoyos-neopreno  Apoyos neopreno simple: fijo con barras / movil con placas\n"
             "  bridge-design muro         Diseno de muro de concreto armado en cantilever con sismo\n"
             "  diseno-tablero             Comando simple para tablero completo\n"
+            "                              Al finalizar solicita donde guardar el PDF\n"
             "  diseno-estribos            Comando simple para estribos\n"
             "  diseno-apoyos              Comando simple para apoyos\n"
             "  diseno-apoyos-neopreno     Comando simple para apoyos de neopreno con detalles fijo/movil\n"
@@ -151,8 +152,10 @@ def run_bridge_design(project_inputs=None) -> None:
     if project_inputs is None:
         project_inputs = collect_project_inputs()
     print()
-    print(format_input_summary(project_inputs))
-    print(format_transverse_load_location_schemes(project_inputs))
+    input_report = format_input_summary(project_inputs)
+    load_scheme_report = format_transverse_load_location_schemes(project_inputs)
+    print(input_report)
+    print(load_scheme_report)
 
     result = solve_transverse_slab_design(
         geometry=project_inputs.transverse_slab.geometry,
@@ -160,14 +163,16 @@ def run_bridge_design(project_inputs=None) -> None:
         live_loads=project_inputs.live_loads,
         layout=project_inputs.transverse_slab.load_layout,
     )
-    print(format_transverse_analysis_result(result, project_inputs))
+    transverse_report = format_transverse_analysis_result(result, project_inputs)
+    print(transverse_report)
     reinforcement = design_transverse_slab_reinforcement(
         geometry=project_inputs.transverse_slab.geometry,
         materials=project_inputs.materials,
         analysis=result,
     )
     selected = collect_reinforcement_spacing_selection(reinforcement)
-    print(format_reinforcement_spacing_selection(selected))
+    slab_selection_report = format_reinforcement_spacing_selection(selected)
+    print(slab_selection_report)
     crack_review = review_transverse_slab_crack_control(
         geometry=project_inputs.transverse_slab.geometry,
         materials=project_inputs.materials,
@@ -176,14 +181,19 @@ def run_bridge_design(project_inputs=None) -> None:
         negative_spacing=_selected_spacing(selected, "A."),
         positive_spacing=_selected_spacing(selected, "B."),
     )
-    print(format_crack_control_review(crack_review))
+    slab_crack_report = format_crack_control_review(crack_review)
+    print(slab_crack_report)
 
     girder_result = solve_interior_girder_design(
         geometry=project_inputs.interior_girder,
         materials=project_inputs.materials,
         live_loads=project_inputs.live_loads,
     )
-    print(format_interior_girder_analysis_result(girder_result, project_inputs))
+    interior_analysis_report = format_interior_girder_analysis_result(
+        girder_result,
+        project_inputs,
+    )
+    print(interior_analysis_report)
     girder_reinforcement = design_interior_girder_reinforcement(
         geometry=project_inputs.interior_girder,
         materials=project_inputs.materials,
@@ -199,7 +209,10 @@ def run_bridge_design(project_inputs=None) -> None:
         girder_reinforcement,
         girder_shear,
     )
-    print(format_interior_girder_reinforcement_selection(girder_selected))
+    interior_selection_report = format_interior_girder_reinforcement_selection(
+        girder_selected
+    )
+    print(interior_selection_report)
     girder_crack_review = review_interior_girder_crack_control(
         geometry=project_inputs.interior_girder,
         materials=project_inputs.materials,
@@ -207,38 +220,41 @@ def run_bridge_design(project_inputs=None) -> None:
         reinforcement=girder_reinforcement,
         main_placement=_selected_main_placement(girder_selected),
     )
-    print(format_interior_girder_crack_control_review(girder_crack_review))
+    interior_crack_report = format_interior_girder_crack_control_review(
+        girder_crack_review
+    )
+    print(interior_crack_report)
     selected_girder_main = _selected_main_placement(girder_selected)
-    print(
-        format_interior_girder_selected_main_reviews(
-            geometry=project_inputs.interior_girder,
-            materials=project_inputs.materials,
-            analysis=girder_result,
-            reinforcement=girder_reinforcement,
-            main_placement=selected_girder_main,
-        )
+    interior_service_report = format_interior_girder_selected_main_reviews(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+        main_placement=selected_girder_main,
     )
-    print(
-        format_girder_detailing_result(
-            detail_interior_girder(
-                label="Viga interior",
-                geometry=project_inputs.interior_girder,
-                materials=project_inputs.materials,
-                analysis=girder_result,
-                reinforcement=girder_reinforcement,
-                selected_main_bar=selected_girder_main,
-                selected_stirrup=_selected_shear_stirrup(girder_selected),
-            ),
-            "2.F",
-        )
+    print(interior_service_report)
+    interior_detail = detail_interior_girder(
+        label="Viga interior",
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+        selected_main_bar=selected_girder_main,
+        selected_stirrup=_selected_shear_stirrup(girder_selected),
     )
+    interior_detail_report = format_girder_detailing_result(interior_detail, "2.F")
+    print(interior_detail_report)
 
     exterior_result = solve_exterior_girder_design(
         geometry=project_inputs.exterior_girder,
         materials=project_inputs.materials,
         live_loads=project_inputs.live_loads,
     )
-    print(format_exterior_girder_analysis_result(exterior_result, project_inputs))
+    exterior_analysis_report = format_exterior_girder_analysis_result(
+        exterior_result,
+        project_inputs,
+    )
+    print(exterior_analysis_report)
     exterior_reinforcement = design_exterior_girder_reinforcement(
         geometry=project_inputs.exterior_girder,
         materials=project_inputs.materials,
@@ -254,37 +270,37 @@ def run_bridge_design(project_inputs=None) -> None:
         exterior_reinforcement,
         exterior_shear,
     )
-    print(format_exterior_girder_reinforcement_selection(exterior_selected))
+    exterior_selection_report = format_exterior_girder_reinforcement_selection(
+        exterior_selected
+    )
+    print(exterior_selection_report)
     selected_main = _selected_main_placement(exterior_selected)
-    print(
-        format_exterior_girder_selected_main_reviews(
-            geometry=project_inputs.exterior_girder,
-            materials=project_inputs.materials,
-            analysis=exterior_result,
-            reinforcement=exterior_reinforcement,
-            main_placement=selected_main,
-        )
+    exterior_service_report = format_exterior_girder_selected_main_reviews(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        main_placement=selected_main,
     )
-    print(
-        format_girder_detailing_result(
-            detail_exterior_girder(
-                label="Viga exterior",
-                geometry=project_inputs.exterior_girder,
-                materials=project_inputs.materials,
-                analysis=exterior_result,
-                reinforcement=exterior_reinforcement,
-                selected_main_bar=selected_main,
-                selected_stirrup=_selected_shear_stirrup(exterior_selected),
-            ),
-            "3.F",
-        )
+    print(exterior_service_report)
+    exterior_detail = detail_exterior_girder(
+        label="Viga exterior",
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        selected_main_bar=selected_main,
+        selected_stirrup=_selected_shear_stirrup(exterior_selected),
     )
+    exterior_detail_report = format_girder_detailing_result(exterior_detail, "3.F")
+    print(exterior_detail_report)
 
     barrier_result = design_concrete_barrier(
         inputs=project_inputs.barrier,
         materials=project_inputs.materials,
     )
-    print(format_barrier_design_result(barrier_result))
+    barrier_report = format_barrier_design_result(barrier_result)
+    print(barrier_report)
 
     cantilever_result = design_cantilever_slab(
         geometry=project_inputs.transverse_slab.geometry,
@@ -293,17 +309,20 @@ def run_bridge_design(project_inputs=None) -> None:
         layout=project_inputs.transverse_slab.load_layout,
         barrier_result=barrier_result,
     )
-    print(format_cantilever_slab_design_result(cantilever_result))
+    cantilever_report = format_cantilever_slab_design_result(cantilever_result)
+    print(cantilever_report)
     cantilever_selected = collect_cantilever_reinforcement_selection(cantilever_result)
-    print(format_cantilever_reinforcement_selection(cantilever_selected))
-    print(
-        format_cantilever_selected_reviews(
-            geometry=project_inputs.transverse_slab.geometry,
-            materials=project_inputs.materials,
-            cantilever=cantilever_result,
-            selected=cantilever_selected,
-        )
+    cantilever_selection_report = format_cantilever_reinforcement_selection(
+        cantilever_selected
     )
+    print(cantilever_selection_report)
+    cantilever_review_report = format_cantilever_selected_reviews(
+        geometry=project_inputs.transverse_slab.geometry,
+        materials=project_inputs.materials,
+        cantilever=cantilever_result,
+        selected=cantilever_selected,
+    )
+    print(cantilever_review_report)
 
     diaphragm_result = solve_diaphragm_design(
         geometry=project_inputs.diaphragm,
@@ -311,7 +330,11 @@ def run_bridge_design(project_inputs=None) -> None:
         live_loads=project_inputs.live_loads,
         layout=project_inputs.transverse_slab.load_layout,
     )
-    print(format_diaphragm_design_result(diaphragm_result, project_inputs))
+    diaphragm_report = format_diaphragm_design_result(
+        diaphragm_result,
+        project_inputs,
+    )
+    print(diaphragm_report)
     diaphragm_reinforcement = design_diaphragm_reinforcement(
         geometry=project_inputs.diaphragm,
         materials=project_inputs.materials,
@@ -320,14 +343,64 @@ def run_bridge_design(project_inputs=None) -> None:
     diaphragm_selected = collect_diaphragm_reinforcement_selection(
         diaphragm_reinforcement,
     )
-    print(format_diaphragm_reinforcement_selection(diaphragm_selected))
-    print(
-        format_abutment_reaction_summary(
-            interior_result=girder_result,
-            exterior_result=exterior_result,
-            project_inputs=project_inputs,
-        )
+    diaphragm_selection_report = format_diaphragm_reinforcement_selection(
+        diaphragm_selected
     )
+    print(diaphragm_selection_report)
+    reaction_report = format_abutment_reaction_summary(
+        interior_result=girder_result,
+        exterior_result=exterior_result,
+        project_inputs=project_inputs,
+    )
+    print(reaction_report)
+
+    from bridge_design.reporting import DeckReportData, generate_deck_pdf_with_dialog
+
+    report_data = DeckReportData(
+        project_inputs=project_inputs,
+        transverse_result=result,
+        slab_reinforcement=reinforcement,
+        slab_selected=selected,
+        slab_crack=crack_review,
+        interior_result=girder_result,
+        interior_reinforcement=girder_reinforcement,
+        interior_shear=girder_shear,
+        interior_selected=girder_selected,
+        interior_detail=interior_detail,
+        exterior_result=exterior_result,
+        exterior_reinforcement=exterior_reinforcement,
+        exterior_shear=exterior_shear,
+        exterior_selected=exterior_selected,
+        exterior_detail=exterior_detail,
+        barrier_result=barrier_result,
+        cantilever_result=cantilever_result,
+        cantilever_selected=cantilever_selected,
+        diaphragm_result=diaphragm_result,
+        diaphragm_reinforcement=diaphragm_reinforcement,
+        diaphragm_selected=diaphragm_selected,
+        audit_sections=(
+            ("Datos generales", input_report),
+            ("Ubicacion de cargas", load_scheme_report),
+            ("Losa transversal", transverse_report),
+            ("Acero seleccionado de losa", slab_selection_report),
+            ("Fisuracion de losa", slab_crack_report),
+            ("Viga interior", interior_analysis_report),
+            ("Acero seleccionado de viga interior", interior_selection_report),
+            ("Servicio y fisuracion de viga interior", interior_crack_report + "\n" + interior_service_report),
+            ("Detalle constructivo de viga interior", interior_detail_report),
+            ("Viga exterior", exterior_analysis_report),
+            ("Acero y servicio de viga exterior", exterior_selection_report + "\n" + exterior_service_report),
+            ("Detalle constructivo de viga exterior", exterior_detail_report),
+            ("Barrera", barrier_report),
+            ("Losa en voladizo", cantilever_report + "\n" + cantilever_selection_report + "\n" + cantilever_review_report),
+            ("Diafragma", diaphragm_report + "\n" + diaphragm_selection_report),
+            ("Reacciones para estribos", reaction_report),
+        ),
+    )
+    try:
+        generate_deck_pdf_with_dialog(report_data)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"No se pudo generar el reporte PDF: {exc}")
 
 
 def collect_reinforcement_spacing_selection(reinforcement) -> tuple[

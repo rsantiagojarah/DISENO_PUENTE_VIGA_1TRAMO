@@ -9,6 +9,7 @@ description = "Programa de diseno de puente tipo viga-losa."
 requires-python = ">=3.10"
 dependencies = [
     "PyYAML>=6.0",
+    "reportlab>=4.0",
 ]
 
 [project.scripts]

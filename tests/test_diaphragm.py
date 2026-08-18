@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from bridge_design.domain.diaphragm import (
     DiaphragmBeamGeometry,
     combine_diaphragm_moments,
@@ -5,6 +7,7 @@ from bridge_design.domain.diaphragm import (
     design_diaphragm_reinforcement,
     solve_diaphragm_design,
 )
+from bridge_design.domain.interior_girder import _sample_at
 from bridge_design.domain.loads import LiveLoads, PedestrianLoad, VehicleLoadModel
 from bridge_design.domain.materials import (
     ConcreteProperties,
@@ -13,7 +16,7 @@ from bridge_design.domain.materials import (
     SteelProperties,
     SurfaceLayerProperties,
 )
-from bridge_design.domain.transverse_slab import TransverseLoadLayout
+from bridge_design.domain.transverse_slab import TransverseLoadLayout, _sampled_moment_at
 from bridge_design.main import (
     collect_diaphragm_reinforcement_selection,
     format_diaphragm_reinforcement_selection,
@@ -78,6 +81,10 @@ def test_diaphragm_solves_loads_combinations_flexure_temperature_and_shear() -> 
     assert analysis.pl.max_positive_moment_tn_m >= 0.0
     assert analysis.ll_im_envelope.max_positive_moment_tn_m > 0.0
     assert analysis.ll_im_envelope.max_abs_shear_tn > 0.0
+    assert analysis.ll_im_envelope.max_shear_samples_tn is not None
+    assert analysis.ll_im_envelope.min_shear_samples_tn is not None
+    assert max(value for _, value in analysis.ll_im_envelope.max_shear_samples_tn) > 0.0
+    assert min(value for _, value in analysis.ll_im_envelope.min_shear_samples_tn) < 0.0
 
     combined = combine_diaphragm_moments(analysis)
     strength_negative = next(
@@ -139,6 +146,74 @@ def test_diaphragm_ignores_two_truck_case_when_vehicle_path_is_too_narrow() -> N
     assert analysis.ll_im_two_trucks.critical_vehicle_position_m is None
     assert "no aplicable" in analysis.ll_im_two_trucks.vehicle_configuration
     assert analysis.ll_im_envelope.max_positive_moment_tn_m > 0.0
+
+
+def test_diaphragm_vehicle_envelopes_respect_symmetric_two_direction_travel() -> None:
+    geometry = _geometry()
+    analysis = solve_diaphragm_design(
+        geometry=geometry,
+        materials=_materials(),
+        live_loads=LiveLoads(
+            pedestrian=PedestrianLoad.mtc_sidewalk_default(),
+            vehicular=VehicleLoadModel.mtc_hl93_default(),
+        ),
+        layout=_layout(),
+    )
+    envelope = analysis.ll_im_envelope
+    width = geometry.total_width_m
+
+    for position, value in envelope.moment_samples_tn_m:
+        mirrored = _sampled_moment_at(
+            envelope.moment_samples_tn_m,
+            width - position,
+        )
+        assert abs(value - mirrored) < 1e-8
+
+    assert envelope.min_moment_samples_tn_m is not None
+    for position, value in envelope.min_moment_samples_tn_m:
+        mirrored = _sampled_moment_at(
+            envelope.min_moment_samples_tn_m,
+            width - position,
+        )
+        assert abs(value - mirrored) < 1e-8
+
+    assert envelope.max_shear_samples_tn is not None
+    assert envelope.min_shear_samples_tn is not None
+    for index in range(1, round(width * 100.0)):
+        position = index / 100.0
+        # At a support the shear has a real jump; compare regular stations only.
+        if any(
+            abs(position - support) < 1e-5
+            for support in geometry.support_positions_m
+        ):
+            continue
+        upper = _sample_at(envelope.max_shear_samples_tn, position)
+        mirrored_lower = _sample_at(
+            envelope.min_shear_samples_tn,
+            width - position,
+        )
+        assert abs(upper + mirrored_lower) < 1e-7
+
+
+def test_diaphragm_does_not_force_symmetry_for_an_asymmetric_vehicle_path() -> None:
+    geometry = _geometry()
+    analysis = solve_diaphragm_design(
+        geometry=geometry,
+        materials=_materials(),
+        live_loads=LiveLoads(
+            pedestrian=PedestrianLoad.mtc_sidewalk_default(),
+            vehicular=VehicleLoadModel.mtc_hl93_default(),
+        ),
+        layout=replace(_layout(), vehicle_move_end_m=6.50),
+    )
+    samples = analysis.ll_im_envelope.moment_samples_tn_m
+    width = geometry.total_width_m
+    largest_difference = max(
+        abs(value - _sampled_moment_at(samples, width - position))
+        for position, value in samples
+    )
+
+    assert largest_difference > 1e-3
 
 
 def test_diaphragm_reinforcement_selection_uses_recommended_defaults(monkeypatch) -> None:

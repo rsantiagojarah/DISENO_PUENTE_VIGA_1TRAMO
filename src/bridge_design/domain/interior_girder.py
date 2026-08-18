@@ -154,6 +154,9 @@ class LongitudinalLoadCaseAnalysis:
     distribution_factor_g: float | None = None
     shear_distribution_factor_g: float | None = None
     unfactored_before_g_moment_tn_m: float | None = None
+    min_moment_samples_tn_m: tuple[tuple[float, float], ...] | None = None
+    max_shear_samples_tn: tuple[tuple[float, float], ...] | None = None
+    min_shear_samples_tn: tuple[tuple[float, float], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -1142,6 +1145,9 @@ def _solve_static_longitudinal_case(
         shear_samples_tn=shear_samples,
         max_shear_tn=abs(maximum_shear[1]),
         max_shear_position_m=maximum_shear[0],
+        min_moment_samples_tn_m=samples,
+        max_shear_samples_tn=shear_samples,
+        min_shear_samples_tn=shear_samples,
     )
 
 
@@ -1157,7 +1163,9 @@ def _solve_moving_vehicle_case(
     shear_distribution_factor_g: float | None = None,
 ) -> LongitudinalLoadCaseAnalysis:
     samples = [(x, 0.0) for x in _sample_positions(geometry)]
-    shear_samples = [(x, 0.0) for x in _sample_positions(geometry)]
+    min_samples = [(x, float("inf")) for x in _sample_positions(geometry)]
+    max_shear_samples = [(x, float("-inf")) for x in _sample_positions(geometry)]
+    min_shear_samples = [(x, float("inf")) for x in _sample_positions(geometry)]
     critical_position = 0.0
     critical_config = ""
     critical_before_g = 0.0
@@ -1200,17 +1208,18 @@ def _solve_moving_vehicle_case(
                     moment = moment_g * before_g
                     if moment > current:
                         samples[index] = (x, moment)
-                    shear = abs(
-                        shear_g
-                        * _simple_span_shear_at(
-                            geometry.span_length_m,
-                            x,
-                            lane_load_tn_m,
-                            axles,
-                        )
+                    if moment < min_samples[index][1]:
+                        min_samples[index] = (x, moment)
+                    shear = shear_g * _simple_span_shear_at(
+                        geometry.span_length_m,
+                        x,
+                        lane_load_tn_m,
+                        axles,
                     )
-                    if shear > shear_samples[index][1]:
-                        shear_samples[index] = (x, shear)
+                    if shear > max_shear_samples[index][1]:
+                        max_shear_samples[index] = (x, shear)
+                    if shear < min_shear_samples[index][1]:
+                        min_shear_samples[index] = (x, shear)
                     if moment > critical_before_g * moment_g:
                         critical_position = base
                         critical_config = _configuration_label(name, spacing_set, direction)
@@ -1225,7 +1234,20 @@ def _solve_moving_vehicle_case(
                             shear_g * reactions[1],
                         )
     moment_samples = _symmetrized_envelope_samples(tuple(samples), geometry.span_length_m)
-    shear_samples_tuple = _symmetrized_envelope_samples(tuple(shear_samples), geometry.span_length_m)
+    min_moment_samples = _symmetrized_envelope_samples(
+        tuple(min_samples),
+        geometry.span_length_m,
+        target="min",
+    )
+    max_shear_samples_tuple, min_shear_samples_tuple = _symmetrized_signed_shear_envelopes(
+        tuple(max_shear_samples),
+        tuple(min_shear_samples),
+        geometry.span_length_m,
+    )
+    shear_samples_tuple = tuple(
+        (upper[0], max(abs(upper[1]), abs(lower[1])))
+        for upper, lower in zip(max_shear_samples_tuple, min_shear_samples_tuple)
+    )
     maximum = max(moment_samples, key=lambda item: item[1])
     maximum_shear = max(shear_samples_tuple, key=lambda item: item[1])
     return LongitudinalLoadCaseAnalysis(
@@ -1243,6 +1265,9 @@ def _solve_moving_vehicle_case(
         shear_distribution_factor_g=shear_g,
         unfactored_before_g_moment_tn_m=critical_before_g,
         moment_samples_tn_m=moment_samples,
+        min_moment_samples_tn_m=min_moment_samples,
+        max_shear_samples_tn=max_shear_samples_tuple,
+        min_shear_samples_tn=min_shear_samples_tuple,
     )
 
 
@@ -1252,14 +1277,44 @@ def _combine_live_load_cases(
     tandem: LongitudinalLoadCaseAnalysis,
 ) -> LongitudinalLoadCaseAnalysis:
     samples = []
+    min_samples = []
     shear_samples = []
+    max_shear_samples = []
+    min_shear_samples = []
     for position in _sample_positions(geometry):
         truck_moment = _moment_at(truck.moment_samples_tn_m, position)
         tandem_moment = _moment_at(tandem.moment_samples_tn_m, position)
         samples.append((position, max(truck_moment, tandem_moment)))
-        truck_shear = _sample_at(truck.shear_samples_tn, position)
-        tandem_shear = _sample_at(tandem.shear_samples_tn, position)
-        shear_samples.append((position, max(truck_shear, tandem_shear)))
+        truck_min_moment = _sample_at(
+            truck.min_moment_samples_tn_m or truck.moment_samples_tn_m,
+            position,
+        )
+        tandem_min_moment = _sample_at(
+            tandem.min_moment_samples_tn_m or tandem.moment_samples_tn_m,
+            position,
+        )
+        min_samples.append((position, min(truck_min_moment, tandem_min_moment)))
+        truck_upper_shear = _sample_at(
+            truck.max_shear_samples_tn or truck.shear_samples_tn,
+            position,
+        )
+        tandem_upper_shear = _sample_at(
+            tandem.max_shear_samples_tn or tandem.shear_samples_tn,
+            position,
+        )
+        truck_lower_shear = _sample_at(
+            truck.min_shear_samples_tn or truck.shear_samples_tn,
+            position,
+        )
+        tandem_lower_shear = _sample_at(
+            tandem.min_shear_samples_tn or tandem.shear_samples_tn,
+            position,
+        )
+        upper_shear = max(truck_upper_shear, tandem_upper_shear)
+        lower_shear = min(truck_lower_shear, tandem_lower_shear)
+        max_shear_samples.append((position, upper_shear))
+        min_shear_samples.append((position, lower_shear))
+        shear_samples.append((position, max(abs(upper_shear), abs(lower_shear))))
     maximum = max(samples, key=lambda item: item[1])
     maximum_shear = max(shear_samples, key=lambda item: item[1])
     source = truck if truck.max_positive_moment_tn_m >= tandem.max_positive_moment_tn_m else tandem
@@ -1278,6 +1333,9 @@ def _combine_live_load_cases(
         shear_distribution_factor_g=source.shear_distribution_factor_g,
         unfactored_before_g_moment_tn_m=source.unfactored_before_g_moment_tn_m,
         moment_samples_tn_m=tuple(samples),
+        min_moment_samples_tn_m=tuple(min_samples),
+        max_shear_samples_tn=tuple(max_shear_samples),
+        min_shear_samples_tn=tuple(min_shear_samples),
     )
 
 
@@ -1373,15 +1431,44 @@ def _moving_vehicle_bases(
 def _symmetrized_envelope_samples(
     samples: tuple[tuple[float, float], ...],
     span_m: float,
+    target: str = "max",
 ) -> tuple[tuple[float, float], ...]:
     by_position = {round(position, 10): value for position, value in samples}
     result = []
     for position, value in samples:
         mirrored_position = round(span_m - position, 10)
         mirrored_value = by_position.get(mirrored_position)
-        selected = max(value, mirrored_value) if mirrored_value is not None else value
+        if mirrored_value is None:
+            selected = value
+        elif target == "max":
+            selected = max(value, mirrored_value)
+        else:
+            selected = min(value, mirrored_value)
         result.append((position, 0.0 if abs(selected) <= NODE_TOLERANCE else selected))
     return tuple(result)
+
+
+def _symmetrized_signed_shear_envelopes(
+    upper_samples: tuple[tuple[float, float], ...],
+    lower_samples: tuple[tuple[float, float], ...],
+    span_m: float,
+) -> tuple[tuple[tuple[float, float], ...], tuple[tuple[float, float], ...]]:
+    """Enforce Vmax(x)=-Vmin(L-x) for the symmetric simple span."""
+    upper_by_position = {round(position, 10): value for position, value in upper_samples}
+    lower_by_position = {round(position, 10): value for position, value in lower_samples}
+    upper_result = []
+    lower_result = []
+    for position, upper in upper_samples:
+        mirror = round(span_m - position, 10)
+        mirrored_lower = lower_by_position.get(mirror)
+        selected = max(upper, -mirrored_lower) if mirrored_lower is not None else upper
+        upper_result.append((position, 0.0 if abs(selected) <= NODE_TOLERANCE else selected))
+    for position, lower in lower_samples:
+        mirror = round(span_m - position, 10)
+        mirrored_upper = upper_by_position.get(mirror)
+        selected = min(lower, -mirrored_upper) if mirrored_upper is not None else lower
+        lower_result.append((position, 0.0 if abs(selected) <= NODE_TOLERANCE else selected))
+    return tuple(upper_result), tuple(lower_result)
 
 
 def _truck_spacing_sets(vehicle: VehicleLoadModel) -> tuple[tuple[float, ...], ...]:
