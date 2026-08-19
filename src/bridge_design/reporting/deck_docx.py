@@ -1325,14 +1325,33 @@ def _is_equation_text(value: str) -> bool:
 
 
 def _add_native_equation(document: Document, expression: str):
-    paragraph = document.add_paragraph(style="Equation")
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    paragraph.paragraph_format.line_spacing = 1.5
-    paragraph.paragraph_format.keep_with_next = True
-    math = OxmlElement("m:oMath")
-    _append_math_expression(math, expression.strip())
-    paragraph._p.append(math)
-    return paragraph
+    paragraphs = []
+    for line in _equation_lines(expression):
+        paragraph = document.add_paragraph(style="Equation")
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        paragraph.paragraph_format.line_spacing = 1.5
+        paragraph.paragraph_format.keep_with_next = True
+        math = OxmlElement("m:oMath")
+        _append_math_expression(math, line)
+        paragraph._p.append(math)
+        paragraphs.append(paragraph)
+    return paragraphs[-1] if paragraphs else None
+
+
+def _equation_lines(expression: str) -> tuple[str, ...]:
+    """Split independent equations while preserving delimiters inside groups."""
+    remaining = expression.strip()
+    lines: list[str] = []
+    while remaining:
+        split = _split_top_level(remaining, (";",))
+        if split is None:
+            lines.append(remaining)
+            break
+        left, _, remaining = split
+        if left.strip():
+            lines.append(left.strip())
+        remaining = remaining.strip()
+    return tuple(lines)
 
 
 def _append_math_expression(parent, expression: str) -> None:
@@ -1344,7 +1363,7 @@ def _append_math_expression(parent, expression: str) -> None:
         _append_math_expression(parent, expression[1:-1])
         parent.append(_math_run(")"))
         return
-    for operators in ((";",), ("≤", "≥", "="), ("+", "−")):
+    for operators in (("≤", "≥", "="), ("+", "−")):
         split = _split_top_level(expression, operators)
         if split is not None:
             left, operator, right = split

@@ -3,6 +3,8 @@ from __future__ import annotations
 import builtins
 from pathlib import Path
 
+from lxml import etree
+
 from bridge_design.main import run_bridge_design
 from bridge_design.reporting import deck_docx
 from test_ascii_output import _project_inputs
@@ -33,7 +35,8 @@ def test_deck_command_generates_detailed_word_memory_automatically(tmp_path) -> 
     from zipfile import ZipFile
 
     with ZipFile(output) as package:
-        xml = package.read("word/document.xml").decode("utf-8")
+        document_xml = package.read("word/document.xml")
+        xml = document_xml.decode("utf-8")
         styles = package.read("word/styles.xml").decode("utf-8")
     assert "Para desarrollar esta verificación se emplea la siguiente expresión" in xml
     assert "Reemplazando los valores correspondientes" in xml
@@ -55,6 +58,22 @@ def test_deck_command_generates_detailed_word_memory_automatically(tmp_path) -> 
     assert 'w:right="1440"' in xml
     assert 'w:bottom="1440"' in xml
     assert 'w:left="1440"' in xml
+
+    root = etree.fromstring(document_xml)
+    namespaces = {
+        "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+        "m": "http://schemas.openxmlformats.org/officeDocument/2006/math",
+    }
+    equation_lines = [
+        "".join(paragraph.xpath(".//m:t/text()", namespaces=namespaces))
+        for paragraph in root.xpath("//w:p[m:oMath]", namespaces=namespaces)
+    ]
+    assert "E₊ = 0.660 + 0.55·S" in equation_lines
+    assert "E₋ = 1.220 + 0.25·S" in equation_lines
+    assert any(line.startswith("E₊ = 0.660 + 0.55·2.100") for line in equation_lines)
+    assert any(line.startswith("E₋ = 1.220 + 0.25·2.100") for line in equation_lines)
+    assert not any("E₊" in line and "E₋" in line for line in equation_lines)
+    assert any("min[67; 3840/" in line for line in equation_lines)
 
 
 def test_cancelled_save_dialog_does_not_write_a_report(monkeypatch, tmp_path) -> None:
