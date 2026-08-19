@@ -1,6 +1,7 @@
 """Transverse diaphragm beam analysis and reinforcement design."""
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 from bridge_design.codes.mtc_2018 import (
     DEFAULT_FLEXURAL_RESISTANCE_FACTOR,
@@ -280,6 +281,7 @@ def solve_diaphragm_design(
     )
 
 
+@lru_cache(maxsize=8)
 def combine_diaphragm_moments(
     result: DiaphragmAnalysisResult,
 ) -> tuple[DiaphragmCombinedMoment, ...]:
@@ -327,6 +329,7 @@ def combine_diaphragm_moments(
     return tuple(rows)
 
 
+@lru_cache(maxsize=8)
 def combine_diaphragm_shears(
     result: DiaphragmAnalysisResult,
 ) -> tuple[DiaphragmCombinedShear, ...]:

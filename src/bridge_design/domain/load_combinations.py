@@ -1,8 +1,10 @@
 """Load combination envelopes for bridge load effects."""
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
+from bridge_design.domain.sampling import interpolate_sorted_samples
 from bridge_design.domain.transverse_slab import (
     LoadCaseAnalysis,
     TransverseSlabAnalysisResult,
@@ -118,6 +120,7 @@ def default_transverse_slab_combinations() -> tuple[LoadCombination, ...]:
     )
 
 
+@lru_cache(maxsize=8)
 def combine_transverse_slab_moments(
     result: TransverseSlabAnalysisResult,
     combinations: tuple[LoadCombination, ...] | None = None,
@@ -210,18 +213,8 @@ def _combined_positions(*cases: LoadCaseAnalysis) -> tuple[float, ...]:
 
 
 def _moment_at(samples: tuple[tuple[float, float], ...], position: float) -> float:
-    if not samples:
-        raise ValueError("No hay muestras de momento para combinar.")
-    if position <= samples[0][0]:
-        return samples[0][1]
-    if position >= samples[-1][0]:
-        return samples[-1][1]
-    for left, right in zip(samples[:-1], samples[1:]):
-        left_x, left_m = left
-        right_x, right_m = right
-        if left_x <= position <= right_x:
-            if right_x == left_x:
-                return left_m
-            ratio = (position - left_x) / (right_x - left_x)
-            return left_m + ratio * (right_m - left_m)
-    return samples[-1][1]
+    return interpolate_sorted_samples(
+        samples,
+        position,
+        empty_message="No hay muestras de momento para combinar.",
+    )

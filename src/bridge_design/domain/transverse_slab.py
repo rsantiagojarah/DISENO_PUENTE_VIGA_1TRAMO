@@ -10,6 +10,7 @@ from bridge_design.codes.mtc_2018 import (
 )
 from bridge_design.domain.loads import LiveLoads, VehicleLoadModel
 from bridge_design.domain.materials import MaterialProperties
+from bridge_design.domain.sampling import interpolate_sorted_samples
 from bridge_design.validation.input_validators import require_non_negative, require_positive
 
 
@@ -699,21 +700,12 @@ def _sampled_moment_at(
     samples: tuple[tuple[float, float], ...],
     position: float,
 ) -> float:
-    if not samples:
-        raise ValueError("No hay muestras de momento.")
-    if position <= samples[0][0]:
-        return samples[0][1]
-    if position >= samples[-1][0]:
-        return samples[-1][1]
-    for left, right in zip(samples[:-1], samples[1:]):
-        left_x, left_m = left
-        right_x, right_m = right
-        if left_x <= position <= right_x:
-            if abs(right_x - left_x) <= NODE_TOLERANCE:
-                return left_m
-            ratio = (position - left_x) / (right_x - left_x)
-            return left_m + ratio * (right_m - left_m)
-    return samples[-1][1]
+    return interpolate_sorted_samples(
+        samples,
+        position,
+        tolerance=NODE_TOLERANCE,
+        empty_message="No hay muestras de momento.",
+    )
 
 
 def _sidewalk_segments(

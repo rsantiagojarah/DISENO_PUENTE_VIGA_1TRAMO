@@ -1,6 +1,7 @@
 """Exterior longitudinal girder analysis and strength design."""
 
 from dataclasses import dataclass, replace
+from functools import lru_cache
 
 from bridge_design.codes.mtc_2018 import (
     DEFAULT_FLEXURAL_RESISTANCE_FACTOR,
@@ -301,6 +302,7 @@ def solve_exterior_girder_design(
     )
 
 
+@lru_cache(maxsize=8)
 def combine_exterior_girder_moments(
     result: ExteriorGirderAnalysisResult,
 ) -> tuple[ExteriorGirderCombinedMoment, ...]:
@@ -344,6 +346,7 @@ def combine_exterior_girder_moments(
     return tuple(rows)
 
 
+@lru_cache(maxsize=8)
 def combine_exterior_girder_shears(
     geometry: ExteriorGirderGeometry,
     result: ExteriorGirderAnalysisResult,

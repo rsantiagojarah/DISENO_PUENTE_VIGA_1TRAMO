@@ -1,6 +1,7 @@
 """Interior longitudinal girder analysis and reinforcement design."""
 
 from dataclasses import dataclass
+from functools import lru_cache
 from math import ceil, floor
 from typing import Iterable, Literal
 
@@ -29,6 +30,7 @@ from bridge_design.domain.rebar_catalog import (
     SpacingGrid,
     generate_spacing_options,
 )
+from bridge_design.domain.sampling import interpolate_sorted_samples
 from bridge_design.units.converters import kg_cm2_to_ksi, ksi_to_kg_cm2, kip_to_tn
 from bridge_design.validation.input_validators import require_non_negative, require_positive
 
@@ -518,6 +520,7 @@ def solve_interior_girder_design(
     )
 
 
+@lru_cache(maxsize=8)
 def combine_interior_girder_moments(
     result: InteriorGirderAnalysisResult,
 ) -> tuple[InteriorGirderCombinedMoment, ...]:
@@ -557,6 +560,7 @@ def combine_interior_girder_moments(
     return tuple(rows)
 
 
+@lru_cache(maxsize=8)
 def combine_interior_girder_shears(
     geometry: InteriorGirderGeometry,
     result: InteriorGirderAnalysisResult,
@@ -1198,23 +1202,29 @@ def _solve_moving_vehicle_case(
                     for offset, load in zip(axle_offsets, axle_loads)
                     if -NODE_TOLERANCE <= base + offset <= geometry.span_length_m + NODE_TOLERANCE
                 )
+                reactions = _simple_span_reactions(
+                    geometry.span_length_m,
+                    lane_load_tn_m,
+                    axles,
+                )
+                reaction_left = reactions[0]
                 for index, (x, current) in enumerate(samples):
-                    before_g = _simple_span_moment_at(
-                        geometry.span_length_m,
+                    before_g = _simple_span_moment_with_reaction(
                         x,
                         lane_load_tn_m,
                         axles,
+                        reaction_left,
                     )
                     moment = moment_g * before_g
                     if moment > current:
                         samples[index] = (x, moment)
                     if moment < min_samples[index][1]:
                         min_samples[index] = (x, moment)
-                    shear = shear_g * _simple_span_shear_at(
-                        geometry.span_length_m,
+                    shear = shear_g * _simple_span_shear_with_reaction(
                         x,
                         lane_load_tn_m,
                         axles,
+                        reaction_left,
                     )
                     if shear > max_shear_samples[index][1]:
                         max_shear_samples[index] = (x, shear)
@@ -1224,11 +1234,6 @@ def _solve_moving_vehicle_case(
                         critical_position = base
                         critical_config = _configuration_label(name, spacing_set, direction)
                         critical_before_g = before_g
-                        reactions = _simple_span_reactions(
-                            geometry.span_length_m,
-                            lane_load_tn_m,
-                            axles,
-                        )
                         critical_reactions = (
                             shear_g * reactions[0],
                             shear_g * reactions[1],
@@ -1364,7 +1369,22 @@ def _simple_span_moment_at(
         for position, load in point_loads_tn
         if -NODE_TOLERANCE <= position <= span_m + NODE_TOLERANCE
     )
-    moment = reaction_left * x_m - uniform_q_tn_m * x_m**2.0 / 2.0
+    return _simple_span_moment_with_reaction(
+        x_m,
+        uniform_q_tn_m,
+        point_loads_tn,
+        reaction_left,
+    )
+
+
+def _simple_span_moment_with_reaction(
+    x_m: float,
+    uniform_q_tn_m: float,
+    point_loads_tn: tuple[tuple[float, float], ...],
+    reaction_left_tn: float,
+) -> float:
+    """Return moment using the already computed left support reaction."""
+    moment = reaction_left_tn * x_m - uniform_q_tn_m * x_m**2.0 / 2.0
     for position, load in point_loads_tn:
         if x_m > position:
             moment -= load * (x_m - position)
@@ -1396,7 +1416,22 @@ def _simple_span_shear_at(
     point_loads_tn: tuple[tuple[float, float], ...],
 ) -> float:
     reaction_left = _simple_span_reactions(span_m, uniform_q_tn_m, point_loads_tn)[0]
-    shear = reaction_left - uniform_q_tn_m * x_m
+    return _simple_span_shear_with_reaction(
+        x_m,
+        uniform_q_tn_m,
+        point_loads_tn,
+        reaction_left,
+    )
+
+
+def _simple_span_shear_with_reaction(
+    x_m: float,
+    uniform_q_tn_m: float,
+    point_loads_tn: tuple[tuple[float, float], ...],
+    reaction_left_tn: float,
+) -> float:
+    """Return shear using the already computed left support reaction."""
+    shear = reaction_left_tn - uniform_q_tn_m * x_m
     for position, load in point_loads_tn:
         if x_m > position:
             shear -= load
@@ -1536,19 +1571,7 @@ def _moment_at(samples: tuple[tuple[float, float], ...], position: float) -> flo
 
 
 def _sample_at(samples: tuple[tuple[float, float], ...], position: float) -> float:
-    if position <= samples[0][0]:
-        return samples[0][1]
-    if position >= samples[-1][0]:
-        return samples[-1][1]
-    for left, right in zip(samples[:-1], samples[1:]):
-        left_x, left_m = left
-        right_x, right_m = right
-        if left_x <= position <= right_x:
-            if abs(right_x - left_x) <= NODE_TOLERANCE:
-                return left_m
-            ratio = (position - left_x) / (right_x - left_x)
-            return left_m + ratio * (right_m - left_m)
-    return samples[-1][1]
+    return interpolate_sorted_samples(samples, position, tolerance=NODE_TOLERANCE)
 
 
 def _effective_depth_cm_for_girder(

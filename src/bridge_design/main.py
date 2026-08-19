@@ -245,6 +245,8 @@ def run_bridge_design(project_inputs=None) -> None:
         analysis=girder_result,
         reinforcement=girder_reinforcement,
         main_placement=selected_girder_main,
+        fatigue_review=girder_fatigue_review,
+        service_review=girder_service_review,
     )
     print(interior_service_report)
     interior_detail = detail_interior_girder(
@@ -316,6 +318,9 @@ def run_bridge_design(project_inputs=None) -> None:
         analysis=exterior_result,
         reinforcement=exterior_reinforcement,
         main_placement=selected_main,
+        crack_review=exterior_crack_review,
+        fatigue_review=exterior_fatigue_review,
+        service_review=exterior_service_stresses,
     )
     print(exterior_service_report)
     exterior_detail = detail_exterior_girder(
@@ -351,13 +356,6 @@ def run_bridge_design(project_inputs=None) -> None:
         cantilever_selected
     )
     print(cantilever_selection_report)
-    cantilever_review_report = format_cantilever_selected_reviews(
-        geometry=project_inputs.transverse_slab.geometry,
-        materials=project_inputs.materials,
-        cantilever=cantilever_result,
-        selected=cantilever_selected,
-    )
-    print(cantilever_review_report)
     from bridge_design.domain._cantilever_slab_calculations import design_development
     from bridge_design.domain._cantilever_slab_checks import review_crack_control
 
@@ -377,6 +375,15 @@ def run_bridge_design(project_inputs=None) -> None:
         flexural=cantilever_result.flexural_steel,
         selected_spacing=selected_cantilever_flexural,
     )
+    cantilever_review_report = format_cantilever_selected_reviews(
+        geometry=project_inputs.transverse_slab.geometry,
+        materials=project_inputs.materials,
+        cantilever=cantilever_result,
+        selected=cantilever_selected,
+        development_review=cantilever_development,
+        crack_review=cantilever_crack,
+    )
+    print(cantilever_review_report)
 
     diaphragm_result = solve_diaphragm_design(
         geometry=project_inputs.diaphragm,
@@ -680,16 +687,18 @@ def format_interior_girder_selected_main_reviews(
     analysis,
     reinforcement: InteriorGirderReinforcementDesign,
     main_placement: LongitudinalBarPlacementOption | None,
+    fatigue_review=None,
+    service_review=None,
 ) -> str:
     """Return service/fatigue checks using selected interior main bars."""
-    fatigue = review_interior_girder_fatigue(
+    fatigue = fatigue_review or review_interior_girder_fatigue(
         geometry=geometry,
         materials=materials,
         analysis=analysis,
         reinforcement=reinforcement,
         main_placement=main_placement,
     )
-    stresses = verify_interior_girder_service_stresses(
+    stresses = service_review or verify_interior_girder_service_stresses(
         geometry=geometry,
         materials=materials,
         analysis=analysis,
@@ -838,20 +847,22 @@ def format_cantilever_selected_reviews(
     materials,
     cantilever,
     selected: tuple[tuple[str, ReinforcementSpacingOption], ...],
+    development_review=None,
+    crack_review=None,
 ) -> str:
     """Return development and crack checks using selected overhang top steel."""
     from bridge_design.domain._cantilever_slab_calculations import design_development
     from bridge_design.domain._cantilever_slab_checks import review_crack_control
 
     selected_flexural = _selected_spacing(selected, "A.")
-    development = design_development(
+    development = development_review or design_development(
         geometry=geometry,
         materials=materials,
         params=cantilever.parameters,
         flexural=cantilever.flexural_steel,
         selected_spacing=selected_flexural,
     )
-    crack = review_crack_control(
+    crack = crack_review or review_crack_control(
         geometry=geometry,
         materials=materials,
         params=cantilever.parameters,
@@ -955,23 +966,26 @@ def format_exterior_girder_selected_main_reviews(
     analysis,
     reinforcement: InteriorGirderReinforcementDesign,
     main_placement: LongitudinalBarPlacementOption | None,
+    crack_review=None,
+    fatigue_review=None,
+    service_review=None,
 ) -> str:
     """Return service/fatigue/crack checks using selected exterior main bars."""
-    crack = review_exterior_girder_crack_control(
+    crack = crack_review or review_exterior_girder_crack_control(
         geometry=geometry,
         materials=materials,
         analysis=analysis,
         reinforcement=reinforcement,
         main_placement=main_placement,
     )
-    fatigue = review_exterior_girder_fatigue(
+    fatigue = fatigue_review or review_exterior_girder_fatigue(
         geometry=geometry,
         materials=materials,
         analysis=analysis,
         reinforcement=reinforcement,
         main_placement=main_placement,
     )
-    stresses = verify_exterior_girder_service_stresses(
+    stresses = service_review or verify_exterior_girder_service_stresses(
         geometry=geometry,
         materials=materials,
         analysis=analysis,

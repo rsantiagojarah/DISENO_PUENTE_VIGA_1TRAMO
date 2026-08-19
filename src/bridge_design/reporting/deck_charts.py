@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 
 from reportlab.graphics.shapes import Drawing, Line, PolyLine, String
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 
 from bridge_design.domain.load_combinations import LoadFactor
+from bridge_design.domain.sampling import interpolate_sorted_samples
 from bridge_design.reporting.pdf_style import ACCENT, INK, MUTED, RULE, register_arial_narrow
 
 Sample = tuple[float, float]
@@ -32,15 +34,7 @@ class StrengthEnvelopeDiagrams:
 
 
 def _sample_at(samples: tuple[Sample, ...], position: float) -> float:
-    if position <= samples[0][0]:
-        return samples[0][1]
-    if position >= samples[-1][0]:
-        return samples[-1][1]
-    for left, right in zip(samples[:-1], samples[1:]):
-        if left[0] <= position <= right[0]:
-            ratio = (position - left[0]) / (right[0] - left[0])
-            return left[1] + ratio * (right[1] - left[1])
-    return samples[-1][1]
+    return interpolate_sorted_samples(samples, position)
 
 
 def strength_envelopes(
@@ -80,6 +74,27 @@ def strength_diagram_envelopes(
     transverse: bool = False,
 ) -> StrengthEnvelopeDiagrams:
     """Return separate upper/lower Strength I moment and shear envelopes."""
+    try:
+        hash(result)
+    except TypeError:
+        return _build_strength_diagram_envelopes(result, include_pl, transverse)
+    return _cached_strength_diagram_envelopes(result, include_pl, transverse)
+
+
+@lru_cache(maxsize=8)
+def _cached_strength_diagram_envelopes(
+    result,
+    include_pl: bool,
+    transverse: bool,
+) -> StrengthEnvelopeDiagrams:
+    return _build_strength_diagram_envelopes(result, include_pl, transverse)
+
+
+def _build_strength_diagram_envelopes(
+    result,
+    include_pl: bool,
+    transverse: bool,
+) -> StrengthEnvelopeDiagrams:
     cases = [result.dc, result.dw]
     if include_pl:
         cases.append(result.pl)
