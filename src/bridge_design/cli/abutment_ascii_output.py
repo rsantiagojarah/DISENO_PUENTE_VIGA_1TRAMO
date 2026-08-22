@@ -941,21 +941,30 @@ def _format_footing_width_recommendation(result: AbutmentDesignResult) -> list[s
     recommendation = result.footing_width_recommendation
     if recommendation is None:
         return []
-    status = "OK" if recommendation.all_bearing_ok_at_recommended_width else "REVISAR q Meyerhof"
+    status = "OK" if recommendation.found_compliant_width else "REVISAR vuelco/q Meyerhof"
+    if recommendation.found_compliant_width:
+        width_criterion = f"incrementos de {recommendation.increment_step_m:.2f} m recalculando cargas"
+        width_value = f"{recommendation.recommended_width_m:.3f} m"
+    else:
+        width_criterion = (
+            f"incrementos de {recommendation.increment_step_m:.2f} m hasta "
+            f"{recommendation.search_max_width_m:.2f} m"
+        )
+        width_value = "no se encontro B que cumpla"
     rows = (
         ("Ancho ingresado B", "-", f"{recommendation.current_width_m:.3f} m"),
-        ("Caso critico", "estado que no cumple presion Meyerhof/capacidad", recommendation.controlling_case),
+        ("Caso critico", "estado que no cumple vuelco o presion Meyerhof/capacidad", recommendation.controlling_case),
         ("q Meyerhof actual", "presion geotecnica del caso critico", f"{recommendation.current_geotechnical_pressure_kg_cm2:.3f} kg/cm2"),
         ("qmin lineal actual", "diagnostico para diagrama estructural", f"{recommendation.current_min_qmin_kg_cm2:.3f} kg/cm2"),
         (
             "Ancho recomendado B",
-            f"incrementos de {recommendation.increment_step_m:.2f} m recalculando cargas",
-            f"{recommendation.recommended_width_m:.3f} m",
+            width_criterion,
+            width_value,
         ),
         ("q Meyerhof con B recomendado", "maximo de todos los estados", f"{recommendation.recommended_max_geotechnical_pressure_kg_cm2:.3f} kg/cm2"),
         ("qmin estructural con B recomendado", "minimo de todos los estados", f"{recommendation.recommended_min_qmin_kg_cm2:.3f} kg/cm2"),
         ("qmax estructural con B recomendado", "maximo de todos los estados", f"{recommendation.recommended_max_qmax_kg_cm2:.3f} kg/cm2"),
-        ("Estado con B recomendado", "criterio Meyerhof/capacidad por estado limite", status),
+        ("Estado con B recomendado", "vuelco y Meyerhof/capacidad por estado limite", status),
     )
     return [
         "",

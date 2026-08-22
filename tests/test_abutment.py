@@ -248,6 +248,8 @@ def test_abutment_recommends_footing_width_when_meyerhof_pressure_fails() -> Non
     assert recommendation.current_geotechnical_pressure_kg_cm2 > 2.0
     assert recommendation.recommended_max_geotechnical_pressure_kg_cm2 <= 3.30
     assert recommendation.all_bearing_ok_at_recommended_width is True
+    assert recommendation.all_overturning_ok_at_recommended_width is True
+    assert recommendation.found_compliant_width is True
 
 
 def test_abutment_report_includes_footing_width_recommendation() -> None:
@@ -288,6 +290,134 @@ def test_abutment_adopts_recommended_footing_width_before_reinforcement(monkeypa
     assert updated_inputs.geometry.footing_width_m == pytest.approx(5.70)
     assert updated_result.footing_width_recommendation is None
     assert any("Adoptar B recomendado = 5.70 m" in prompt for prompt in prompts)
+
+
+def _abutment_inputs_overturning_controls_footing_width() -> AbutmentInputs:
+    return AbutmentInputs(
+        geometry=AbutmentGeometryInputs(footing_width_m=4.00, backfill_step_width_m=0.0),
+        soil=AbutmentSoilInputs(allowable_bearing_kg_cm2=10.0),
+        key=AbutmentKeyInputs(enabled=False),
+    )
+
+
+def test_abutment_recommends_footing_width_when_overturning_fails() -> None:
+    result = solve_abutment_design(_abutment_inputs_overturning_controls_footing_width())
+    recommendation = result.footing_width_recommendation
+
+    assert all(state.bearing_status == "OK" for state in result.with_bridge)
+    assert any(state.overturning_status == "NO" for state in result.with_bridge)
+    assert recommendation is not None
+    assert recommendation.current_width_m == pytest.approx(4.00)
+    assert recommendation.recommended_width_m == pytest.approx(4.45)
+    assert recommendation.controlling_case == "CON PUENTE - Resistencia Ia"
+    assert recommendation.all_bearing_ok_at_recommended_width is True
+    assert recommendation.all_overturning_ok_at_recommended_width is True
+    assert recommendation.found_compliant_width is True
+
+    adopted = solve_abutment_design(
+        AbutmentInputs(
+            geometry=AbutmentGeometryInputs(footing_width_m=4.45, backfill_step_width_m=0.0),
+            soil=AbutmentSoilInputs(allowable_bearing_kg_cm2=10.0),
+            key=AbutmentKeyInputs(enabled=False),
+        )
+    )
+    assert adopted.footing_width_recommendation is None
+    assert all(
+        state.overturning_status == "OK" and state.bearing_status == "OK"
+        for state in adopted.with_bridge
+        + adopted.without_bridge
+        + adopted.service_with_bridge
+        + adopted.service_without_bridge
+    )
+
+
+def test_abutment_adopts_footing_width_when_overturning_fails(monkeypatch) -> None:
+    from bridge_design.abutment_main import _consider_footing_width_when_contact_fails
+
+    inputs = _abutment_inputs_overturning_controls_footing_width()
+    preliminary = solve_abutment_design(inputs)
+    prompts: list[str] = []
+
+    def fake_input(prompt: str) -> str:
+        prompts.append(prompt)
+        return ""
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    updated_inputs, updated_result = _consider_footing_width_when_contact_fails(inputs, preliminary)
+
+    assert updated_inputs.geometry.footing_width_m == pytest.approx(4.45)
+    assert updated_result.footing_width_recommendation is None
+    assert all(
+        state.overturning_status == "OK" and state.bearing_status == "OK"
+        for state in updated_result.with_bridge + updated_result.service_with_bridge
+    )
+    assert any("Adoptar B recomendado = 4.45 m" in prompt for prompt in prompts)
+
+
+def _abutment_inputs_service_pressure_cannot_be_fixed_by_width() -> AbutmentInputs:
+    return AbutmentInputs(
+        geometry=AbutmentGeometryInputs(
+            retained_height_m=11.0,
+            footing_width_m=10.45,
+            footing_thickness_m=1.10,
+            toe_length_m=2.20,
+            lower_stem_thickness_m=1.00,
+            upper_stem_thickness_m=0.40,
+            front_soil_depth_m=1.50,
+        ),
+        soil=AbutmentSoilInputs(allowable_bearing_kg_cm2=2.0, friction_angle_deg=28.0),
+        key=AbutmentKeyInputs(enabled=False),
+    )
+
+
+def test_abutment_reports_footing_search_when_service_pressure_cannot_be_fixed() -> None:
+    result = solve_abutment_design(_abutment_inputs_service_pressure_cannot_be_fixed_by_width())
+    recommendation = result.footing_width_recommendation
+    service = result.service_with_bridge[0]
+
+    assert service.bearing_status == "NO"
+    assert recommendation is not None
+    assert recommendation.found_compliant_width is False
+    assert recommendation.recommended_width_m == pytest.approx(10.45)
+    assert recommendation.controlling_case == "CON PUENTE - Servicio I"
+    assert recommendation.search_max_width_m == pytest.approx(max(10.45 + 20.0, 10.45 * 4.0))
+
+
+def test_abutment_cli_shows_footing_search_when_no_width_complies(monkeypatch, capsys) -> None:
+    from bridge_design.abutment_main import _consider_footing_width_when_contact_fails
+
+    inputs = _abutment_inputs_service_pressure_cannot_be_fixed_by_width()
+    preliminary = solve_abutment_design(inputs)
+    prompts: list[str] = []
+
+    def fake_input(prompt: str) -> str:
+        prompts.append(prompt)
+        return ""
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    updated_inputs, updated_result = _consider_footing_width_when_contact_fails(inputs, preliminary)
+    captured = capsys.readouterr()
+
+    assert updated_inputs.geometry.footing_width_m == pytest.approx(10.45)
+    assert updated_result.footing_width_recommendation is not None
+    assert updated_result.footing_width_recommendation.found_compliant_width is False
+    assert prompts == []
+    assert "ningun ancho cumple" in captured.out
+    assert "qadm" in captured.out
+
+
+def test_abutment_report_includes_unsuccessful_footing_width_search() -> None:
+    from bridge_design.cli.abutment_ascii_output import format_abutment_design_result
+
+    report = format_abutment_design_result(
+        solve_abutment_design(_abutment_inputs_service_pressure_cannot_be_fixed_by_width())
+    )
+
+    assert "RECOMENDACION DE ANCHO DE ZAPATA" in report
+    assert "no se encontro B que cumpla" in report
+    assert "CON PUENTE - Servicio I" in report
 
 
 def test_shear_key_uses_front_soil_height_for_trapezoidal_passive_pressure() -> None:

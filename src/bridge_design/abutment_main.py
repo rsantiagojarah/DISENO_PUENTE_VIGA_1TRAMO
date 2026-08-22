@@ -100,15 +100,29 @@ def _consider_footing_width_when_contact_fails(
     while preliminary.footing_width_recommendation is not None:
         recommendation = preliminary.footing_width_recommendation
         print()
-        print("La zapata no cumple el criterio de presion del suelo con la condicion actual.")
+        print("La zapata no cumple vuelco y/o presion del suelo con la condicion actual.")
         print("Presion admisible: Servicio I con Meyerhof; LRFD: Resistencia/Evento Extremo con Meyerhof.")
+        print("Vuelco: |e| no excede el limite de contacto minimo del estado limite.")
         print(format_abutment_footing_width_recommendation(preliminary))
+        if not recommendation.found_compliant_width:
+            print()
+            print(
+                "Se itero B en incrementos de "
+                f"{recommendation.increment_step_m:.2f} m hasta "
+                f"{recommendation.search_max_width_m:.2f} m y ningun ancho cumple "
+                "vuelco y presion Meyerhof."
+            )
+            print(
+                "En Servicio I ensanchar el talon aumenta el peso de relleno y puede "
+                "no bastar para bajar q por debajo de qadm. Ajuste qadm, la altura o la geometria."
+            )
+            break
         if not _prompt_yes_no(
             f"Adoptar B recomendado = {recommendation.recommended_width_m:.2f} m",
             default=True,
         ):
             print()
-            print("No se puede continuar al diseno de acero mientras la presion Meyerhof no cumpla.")
+            print("No se puede continuar al diseno de acero mientras no cumplan vuelco y presion Meyerhof.")
             continue
         inputs = replace(
             inputs,

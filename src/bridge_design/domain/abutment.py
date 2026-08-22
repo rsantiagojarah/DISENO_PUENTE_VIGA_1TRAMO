@@ -358,11 +358,12 @@ class StabilityStateResult:
 
 @dataclass(frozen=True)
 class FootingWidthRecommendation:
-    """Recommended footing width when contact pressure has tension."""
+    """Recommended footing width when overturning or Meyerhof pressure fails."""
 
     current_width_m: float
     recommended_width_m: float
     increment_step_m: float
+    search_max_width_m: float
     controlling_case: str
     current_min_qmin_kg_cm2: float
     current_geotechnical_pressure_kg_cm2: float
@@ -370,6 +371,11 @@ class FootingWidthRecommendation:
     recommended_max_qmax_kg_cm2: float
     recommended_max_geotechnical_pressure_kg_cm2: float
     all_bearing_ok_at_recommended_width: bool
+    all_overturning_ok_at_recommended_width: bool
+
+    @property
+    def found_compliant_width(self) -> bool:
+        return self.all_bearing_ok_at_recommended_width and self.all_overturning_ok_at_recommended_width
 
 
 @dataclass(frozen=True)
@@ -697,19 +703,18 @@ def _footing_width_recommendation(
         service_with_bridge,
         service_without_bridge,
     )
-    failing_states = tuple((label, state) for label, state in current_states if state.bearing_status != "OK")
+    failing_states = tuple(
+        (label, state) for label, state in current_states if _footing_width_state_fails(state)
+    )
     if not failing_states:
         return None
-    controlling_label, controlling_state = max(
-        failing_states,
-        key=lambda item: item[1].geotechnical_pressure_kg_cm2 / item[1].q_allow_kg_cm2,
-    )
+    controlling_label, controlling_state = _footing_width_controlling_state(failing_states)
 
     step_m = 0.05
     current_width = inputs.geometry.footing_width_m
     max_width = max(current_width + 20.0, current_width * 4.0)
     candidate_width = current_width
-    recommended_states: tuple[tuple[str, StabilityStateResult], ...] = ()
+    recommended_states = current_states
 
     while candidate_width < max_width:
         candidate_width = round(candidate_width + step_m, 10)
@@ -718,26 +723,75 @@ def _footing_width_recommendation(
             geometry=replace(inputs.geometry, footing_width_m=candidate_width),
         )
         recommended_states = _stability_states_for_width_recommendation(candidate_inputs)
-        if all(state.bearing_status == "OK" for _, state in recommended_states):
+        if all(not _footing_width_state_fails(state) for _, state in recommended_states):
             break
     else:
-        return None
+        recommended_states = current_states
+        candidate_width = current_width
 
-    min_qmin = min(state.qmin_kg_cm2 for _, state in recommended_states)
-    max_qmax = max(state.qmax_kg_cm2 for _, state in recommended_states)
-    max_geotechnical_pressure = max(state.geotechnical_pressure_kg_cm2 for _, state in recommended_states)
-    all_bearing_ok = all(state.bearing_status == "OK" for _, state in recommended_states)
-    return FootingWidthRecommendation(
+    return _footing_width_recommendation_result(
         current_width_m=current_width,
         recommended_width_m=candidate_width,
         increment_step_m=step_m,
+        search_max_width_m=max_width,
         controlling_case=controlling_label,
+        controlling_state=controlling_state,
+        recommended_states=recommended_states,
+    )
+
+
+def _footing_width_recommendation_result(
+    *,
+    current_width_m: float,
+    recommended_width_m: float,
+    increment_step_m: float,
+    search_max_width_m: float,
+    controlling_case: str,
+    controlling_state: StabilityStateResult,
+    recommended_states: tuple[tuple[str, StabilityStateResult], ...],
+) -> FootingWidthRecommendation:
+    return FootingWidthRecommendation(
+        current_width_m=current_width_m,
+        recommended_width_m=recommended_width_m,
+        increment_step_m=increment_step_m,
+        search_max_width_m=search_max_width_m,
+        controlling_case=controlling_case,
         current_min_qmin_kg_cm2=controlling_state.qmin_linear_kg_cm2,
         current_geotechnical_pressure_kg_cm2=controlling_state.geotechnical_pressure_kg_cm2,
-        recommended_min_qmin_kg_cm2=min_qmin,
-        recommended_max_qmax_kg_cm2=max_qmax,
-        recommended_max_geotechnical_pressure_kg_cm2=max_geotechnical_pressure,
-        all_bearing_ok_at_recommended_width=all_bearing_ok,
+        recommended_min_qmin_kg_cm2=min(state.qmin_kg_cm2 for _, state in recommended_states),
+        recommended_max_qmax_kg_cm2=max(state.qmax_kg_cm2 for _, state in recommended_states),
+        recommended_max_geotechnical_pressure_kg_cm2=max(
+            state.geotechnical_pressure_kg_cm2 for _, state in recommended_states
+        ),
+        all_bearing_ok_at_recommended_width=all(
+            state.bearing_status == "OK" for _, state in recommended_states
+        ),
+        all_overturning_ok_at_recommended_width=all(
+            state.overturning_status == "OK" for _, state in recommended_states
+        ),
+    )
+
+
+def _footing_width_state_fails(state: StabilityStateResult) -> bool:
+    return state.bearing_status != "OK" or state.overturning_status != "OK"
+
+
+def _footing_width_controlling_state(
+    failing_states: tuple[tuple[str, StabilityStateResult], ...],
+) -> tuple[str, StabilityStateResult]:
+    bearing_failing = tuple(item for item in failing_states if item[1].bearing_status != "OK")
+    if bearing_failing:
+        return max(
+            bearing_failing,
+            key=lambda item: item[1].geotechnical_pressure_kg_cm2 / item[1].q_allow_kg_cm2,
+        )
+    return max(
+        failing_states,
+        key=lambda item: (
+            abs(item[1].eccentricity_m) / item[1].eccentricity_limit_m
+            if item[1].eccentricity_limit_m > 0.0
+            else float("inf")
+        ),
     )
 
 
