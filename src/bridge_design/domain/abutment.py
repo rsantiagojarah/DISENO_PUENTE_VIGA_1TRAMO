@@ -417,6 +417,7 @@ class StructuralDesignCase:
     shear_demand_tn_m: float
     shear_resistance_tn_m: float
     shear_status: str
+    is_custom_selection: bool = False
     notes: str = ""
 
 
@@ -434,6 +435,7 @@ class AbutmentSecondaryReinforcementCase:
     selected_spacing_m: float
     provided_as_cm2_m: float
     status: str
+    is_custom_selection: bool = False
     reference: str = TEMPERATURE_REINFORCEMENT_REFERENCE
     notes: str = ""
 
@@ -479,6 +481,7 @@ class AbutmentStemReinforcementCut:
     upper_bar_label: str
     upper_spacing_m: float
     upper_provided_as_cm2_m: float
+    continuous_every_n_bars: int
     minimum_as_cm2_m: float
     theoretical_cut_height_m: float
     constructive_cut_height_m: float
@@ -1610,6 +1613,7 @@ def _reinforced_case(
         shear_demand_tn_m=shear_demand_tn_m,
         shear_resistance_tn_m=shear_resistance_tn_m,
         shear_status="OK" if shear_resistance_tn_m >= shear_demand_tn_m else "NO",
+        is_custom_selection=bool(selected_option and selected_option.is_custom),
         notes=notes,
     )
 
@@ -1746,6 +1750,7 @@ def _secondary_reinforcement_case(
         selected_spacing_m=selected.spacing_m,
         provided_as_cm2_m=selected.provided_area_cm2_m,
         status="OK" if selected.provided_area_cm2_m + 1e-9 >= required_as_cm2_m else "NO",
+        is_custom_selection=selected.is_custom,
         notes=notes,
     )
 
@@ -1913,9 +1918,24 @@ def _stem_reinforcement_cut(
 
     lower_bar = _bar_by_label(stem_design.selected_bar_label)
     grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m, r.maximum_spacing_m)
-    upper_spacing = _spacing_for_bar(lower_bar.area_cm2, stem_design.temperature_as_cm2_m, grid)
-    if upper_spacing <= stem_design.selected_spacing_m + 1e-9:
+    upper_spacing_limit = _spacing_for_bar(
+        lower_bar.area_cm2,
+        stem_design.temperature_as_cm2_m,
+        grid,
+    )
+    continuous_every_n_bars = int(
+        (upper_spacing_limit + 1e-9) / stem_design.selected_spacing_m
+    )
+    if continuous_every_n_bars < 2:
         return None
+
+    # Las barras continuas deben ocupar posiciones de la parrilla inferior.
+    # Por ello la separacion superior solo puede ser un multiplo entero de la
+    # separacion inferior (una de cada n barras), nunca una grilla independiente.
+    upper_spacing = round(
+        continuous_every_n_bars * stem_design.selected_spacing_m,
+        3,
+    )
 
     upper_as = lower_bar.area_cm2 / upper_spacing
     development = next(
@@ -1951,7 +1971,11 @@ def _stem_reinforcement_cut(
         lower_bar.diameter_cm,
     )
     status = "OK"
-    notes = "Acero superior continuo cumple desde el corte teorico; barras inferiores se prolongan ld."
+    notes = (
+        "Acero superior continuo: "
+        f"1 de cada {continuous_every_n_bars} barras inferiores; "
+        "las barras cortadas se prolongan ld sobre el corte teorico."
+    )
     if constructive_cut >= height - r.spacing_step_m:
         status = "NO CONVIENE"
         notes = "La longitud de desarrollo lleva el corte cerca de la coronacion; ahorro constructivo limitado."
@@ -1965,6 +1989,7 @@ def _stem_reinforcement_cut(
         upper_bar_label=lower_bar.label,
         upper_spacing_m=upper_spacing,
         upper_provided_as_cm2_m=upper_as,
+        continuous_every_n_bars=continuous_every_n_bars,
         minimum_as_cm2_m=stem_design.temperature_as_cm2_m,
         theoretical_cut_height_m=theoretical_cut,
         constructive_cut_height_m=constructive_cut,

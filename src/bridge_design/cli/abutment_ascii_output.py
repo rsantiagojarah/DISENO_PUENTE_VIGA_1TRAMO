@@ -99,10 +99,11 @@ def format_abutment_reinforcement_selection(
     """Return selected abutment reinforcement distributions."""
     return "\n".join(
         _enumerate_audit_titles([""] + boxed_table(
-            ("Caso", "Barra", "s", "As req", "As prov", "Estado"),
+            ("Caso", "Origen", "Barra", "s", "As req", "As prov", "Estado"),
             (
                 (
                     label,
+                    "USUARIO" if option.is_custom else "TABLA",
                     option.bar.label,
                     f"{option.spacing_m:.3f}",
                     f"{option.required_area_cm2_m:.3f}",
@@ -111,7 +112,7 @@ def format_abutment_reinforcement_selection(
                 )
                 for label, option in selected
             ),
-            aligns=("left", "center", "right", "right", "right", "center"),
+            aligns=("left", "center", "center", "right", "right", "right", "center"),
             title=title,
         ))
     )
@@ -311,6 +312,7 @@ def _format_stem_reinforcement_cut_option(result: AbutmentDesignResult) -> list[
             (
                 ("Acero inferior", f"{cut.lower_bar_label} @ {cut.lower_spacing_m:.3f} m"),
                 ("Acero continuo superior", f"{cut.upper_bar_label} @ {cut.upper_spacing_m:.3f} m"),
+                ("Patron constructivo", f"Continua 1 de cada {cut.continuous_every_n_bars} barras inferiores"),
                 ("Altura teorica de corte", f"{cut.theoretical_cut_height_m:.3f} m sobre zapata"),
                 ("Altura constructiva de corte", f"{cut.constructive_cut_height_m:.3f} m sobre zapata"),
                 ("Longitud barras cortadas", f"{cut.lower_cut_bar_length_m:.3f} m"),
@@ -1071,6 +1073,7 @@ def _format_structural_design(
                         ("Control As requerido", _required_as_control(case)),
                         ("As provisto", f"{case.provided_as_cm2_m:.3f} cm2/m"),
                         ("Acero seleccionado", f"{case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"),
+                        ("Origen del acero", "USUARIO" if case.is_custom_selection else "TABLA"),
                         ("Momento resistente Mr", f"{case.moment_resistance_tn_m_m:.3f} Tn*m/m"),
                         ("Estado a flexion", case.moment_status),
                         ("Cortante ultimo Vu", f"{case.shear_demand_tn_m:.3f} Tn/m"),
@@ -1118,6 +1121,7 @@ def _format_stem_reinforcement_cut(result: AbutmentDesignResult) -> list[str]:
                 ("As inferior provisto", f"{cut.lower_provided_as_cm2_m:.3f} cm2/m"),
                 ("Acero continuo superior", f"{cut.upper_bar_label} @ {cut.upper_spacing_m:.3f} m"),
                 ("As superior provisto", f"{cut.upper_provided_as_cm2_m:.3f} cm2/m"),
+                ("Patron constructivo", f"Continua 1 de cada {cut.continuous_every_n_bars} barras inferiores"),
                 ("As minimo adoptado", f"{cut.minimum_as_cm2_m:.3f} cm2/m"),
                 ("Altura teorica de corte", f"{cut.theoretical_cut_height_m:.3f} m sobre zapata"),
                 ("Prolongacion por desarrollo", f"{cut.development_extension_m:.3f} m"),
@@ -1149,6 +1153,7 @@ def _format_secondary_reinforcement(result: AbutmentDesignResult) -> list[str]:
                         ("As requerido", f"{case.required_as_cm2_m:.3f} cm2/m"),
                         ("As provisto", f"{case.provided_as_cm2_m:.3f} cm2/m"),
                         ("Acero seleccionado", f"{case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"),
+                        ("Origen del acero", "USUARIO" if case.is_custom_selection else "TABLA"),
                         ("Estado", case.status),
                         ("Criterio", case.notes),
                     ),

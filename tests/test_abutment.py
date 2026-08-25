@@ -581,6 +581,12 @@ def test_abutment_generates_single_stem_reinforcement_cut() -> None:
     assert cut.lower_spacing_m == pytest.approx(result.stem_design.selected_spacing_m)
     assert cut.upper_bar_label == result.stem_design.selected_bar_label
     assert cut.upper_spacing_m > cut.lower_spacing_m
+    assert cut.continuous_every_n_bars >= 2
+    assert cut.upper_spacing_m == pytest.approx(
+        cut.continuous_every_n_bars * cut.lower_spacing_m
+    )
+    assert cut.continuous_every_n_bars == 2
+    assert cut.upper_spacing_m == pytest.approx(0.250)
     assert cut.upper_provided_as_cm2_m >= cut.minimum_as_cm2_m
     assert cut.required_as_at_cut_cm2_m <= cut.upper_provided_as_cm2_m + 1e-6
     assert cut.constructive_cut_height_m > cut.theoretical_cut_height_m
@@ -600,6 +606,7 @@ def test_abutment_report_includes_stem_reinforcement_cut() -> None:
     assert "Altura teorica de corte" in report
     assert "Altura constructiva de corte" in report
     assert "Acero continuo superior" in report
+    assert "Continua 1 de cada 2 barras inferiores" in report
 
 
 def test_abutment_report_can_omit_stem_reinforcement_cut() -> None:
@@ -686,6 +693,27 @@ def test_abutment_selected_reinforcement_is_used_for_final_checks() -> None:
     assert toe_development.bar_label == '5/8"'
     assert toe_detail.bar_label == '5/8"'
     assert toe_detail.spacing_m == pytest.approx(selected_toe.spacing_m)
+
+
+def test_abutment_custom_reinforcement_is_used_and_identified() -> None:
+    from bridge_design.cli.abutment_ascii_output import format_abutment_reinforcement_selection
+    from bridge_design.domain.rebar_catalog import custom_spacing_option
+
+    preliminary = solve_abutment_design()
+    selected_stem = custom_spacing_option(
+        preliminary.stem_design.spacing_options,
+        '1"',
+        0.125,
+    )
+    selected = (("A. Pantalla", selected_stem),)
+
+    result = solve_abutment_design(selected_reinforcement={"Pantalla": selected_stem})
+    report = format_abutment_reinforcement_selection(selected)
+
+    assert result.stem_design.selected_bar_label == '1"'
+    assert result.stem_design.selected_spacing_m == pytest.approx(0.125)
+    assert result.stem_design.is_custom_selection is True
+    assert "USUARIO" in report
 
 
 def test_abutment_reports_missing_secondary_reinforcement_families() -> None:

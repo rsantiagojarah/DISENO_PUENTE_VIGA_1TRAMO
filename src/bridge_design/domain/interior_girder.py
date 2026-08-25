@@ -1,6 +1,6 @@
 """Interior longitudinal girder analysis and reinforcement design."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from math import ceil, floor
 from typing import Iterable, Literal
@@ -29,6 +29,7 @@ from bridge_design.domain.rebar_catalog import (
     ReinforcementSpacingOption,
     SpacingGrid,
     generate_spacing_options,
+    reinforcing_bar_by_label,
 )
 from bridge_design.domain.sampling import interpolate_sorted_samples
 from bridge_design.units.converters import kg_cm2_to_ksi, ksi_to_kg_cm2, kip_to_tn
@@ -224,6 +225,7 @@ class LongitudinalBarPlacementOption:
     clear_spacing_cm: float
     is_compliant: bool
     is_recommended: bool = False
+    is_custom: bool = False
 
     @property
     def excess_percent(self) -> float:
@@ -404,6 +406,7 @@ class ShearStirrupOption:
     phi_vn_tn: float
     is_compliant: bool
     is_recommended: bool = False
+    is_custom: bool = False
 
     @property
     def excess_percent(self) -> float:
@@ -420,6 +423,7 @@ class InteriorGirderShearDesign:
     controlling_shear: InteriorGirderCombinedShear
     effective_shear_depth_cm: float
     web_width_cm: float
+    steel_yield_kg_cm2: float
     phi: float
     beta: float
     theta_degrees: float
@@ -892,6 +896,7 @@ def design_interior_girder_shear(
         controlling_shear=controlling,
         effective_shear_depth_cm=effective_shear_depth_cm,
         web_width_cm=web_width_cm,
+        steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=params.shear_resistance_factor,
         beta=params.shear_beta,
         theta_degrees=params.shear_theta_degrees,
@@ -1152,6 +1157,100 @@ def _solve_static_longitudinal_case(
         min_moment_samples_tn_m=samples,
         max_shear_samples_tn=shear_samples,
         min_shear_samples_tn=shear_samples,
+    )
+
+
+def custom_main_bar_placement_option(
+    case_options: LongitudinalPlacementCaseOptions,
+    bar_label: str,
+    bar_count: int,
+) -> LongitudinalBarPlacementOption:
+    """Return a validated catalog placement chosen by diameter and bar count."""
+    if bar_count < 2:
+        raise ValueError("El acero principal debe tener al menos 2 barras.")
+    bar = reinforcing_bar_by_label(bar_label)
+    option = next(
+        (
+            candidate
+            for candidate in case_options.options
+            if candidate.bar_label == bar.label and candidate.bar_count == bar_count
+        ),
+        None,
+    )
+    if option is None:
+        maximum = max(
+            (
+                candidate.bar_count
+                for candidate in case_options.options
+                if candidate.bar_label == bar.label
+            ),
+            default=0,
+        )
+        raise ValueError(
+            f"La cantidad solicitada no esta dentro del rango detallado para {bar.label} "
+            f"(2 a {maximum} barras)."
+        )
+    if not option.is_compliant:
+        reasons = []
+        if option.provided_area_cm2 + 1e-9 < option.required_area_cm2:
+            reasons.append(
+                f"As provisto {option.provided_area_cm2:.3f} < As requerido {option.required_area_cm2:.3f} cm2"
+            )
+        reasons.append(
+            f"capas={option.layers}, separacion libre={option.clear_spacing_cm:.2f} cm"
+        )
+        raise ValueError("La configuracion no cumple: " + "; ".join(reasons) + ".")
+    return replace(option, item=0, is_recommended=False, is_custom=True)
+
+
+def custom_shear_stirrup_option(
+    design: InteriorGirderShearDesign,
+    bar_label: str,
+    legs: int,
+    spacing_m: float,
+) -> ShearStirrupOption:
+    """Build a validated stirrup selected outside the generated spacing table."""
+    if legs < 2:
+        raise ValueError("El estribo debe tener al menos 2 ramas.")
+    require_positive(spacing_m, "separacion personalizada de estribos")
+    if spacing_m < DEFAULT_SPACING_STEP_M - 1e-9:
+        raise ValueError(
+            f"La separacion no puede ser menor que {DEFAULT_SPACING_STEP_M:.3f} m."
+        )
+    if spacing_m > design.maximum_spacing_m + 1e-9:
+        raise ValueError(
+            f"La separacion no puede exceder {design.maximum_spacing_m:.3f} m."
+        )
+    bar = reinforcing_bar_by_label(bar_label)
+    provided = legs * bar.area_cm2 / spacing_m
+    if provided + 1e-9 < design.required_av_cm2_m:
+        raise ValueError(
+            f"Av provisto = {provided:.3f} cm2/m es menor que "
+            f"Av requerido = {design.required_av_cm2_m:.3f} cm2/m."
+        )
+    vs = (
+        provided
+        / 100.0
+        * (design.steel_yield_kg_cm2 / 1000.0)
+        * design.effective_shear_depth_cm
+    )
+    phi_vn = design.phi * min(design.vc_tn + vs, design.nominal_shear_limit_tn)
+    demand = design.controlling_shear.combined_shear_tn
+    if phi_vn + 1e-9 < demand:
+        raise ValueError(
+            f"phiVn = {phi_vn:.3f} Tn es menor que Vu = {demand:.3f} Tn."
+        )
+    return ShearStirrupOption(
+        item=0,
+        bar_label=bar.label,
+        bar_area_cm2=bar.area_cm2,
+        legs=legs,
+        spacing_m=spacing_m,
+        required_av_cm2_m=design.required_av_cm2_m,
+        provided_av_cm2_m=provided,
+        phi_vn_tn=phi_vn,
+        is_compliant=True,
+        is_custom=True,
     )
 
 

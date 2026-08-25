@@ -15,6 +15,7 @@ from bridge_design.domain.crack_control import (
 from bridge_design.domain.rebar_catalog import (
     REINFORCING_BAR_CATALOG,
     SpacingGrid,
+    custom_spacing_option,
     generate_spacing_options,
 )
 from bridge_design.domain.reinforcement import (
@@ -95,6 +96,38 @@ def test_spacing_options_cap_low_required_steel_at_maximum_spacing() -> None:
     assert by_bar['1"'].spacing_m == 0.30
     assert by_bar['1"'].provided_area_cm2_m == pytest.approx(16.666667)
     assert options.recommended == by_bar["6 mm"]
+
+
+def test_custom_spacing_can_use_a_compliant_value_outside_the_table_grid() -> None:
+    options = generate_spacing_options(
+        "Acero personalizado",
+        required_area_cm2_m=4.0,
+        spacing_grid=SpacingGrid(step_m=0.025, minimum_m=0.10, maximum_m=0.30),
+    )
+
+    selected = custom_spacing_option(options, '1/2"', 0.180)
+
+    assert selected.item == 0
+    assert selected.is_custom is True
+    assert selected.is_compliant is True
+    assert selected.spacing_m == pytest.approx(0.180)
+    assert selected.provided_area_cm2_m == pytest.approx(1.29 / 0.180)
+    assert all(option.spacing_m != pytest.approx(0.180) for option in options.options)
+
+
+def test_custom_spacing_rejects_insufficient_area_and_spacing_limits() -> None:
+    options = generate_spacing_options(
+        "Acero personalizado",
+        required_area_cm2_m=4.0,
+        spacing_grid=SpacingGrid(step_m=0.025, minimum_m=0.10, maximum_m=0.30),
+    )
+
+    with pytest.raises(ValueError, match="menor que As requerido"):
+        custom_spacing_option(options, '3/8"', 0.300)
+    with pytest.raises(ValueError, match="menor que 0.100"):
+        custom_spacing_option(options, '1"', 0.090)
+    with pytest.raises(ValueError, match="exceder 0.300"):
+        custom_spacing_option(options, '1"', 0.310)
 
 
 def test_crack_control_spacing_limit_uses_aashto_expression() -> None:

@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+import pytest
+
 from bridge_design.domain.diaphragm import (
     DiaphragmBeamGeometry,
     combine_diaphragm_moments,
@@ -267,3 +269,58 @@ def test_diaphragm_reinforcement_selection_accepts_user_items(monkeypatch) -> No
     assert selected[1][1].item == 2
     assert selected[2][1].item == 3
     assert selected[3][1].item == 4
+
+
+def test_diaphragm_reinforcement_selection_accepts_custom_configurations(monkeypatch) -> None:
+    analysis = solve_diaphragm_design(
+        geometry=_geometry(),
+        materials=_materials(),
+        live_loads=LiveLoads(
+            pedestrian=PedestrianLoad.mtc_sidewalk_default(),
+            vehicular=VehicleLoadModel.mtc_hl93_default(),
+        ),
+        layout=_layout(),
+    )
+    reinforcement = design_diaphragm_reinforcement(
+        geometry=_geometry(),
+        materials=_materials(),
+        analysis=analysis,
+    )
+    custom_main = next(
+        option
+        for option in reinforcement.negative.placement_options.options
+        if option.is_compliant and not option.is_recommended
+    )
+    custom_stirrup_spacing = max(
+        0.025,
+        min(0.123, reinforcement.shear.maximum_spacing_m * 0.8),
+    )
+    answers = iter(
+        (
+            "s",
+            "p",
+            custom_main.bar_label,
+            str(custom_main.bar_count),
+            "",
+            "p",
+            '1"',
+            "0.123",
+            "p",
+            '1"',
+            "4",
+            str(custom_stirrup_spacing),
+        )
+    )
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    selected = collect_diaphragm_reinforcement_selection(reinforcement)
+    report = format_diaphragm_reinforcement_selection(selected)
+
+    assert selected[0][1].is_custom is True
+    assert selected[0][1].bar_count == custom_main.bar_count
+    assert selected[2][1].is_custom is True
+    assert selected[2][1].spacing_m == pytest.approx(0.123)
+    assert selected[3][1].is_custom is True
+    assert selected[3][1].legs == 4
+    assert selected[3][1].spacing_m == pytest.approx(custom_stirrup_spacing)
+    assert report.count("P") >= 3

@@ -820,6 +820,7 @@ def _design_diaphragm_shear(
         ),
         effective_shear_depth_cm=effective_shear_depth_cm,
         web_width_cm=web_width_cm,
+        steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=params.shear_resistance_factor,
         beta=params.shear_beta,
         theta_degrees=params.shear_theta_degrees,

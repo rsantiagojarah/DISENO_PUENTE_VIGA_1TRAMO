@@ -50,6 +50,7 @@ class ReinforcementSpacingOption:
     provided_area_cm2_m: float
     is_compliant: bool
     is_recommended: bool = False
+    is_custom: bool = False
 
     @property
     def excess_percent(self) -> float:
@@ -66,6 +67,8 @@ class ReinforcementCaseOptions:
     label: str
     required_area_cm2_m: float
     options: tuple[ReinforcementSpacingOption, ...]
+    minimum_spacing_m: float = DEFAULT_MIN_SPACING_M
+    maximum_spacing_m: float = DEFAULT_MAX_SPACING_M
 
     @property
     def recommended(self) -> ReinforcementSpacingOption | None:
@@ -102,7 +105,13 @@ def generate_spacing_options(
     )
     recommended = _recommended_option(options, grid)
     if recommended is None:
-        return ReinforcementCaseOptions(label, required_area_cm2_m, options)
+        return ReinforcementCaseOptions(
+            label,
+            required_area_cm2_m,
+            options,
+            grid.minimum_m,
+            grid.maximum_m,
+        )
     return ReinforcementCaseOptions(
         label=label,
         required_area_cm2_m=required_area_cm2_m,
@@ -118,6 +127,68 @@ def generate_spacing_options(
             )
             for option in options
         ),
+        minimum_spacing_m=grid.minimum_m,
+        maximum_spacing_m=grid.maximum_m,
+    )
+
+
+def reinforcing_bar_by_label(label: str) -> ReinforcingBar:
+    """Return a catalog bar accepting common diameter-label variants."""
+    normalized = label.strip().lower().replace("ø", "").replace("in", '"').strip()
+    aliases = {
+        "6": "6 mm",
+        "6mm": "6 mm",
+        "8": "8 mm",
+        "8mm": "8 mm",
+        "3/8": '3/8"',
+        '3/8"': '3/8"',
+        "1/2": '1/2"',
+        '1/2"': '1/2"',
+        "5/8": '5/8"',
+        '5/8"': '5/8"',
+        "3/4": '3/4"',
+        '3/4"': '3/4"',
+        "1": '1"',
+        '1"': '1"',
+    }
+    normalized = aliases.get(normalized.replace(" ", ""), normalized)
+    for bar in REINFORCING_BAR_CATALOG:
+        if bar.label.lower() == normalized:
+            return bar
+    available = ", ".join(bar.label for bar in REINFORCING_BAR_CATALOG)
+    raise ValueError(f"Barra no reconocida. Opciones: {available}.")
+
+
+def custom_spacing_option(
+    case_options: ReinforcementCaseOptions,
+    bar_label: str,
+    spacing_m: float,
+) -> ReinforcementSpacingOption:
+    """Build and validate an adopted spacing not limited to the option-table grid."""
+    require_positive(spacing_m, "separacion personalizada")
+    if spacing_m < case_options.minimum_spacing_m - 1e-9:
+        raise ValueError(
+            f"La separacion no puede ser menor que {case_options.minimum_spacing_m:.3f} m."
+        )
+    if spacing_m > case_options.maximum_spacing_m + 1e-9:
+        raise ValueError(
+            f"La separacion no puede exceder {case_options.maximum_spacing_m:.3f} m."
+        )
+    bar = reinforcing_bar_by_label(bar_label)
+    provided = bar.area_cm2 / spacing_m
+    if provided + 1e-9 < case_options.required_area_cm2_m:
+        raise ValueError(
+            f"As provisto = {provided:.3f} cm2/m es menor que "
+            f"As requerido = {case_options.required_area_cm2_m:.3f} cm2/m."
+        )
+    return ReinforcementSpacingOption(
+        item=0,
+        bar=bar,
+        spacing_m=spacing_m,
+        required_area_cm2_m=case_options.required_area_cm2_m,
+        provided_area_cm2_m=provided,
+        is_compliant=True,
+        is_custom=True,
     )
 
 

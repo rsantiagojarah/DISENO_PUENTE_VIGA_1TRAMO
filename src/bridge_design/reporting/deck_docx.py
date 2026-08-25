@@ -1636,14 +1636,15 @@ def _moment_row_values(row, *, include_pl: bool):
 def _option_text(option) -> str:
     if option is None:
         return "opción de cálculo no disponible"
+    suffix = " (selección personalizada del usuario)" if getattr(option, "is_custom", False) else ""
     if hasattr(option, "bar_count"):
         layer_word = "capa" if option.layers == 1 else "capas"
-        return f"{option.bar_count} barras de {option.bar_label} distribuidas en {option.layers} {layer_word}, As = {option.provided_area_cm2:.3f} cm²"
+        return f"{option.bar_count} barras de {option.bar_label} distribuidas en {option.layers} {layer_word}, As = {option.provided_area_cm2:.3f} cm²{suffix}"
     if hasattr(option, "legs"):
-        return f"estribo {option.bar_label}, {option.legs} ramas @ {option.spacing_m:.3f} m, Av = {option.provided_av_cm2_m:.3f} cm²/m"
+        return f"estribo {option.bar_label}, {option.legs} ramas @ {option.spacing_m:.3f} m, Av = {option.provided_av_cm2_m:.3f} cm²/m{suffix}"
     bar = getattr(option, "bar", None)
     label = getattr(bar, "label", getattr(option, "bar_label", "barra"))
-    return f"{label} @ {option.spacing_m:.3f} m, As = {option.provided_area_cm2_m:.3f} cm²/m"
+    return f"{label} @ {option.spacing_m:.3f} m, As = {option.provided_area_cm2_m:.3f} cm²/m{suffix}"
 
 
 def _option_status(option) -> str:

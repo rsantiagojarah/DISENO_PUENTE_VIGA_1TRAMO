@@ -244,6 +244,44 @@ def test_pure_wall_stem_secondary_minimum_uses_lower_stem_thickness_for_uniform_
         assert case.provided_as_cm2_m >= case.required_as_cm2_m
 
 
+def test_pure_wall_stem_cut_uses_continuous_bars_from_lower_grid() -> None:
+    from bridge_design.domain.abutment import AbutmentGeometryInputs, AbutmentInputs
+    from bridge_design.domain.cantilever_wall import solve_cantilever_wall_design
+
+    result = solve_cantilever_wall_design(
+        AbutmentInputs(
+            geometry=AbutmentGeometryInputs(
+                retained_height_m=7.8,
+                footing_width_m=6.0,
+                footing_thickness_m=0.95,
+                toe_length_m=2.55,
+                lower_stem_thickness_m=0.95,
+                upper_stem_thickness_m=0.40,
+                front_soil_depth_m=2.50,
+            ),
+            is_pure_wall=True,
+        )
+    )
+
+    cut = result.stem_reinforcement_cut
+    assert cut is not None
+    assert cut.continuous_every_n_bars == 2
+    assert cut.lower_spacing_m == pytest.approx(0.150)
+    assert cut.upper_spacing_m == pytest.approx(0.300)
+    assert cut.upper_spacing_m == pytest.approx(
+        cut.continuous_every_n_bars * cut.lower_spacing_m
+    )
+
+
+def test_pure_wall_omits_cut_when_no_continuous_subset_is_possible() -> None:
+    from bridge_design.domain.cantilever_wall import solve_cantilever_wall_design
+
+    result = solve_cantilever_wall_design()
+
+    assert result.stem_design.selected_spacing_m == pytest.approx(0.200)
+    assert result.stem_reinforcement_cut is None
+
+
 def test_pure_wall_main_stem_reinforcement_is_not_less_than_exterior_vertical_minimum() -> None:
     from bridge_design.domain.abutment import AbutmentGeometryInputs, AbutmentInputs
     from bridge_design.domain.cantilever_wall import solve_cantilever_wall_design

@@ -55,6 +55,8 @@ from bridge_design.domain.interior_girder import (
     InteriorGirderReinforcementDesign,
     LongitudinalBarPlacementOption,
     ShearStirrupOption,
+    custom_main_bar_placement_option,
+    custom_shear_stirrup_option,
     design_interior_girder_reinforcement,
     design_interior_girder_shear,
     review_interior_girder_crack_control,
@@ -63,8 +65,10 @@ from bridge_design.domain.interior_girder import (
     verify_interior_girder_service_stresses,
 )
 from bridge_design.domain.rebar_catalog import (
+    REINFORCING_BAR_CATALOG,
     ReinforcementCaseOptions,
     ReinforcementSpacingOption,
+    custom_spacing_option,
 )
 from bridge_design.domain.reinforcement import (
     design_transverse_slab_reinforcement,
@@ -527,10 +531,12 @@ def _prompt_spacing_option(
     valid_items = {option.item: option for option in case_options.options}
     while True:
         raw_value = input(
-            f"{case_options.label} - elija item [{default_item}]: "
+            f"{case_options.label} - elija item [{default_item}] (P=personalizado): "
         ).strip()
         if not raw_value:
             return valid_items[default_item]
+        if raw_value.lower() in ("p", "personalizado", "personalizada"):
+            return _prompt_custom_spacing_option(case_options)
         try:
             item = int(raw_value)
         except ValueError:
@@ -540,6 +546,27 @@ def _prompt_spacing_option(
             print("El item no existe para este caso.")
             continue
         return valid_items[item]
+
+
+def _prompt_custom_spacing_option(
+    case_options: ReinforcementCaseOptions,
+) -> ReinforcementSpacingOption:
+    recommended = case_options.recommended or case_options.options[-1]
+    labels = ", ".join(bar.label for bar in REINFORCING_BAR_CATALOG)
+    print(f"Barras disponibles: {labels}")
+    while True:
+        bar_label = input(
+            f"{case_options.label} - barra personalizada [{recommended.bar.label}]: "
+        ).strip() or recommended.bar.label
+        raw_spacing = input(
+            f"{case_options.label} - separacion personalizada en m "
+            f"[{recommended.spacing_m:.3f}]: "
+        ).strip()
+        try:
+            spacing_m = recommended.spacing_m if not raw_spacing else float(raw_spacing.replace(",", "."))
+            return custom_spacing_option(case_options, bar_label, spacing_m)
+        except ValueError as exc:
+            print(f"Configuracion personalizada no valida: {exc}")
 
 
 def format_reinforcement_spacing_selection(
@@ -588,7 +615,7 @@ def collect_interior_girder_reinforcement_selection(
     )
     for label, case_options in cases[1:]:
         selected.append((label, _prompt_spacing_option(case_options)))
-    selected.append(("D. Estribos por corte interior", _prompt_shear_stirrup_option(shear.options)))
+    selected.append(("D. Estribos por corte interior", _prompt_shear_stirrup_option(shear)))
     return tuple(selected)
 
 
@@ -597,9 +624,13 @@ def _prompt_main_placement_option(case_options) -> LongitudinalBarPlacementOptio
     default_item = recommended.item if recommended is not None else case_options.options[-1].item
     valid_items = {option.item: option for option in case_options.options}
     while True:
-        raw_value = input(f"{case_options.label} - elija item [{default_item}]: ").strip()
+        raw_value = input(
+            f"{case_options.label} - elija item [{default_item}] (P=personalizado): "
+        ).strip()
         if not raw_value:
             return valid_items[default_item]
+        if raw_value.lower() in ("p", "personalizado", "personalizada"):
+            return _prompt_custom_main_placement(case_options)
         try:
             item = int(raw_value)
         except ValueError:
@@ -611,16 +642,39 @@ def _prompt_main_placement_option(case_options) -> LongitudinalBarPlacementOptio
         return valid_items[item]
 
 
+def _prompt_custom_main_placement(case_options) -> LongitudinalBarPlacementOption:
+    recommended = case_options.recommended or case_options.options[-1]
+    labels = ", ".join(bar.label for bar in REINFORCING_BAR_CATALOG if bar.diameter_cm >= 1.27)
+    print(f"Barras principales disponibles: {labels}")
+    while True:
+        bar_label = input(
+            f"{case_options.label} - barra principal personalizada [{recommended.bar_label}]: "
+        ).strip() or recommended.bar_label
+        raw_count = input(
+            f"{case_options.label} - cantidad total de barras [{recommended.bar_count}]: "
+        ).strip()
+        try:
+            bar_count = recommended.bar_count if not raw_count else int(raw_count)
+            return custom_main_bar_placement_option(case_options, bar_label, bar_count)
+        except ValueError as exc:
+            print(f"Configuracion personalizada no valida: {exc}")
+
+
 def _prompt_shear_stirrup_option(
-    options: tuple[ShearStirrupOption, ...],
+    design,
 ) -> ShearStirrupOption:
+    options = design.options
     recommended = next((option for option in options if option.is_recommended), None)
     default_item = recommended.item if recommended is not None else options[-1].item
     valid_items = {option.item: option for option in options}
     while True:
-        raw_value = input(f"Estribos por corte - elija item [{default_item}]: ").strip()
+        raw_value = input(
+            f"Estribos por corte - elija item [{default_item}] (P=personalizado): "
+        ).strip()
         if not raw_value:
             return valid_items[default_item]
+        if raw_value.lower() in ("p", "personalizado", "personalizada"):
+            return _prompt_custom_shear_stirrup(design)
         try:
             item = int(raw_value)
         except ValueError:
@@ -630,6 +684,28 @@ def _prompt_shear_stirrup_option(
             print("El item no existe para esta tabla.")
             continue
         return valid_items[item]
+
+
+def _prompt_custom_shear_stirrup(design) -> ShearStirrupOption:
+    recommended = design.recommended or design.options[-1]
+    labels = ", ".join(bar.label for bar in REINFORCING_BAR_CATALOG)
+    print(f"Barras para estribos disponibles: {labels}")
+    while True:
+        bar_label = input(
+            f"Barra personalizada del estribo [{recommended.bar_label}]: "
+        ).strip() or recommended.bar_label
+        raw_legs = input(
+            f"Numero de ramas [{recommended.legs}]: "
+        ).strip()
+        raw_spacing = input(
+            f"Separacion personalizada de estribos en m [{recommended.spacing_m:.3f}]: "
+        ).strip()
+        try:
+            legs = recommended.legs if not raw_legs else int(raw_legs)
+            spacing_m = recommended.spacing_m if not raw_spacing else float(raw_spacing.replace(",", "."))
+            return custom_shear_stirrup_option(design, bar_label, legs, spacing_m)
+        except ValueError as exc:
+            print(f"Configuracion personalizada no valida: {exc}")
 
 
 def _selected_main_placement(
@@ -784,7 +860,7 @@ def collect_diaphragm_reinforcement_selection(
         ),
         (
             "D. Estribos por corte diafragma",
-            _prompt_shear_stirrup_option(reinforcement.shear.options),
+            _prompt_shear_stirrup_option(reinforcement.shear),
         ),
     )
 
@@ -940,7 +1016,7 @@ def collect_exterior_girder_reinforcement_selection(
         ),
         (
             "D. Estribos por corte exterior",
-            _prompt_shear_stirrup_option(shear.options),
+            _prompt_shear_stirrup_option(shear),
         ),
     )
 
@@ -1043,7 +1119,7 @@ def _selected_reinforcement_table(
     return boxed_table(
         (
             "Caso",
-            "Item",
+            "Item/Origen",
             "Barra/Estribo",
             "N/Ramas",
             "s (m)",
@@ -1073,10 +1149,11 @@ def _selected_reinforcement_row(
     option: LongitudinalBarPlacementOption | ReinforcementSpacingOption | ShearStirrupOption,
 ) -> tuple[str, object, str, object, str, str, str, str, str]:
     state = "OK" if option.is_compliant else "NO"
+    item = "P" if getattr(option, "is_custom", False) else option.item
     if isinstance(option, LongitudinalBarPlacementOption):
         return (
             label,
-            option.item,
+            item,
             option.bar_label,
             option.bar_count,
             "-",
@@ -1088,7 +1165,7 @@ def _selected_reinforcement_row(
     if isinstance(option, ShearStirrupOption):
         return (
             label,
-            option.item,
+            item,
             option.bar_label,
             option.legs,
             f"{option.spacing_m:.3f}",
@@ -1099,7 +1176,7 @@ def _selected_reinforcement_row(
         )
     return (
         label,
-        option.item,
+        item,
         option.bar.label,
         "-",
         f"{option.spacing_m:.3f}",

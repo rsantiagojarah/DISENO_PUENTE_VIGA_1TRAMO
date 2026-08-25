@@ -14,7 +14,12 @@ from bridge_design.domain.abutment import (
     equivalent_vehicular_surcharge_height_m,
 )
 from bridge_design.domain.cantilever_wall import cantilever_wall_geometry_inputs, cantilever_wall_load_inputs
-from bridge_design.domain.rebar_catalog import ReinforcementCaseOptions, ReinforcementSpacingOption
+from bridge_design.domain.rebar_catalog import (
+    REINFORCING_BAR_CATALOG,
+    ReinforcementCaseOptions,
+    ReinforcementSpacingOption,
+    custom_spacing_option,
+)
 
 
 def collect_abutment_inputs(
@@ -362,9 +367,13 @@ def _prompt_spacing_option(
     default_item = recommended.item if recommended is not None else case_options.options[-1].item
     valid_items = {option.item: option for option in case_options.options}
     while True:
-        raw_value = input(f"{case_options.label} - elija item [{default_item}]: ").strip()
+        raw_value = input(
+            f"{case_options.label} - elija item [{default_item}] (P=personalizado): "
+        ).strip()
         if not raw_value:
             return valid_items[default_item]
+        if raw_value.lower() in ("p", "personalizado", "personalizada"):
+            return _prompt_custom_spacing_option(case_options)
         try:
             item = int(raw_value)
         except ValueError:
@@ -374,3 +383,24 @@ def _prompt_spacing_option(
             print("El item no existe para este caso.")
             continue
         return valid_items[item]
+
+
+def _prompt_custom_spacing_option(
+    case_options: ReinforcementCaseOptions,
+) -> ReinforcementSpacingOption:
+    recommended = case_options.recommended or case_options.options[-1]
+    labels = ", ".join(bar.label for bar in REINFORCING_BAR_CATALOG)
+    print(f"Barras disponibles: {labels}")
+    while True:
+        bar_label = input(
+            f"{case_options.label} - barra personalizada [{recommended.bar.label}]: "
+        ).strip() or recommended.bar.label
+        raw_spacing = input(
+            f"{case_options.label} - separacion personalizada en m "
+            f"[{recommended.spacing_m:.3f}]: "
+        ).strip()
+        try:
+            spacing_m = recommended.spacing_m if not raw_spacing else float(raw_spacing.replace(",", "."))
+            return custom_spacing_option(case_options, bar_label, spacing_m)
+        except ValueError as exc:
+            print(f"Configuracion personalizada no valida: {exc}")

@@ -632,7 +632,9 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
         "As,prov = Ab/s ; a = As,prov·fy/(0.85·f'c·b) ; Mr = φ·As,prov·fy·(d − a/2)",
         "Ab: área de una barra; s: espaciamiento; a: profundidad del bloque equivalente; Mr: momento resistente.",
         f"As,prov = {bar_area:.3f}/{case.selected_spacing_m:.3f} = {case.provided_as_cm2_m:.3f} cm²/m; a = {a_cm:.3f} cm; Mr = {case.moment_resistance_tn_m_m:.3f} Tn·m/m",
-        f"Se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m, con estado a flexión {case.moment_status}.",
+        f"Se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"
+        f"{' (selección personalizada del usuario)' if case.is_custom_selection else ''}, "
+        f"con estado a flexión {case.moment_status}.",
         _status_comment(case.moment_status, "El momento resistente cubre la demanda y la capacidad mínima aplicable."),
         REF_FLEXURE,
     )
@@ -693,12 +695,17 @@ def _service_and_detailing(document: Document, result: AbutmentDesignResult) -> 
             _status_comment(cut.status, "La prolongación por desarrollo conserva la capacidad requerida por encima del punto teórico."),
             REF_DEVELOPMENT,
         )
+        _body(
+            document,
+            f"Patrón constructivo: continúa 1 de cada {cut.continuous_every_n_bars} barras de la parrilla inferior; "
+            "las barras restantes terminan en la altura constructiva de corte.",
+        )
         _table(
             document,
             ("Zona", "Refuerzo", "As provisto", "Longitud"),
             (
                 ("Inferior", f"{cut.lower_bar_label} @ {cut.lower_spacing_m:.3f} m", f"{cut.lower_provided_as_cm2_m:.3f} cm²/m", f"{cut.lower_cut_bar_length_m:.3f} m"),
-                ("Superior continuo", f"{cut.upper_bar_label} @ {cut.upper_spacing_m:.3f} m", f"{cut.upper_provided_as_cm2_m:.3f} cm²/m", f"{cut.continuous_bar_length_m:.3f} m"),
+                (f"Superior continuo (1 de cada {cut.continuous_every_n_bars})", f"{cut.upper_bar_label} @ {cut.upper_spacing_m:.3f} m", f"{cut.upper_provided_as_cm2_m:.3f} cm²/m", f"{cut.continuous_bar_length_m:.3f} m"),
             ),
             widths=(39, 55, 36, 37),
         )
@@ -709,7 +716,9 @@ def _service_and_detailing(document: Document, result: AbutmentDesignResult) -> 
             case.name,
             "As,prov = Ab/s ≥ As,req",
             "As,prov: acero suministrado; Ab: área de barra; s: espaciamiento; As,req: mínimo por retracción, temperatura o distribución.",
-            f"As,req = {case.required_as_cm2_m:.3f} cm²/m; se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m; As,prov = {case.provided_as_cm2_m:.3f} cm²/m",
+            f"As,req = {case.required_as_cm2_m:.3f} cm²/m; se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"
+            f"{' (selección personalizada del usuario)' if case.is_custom_selection else ''}; "
+            f"As,prov = {case.provided_as_cm2_m:.3f} cm²/m",
             f"As,prov = {case.provided_as_cm2_m:.3f} cm²/m ≥ As,req = {case.required_as_cm2_m:.3f} cm²/m: {case.status}.",
             _status_comment(case.status, "La distribución adoptada satisface el mínimo requerido en la cara y dirección indicadas."),
             case.reference or REF_TEMPERATURE,
