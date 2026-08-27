@@ -11,6 +11,21 @@ import yaml
 YamlData = dict[str, Any]
 
 
+class _LiteralSafeDumper(yaml.SafeDumper):
+    """Safe YAML dumper that keeps multiline reference diagrams readable."""
+
+
+def _represent_readable_string(
+    dumper: _LiteralSafeDumper,
+    value: str,
+) -> yaml.nodes.ScalarNode:
+    style = "|" if "\n" in value else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+
+_LiteralSafeDumper.add_representer(str, _represent_readable_string)
+
+
 class YamlModeError(ValueError):
     """Raised when the YAML command mode cannot be completed."""
 
@@ -90,9 +105,10 @@ def save_yaml_file(path: Path, data: YamlData) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8", newline="\n") as file:
-            yaml.safe_dump(
+            yaml.dump(
                 data,
                 file,
+                Dumper=_LiteralSafeDumper,
                 allow_unicode=True,
                 sort_keys=False,
                 default_flow_style=False,

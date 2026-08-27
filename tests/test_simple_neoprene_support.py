@@ -10,6 +10,21 @@ from bridge_design.domain.simple_neoprene_support import (
 )
 
 
+def test_simple_neoprene_yaml_loader_rejects_unknown_support_type():
+    import pytest
+
+    from bridge_design.cli.simple_neoprene_yaml_inputs import (
+        simple_neoprene_inputs_from_yaml,
+        simple_neoprene_yaml_template,
+    )
+
+    data = simple_neoprene_yaml_template()
+    data["tipo_apoyo"] = "DESCONOCIDO"
+
+    with pytest.raises(ValueError, match="FIJO_BARRAS o MOVIL_PLACAS"):
+        simple_neoprene_inputs_from_yaml(data)
+
+
 def test_movable_plate_support_matches_steel_plate_detail():
     inputs = SimpleSupportInputs(
         support_type="MOVIL_PLACAS",

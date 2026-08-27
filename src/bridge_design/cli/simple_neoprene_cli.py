@@ -6,6 +6,20 @@ import sys
 
 from bridge_design.cli.input_prompts import prompt_float, prompt_int, prompt_non_negative_float
 from bridge_design.cli.simple_neoprene_output import format_simple_neoprene_result
+from bridge_design.cli.simple_neoprene_yaml_inputs import (
+    simple_neoprene_inputs_from_yaml,
+    simple_neoprene_yaml_template,
+)
+from bridge_design.cli.yaml_io import (
+    YamlModeError,
+    is_yaml_mode,
+    load_yaml_file,
+    print_yaml_mode_help,
+    resolve_yaml_mode_path,
+    save_yaml_file,
+    select_yaml_open_path,
+    select_yaml_save_path,
+)
 from bridge_design.domain.simple_neoprene_support import (
     ExternalSteelPlatePair,
     FixedBarGroup,
@@ -137,13 +151,38 @@ def run_simple_neoprene_design(inputs: SimpleSupportInputs | None = None) -> Non
     print(format_simple_neoprene_result(design_simple_neoprene_support(inputs)))
 
 
+def _run_yaml_mode(args: list[str]) -> bool:
+    """Ejecuta los modos de plantilla ``input`` y ``output``."""
+    if not is_yaml_mode(args):
+        return False
+    if args[0] == "output":
+        path = resolve_yaml_mode_path(args, mode="output") or select_yaml_save_path(
+            "Guardar plantilla YAML de apoyos de neopreno simple",
+            "modelo_apoyos_neopreno.yaml",
+        )
+        save_yaml_file(path, simple_neoprene_yaml_template())
+        print(f"Plantilla YAML guardada en: {path}")
+        return True
+    path = resolve_yaml_mode_path(args, mode="input") or select_yaml_open_path(
+        "Seleccionar YAML de apoyos de neopreno simple"
+    )
+    run_simple_neoprene_design(simple_neoprene_inputs_from_yaml(load_yaml_file(path)))
+    return True
+
+
 def main(argv: list[str] | None = None) -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in {"-h", "--help", "help"}:
-        print("Uso: diseno-apoyos-neopreno")
+        print_yaml_mode_help("diseno-apoyos-neopreno")
         print("Tipos: fijo_barras | movil_placas")
+        return
+    try:
+        if _run_yaml_mode(args):
+            return
+    except (YamlModeError, ValueError) as exc:
+        print(f"Error: {exc}")
         return
     run_simple_neoprene_design()
 

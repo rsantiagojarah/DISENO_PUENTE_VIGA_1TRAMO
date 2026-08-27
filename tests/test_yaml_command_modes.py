@@ -191,6 +191,61 @@ def test_bearing_yaml_output_and_input_direct(tmp_path, monkeypatch) -> None:
     assert isinstance(captured[0], ElastomericBearingInputs)
 
 
+def test_simple_neoprene_yaml_output_and_input_direct(tmp_path, monkeypatch) -> None:
+    from bridge_design.cli import simple_neoprene_cli
+    from bridge_design.domain.simple_neoprene_support import SimpleSupportInputs
+
+    path = tmp_path / "modelo_apoyos_neopreno.yaml"
+    simple_neoprene_cli.main(["output", str(path)])
+
+    raw_yaml = path.read_text(encoding="utf-8")
+    data = yaml.safe_load(raw_yaml)
+    assert data["comando"] == "diseno-apoyos-neopreno"
+    assert data["tipo_apoyo"] == "FIJO_BARRAS"
+    assert "geometria_neopreno" in data
+    assert "pasadores_apoyo_fijo" in data
+    assert "planchas_apoyo_movil" in data
+    assert list(data)[-1] == "esquema_referencia"
+    assert "fijo_barras: |" in raw_yaml
+    assert "movil_placas: |" in raw_yaml
+    assert "[ NEOPRENO ]" in data["esquema_referencia"]["fijo_barras"]
+
+    captured: list[SimpleSupportInputs] = []
+
+    def fake_run_simple_neoprene_design(inputs=None) -> None:
+        captured.append(inputs)
+
+    monkeypatch.setattr(
+        simple_neoprene_cli,
+        "run_simple_neoprene_design",
+        fake_run_simple_neoprene_design,
+    )
+    simple_neoprene_cli.main(["input", str(path)])
+
+    fixed = captured[-1]
+    assert isinstance(fixed, SimpleSupportInputs)
+    assert fixed.support_type == "FIJO_BARRAS"
+    assert fixed.fixed_bars is not None
+    assert fixed.fixed_bars.n_bars == 4
+    assert fixed.plates is None
+
+    data["tipo_apoyo"] = "MOVIL_PLACAS"
+    data["geometria_neopreno"]["largo_l_cm"] = 60.0
+    data["acciones_horizontales"]["pga"] = 0.0
+    path.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    simple_neoprene_cli.main(["input", str(path)])
+
+    movable = captured[-1]
+    assert movable.support_type == "MOVIL_PLACAS"
+    assert movable.geometry.length_cm == 60.0
+    assert movable.fixed_bars is None
+    assert movable.plates is not None
+    assert movable.plates.thickness_cm == 2.54
+
+
 def test_deck_yaml_output_and_input_direct(tmp_path, monkeypatch) -> None:
     import bridge_design.main as bridge_main
     from bridge_design.domain.project_inputs import ProjectInputs
