@@ -29,6 +29,7 @@ from bridge_design.domain.interior_girder import (
 )
 from bridge_design.domain.load_combinations import combine_transverse_slab_moments
 from bridge_design.reporting.deck_docx_charts import save_strength_chart
+from bridge_design.reporting import deck_docx_detail as detail
 from bridge_design.reporting.models import DeckReportData, selected_option
 
 NAVY = "173746"
@@ -484,7 +485,7 @@ def _transverse_slab(document: Document, data: DeckReportData, chart_dir: Path) 
         "Cargas lineales de baranda y barrera",
         "P = w·b/1000",
         "P: carga puntual sobre la franja transversal; w: peso lineal del accesorio en kg/m; b: ancho longitudinal analizado",
-        f"Pbaranda = {materials.railing.weight_kg_m:.3f}·{geom.strip_length_m:.3f}/1000 = {materials.railing.weight_kg_m*geom.strip_length_m/1000:.3f} Tn; "
+        f"Pbaranda = {materials.railing.weight_kg_m:.3f}·{geom.strip_length_m:.3f}/1000 = {materials.railing.weight_kg_m*geom.strip_length_m/1000:.3f} Tn\n"
         f"Pbarrera = {materials.barrier.weight_kg_m:.3f}·{geom.strip_length_m:.3f}/1000 = {materials.barrier.weight_kg_m*geom.strip_length_m/1000:.3f} Tn",
         "las cargas se aplican puntualmente en los ejes físicos de las barandas y barreras de ambos bordes.",
         "La posición real de cada accesorio determina su contribución positiva o negativa en cada estación de la losa.",
@@ -516,7 +517,7 @@ def _transverse_slab(document: Document, data: DeckReportData, chart_dir: Path) 
         "Anchos equivalentes para carga vehicular",
         "E₊ = 0.660 + 0.55·S  ;  E₋ = 1.220 + 0.25·S",
         "E₊ y E₋: anchos equivalentes para momento positivo y negativo; S: separación de vigas, en m.",
-        f"E₊ = 0.660 + 0.55·{geom.girder_spacing_m:.3f} = {data.transverse_result.equivalent_strip_width_positive_m:.3f} m; "
+        f"E₊ = 0.660 + 0.55·{geom.girder_spacing_m:.3f} = {data.transverse_result.equivalent_strip_width_positive_m:.3f} m\n"
         f"E₋ = 1.220 + 0.25·{geom.girder_spacing_m:.3f} = {data.transverse_result.equivalent_strip_width_negative_m:.3f} m.",
         "Las cargas de rueda se distribuyen con el ancho correspondiente al signo del momento evaluado.",
         "Se aplican los anchos normativos sin interpolaciones adicionales.",
@@ -534,7 +535,7 @@ def _transverse_slab(document: Document, data: DeckReportData, chart_dir: Path) 
         "Carga de rueda distribuida en la franja equivalente",
         "w(LL+IM) = (Pax/2)·(1+IM)·m/E",
         "w(LL+IM): carga lineal por línea de rueda; Pax: carga del eje considerado; IM: incremento dinámico; m: factor de presencia múltiple; E: ancho equivalente",
-        f"w+ = ({heavy_axle:.3f}/2)·(1+{impact:.2f})·{presence:.2f}/{e_positive:.3f} = {wheel_positive:.3f} Tn/m; "
+        f"w+ = ({heavy_axle:.3f}/2)·(1+{impact:.2f})·{presence:.2f}/{e_positive:.3f} = {wheel_positive:.3f} Tn/m\n"
         f"w− = ({heavy_axle:.3f}/2)·(1+{impact:.2f})·{presence:.2f}/{e_negative:.3f} = {wheel_negative:.3f} Tn/m",
         "las líneas de rueda se desplazan por el dominio permitido empleando el ancho equivalente correspondiente al signo del momento evaluado.",
         "El barrido conserva por separado los máximos positivos y negativos; por ello la envolvente no depende del sentido en que se enumeran las posiciones.",
@@ -569,17 +570,21 @@ def _transverse_slab(document: Document, data: DeckReportData, chart_dir: Path) 
     _calc(
         document,
         "Acero longitudinal de distribución",
-        "% = min[67; 3840/√S]  ;  As,dist = (%/100)·As,+",
-        "S: luz efectiva en mm; As,+: acero principal positivo; As,dist: acero longitudinal requerido.",
-        f"% = min[67; 3840/√({reinf.distribution.effective_span_m*1000:.1f})] = {reinf.distribution.percent_of_positive_steel:.2f}%; "
-        f"As,dist = {reinf.distribution.percent_of_positive_steel/100:.4f}·{reinf.distribution.positive_main_area_cm2_m:.3f} = {reinf.distribution.required_area_cm2_m:.3f} cm²/m.",
+        "% = min[67; 3840/√S]  ;  As,dist = (%/100)·As,req,+",
+        "S: luz efectiva en mm; As,req,+: acero principal positivo requerido (no el adoptado); As,dist: acero longitudinal requerido.",
+        f"% = min[67; 3840/√({reinf.distribution.effective_span_m*1000:.1f})] = {reinf.distribution.percent_of_positive_steel:.2f}%\n"
+        f"As,req,+ = {reinf.distribution.positive_main_area_cm2_m:.3f} cm²/m\n"
+        f"As,dist = {reinf.distribution.percent_of_positive_steel/100:.4f}·{reinf.distribution.positive_main_area_cm2_m:.3f} = {reinf.distribution.required_area_cm2_m:.3f} cm²/m",
         f"Se adopta {_option_text(distribution)}.",
-        _compliance_comment(distribution, "La distribución longitudinal se proporciona como porcentaje del acero principal positivo."),
+        _compliance_comment(
+            distribution,
+            "La distribución longitudinal se calcula sobre As,req del acero positivo, conforme al criterio normativo de acero requerido.",
+        ),
         REF_DISTRIBUTION,
     )
     document.add_heading("2.6 Control de fisuración", level=2)
     for crack in (data.slab_crack.positive_main, data.slab_crack.negative_main):
-        _crack_calc(document, crack)
+        _crack_calc(document, crack, slab_thickness_m=geom.slab_thickness_m)
     document.add_heading("2.7 Diagramas de diseño", level=2)
     moment_path = save_strength_chart(
         data.transverse_result,
@@ -607,7 +612,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
     reinforcement = data.exterior_reinforcement if exterior else data.interior_reinforcement
     shear = data.exterior_shear if exterior else data.interior_shear
     selected = data.exterior_selected if exterior else data.interior_selected
-    detail = data.exterior_detail if exterior else data.interior_detail
+    girder_detail = data.exterior_detail if exterior else data.interior_detail
     crack = data.exterior_crack.main if exterior else data.interior_crack.main
     fatigue = data.exterior_fatigue if exterior else data.interior_fatigue
     service = data.exterior_service if exterior else data.interior_service
@@ -647,6 +652,21 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         ),
         widths=(105, 62),
     )
+    vehicle = inputs.live_loads.vehicular
+    if exterior:
+        g_formula, g_legend, g_sub, g_result, g_comment = detail.exterior_g_factor_trace(geometry, vehicle)
+    else:
+        g_formula, g_legend, g_sub, g_result, g_comment = detail.interior_g_factor_trace(geometry)
+    _calc(
+        document,
+        "Cálculo de factores de distribución gM y gV",
+        g_formula,
+        g_legend,
+        g_sub,
+        g_result,
+        g_comment,
+        REF_DISTRIBUTION_FACTORS,
+    )
     materials = inputs.materials
     q_slab = (
         materials.concrete.specific_weight_tn_m3
@@ -670,9 +690,9 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         q_barrier = materials.barrier.weight_kg_m / 1000.0
         extra_components = q_sidewalk + q_railing + q_barrier
         extra_substitution = (
-            f"; qver = {materials.sidewalk.specific_weight_tn_m3:.3f}·{materials.sidewalk.thickness_m:.3f}·{geometry.sidewalk_tributary_width_m:.3f} = {q_sidewalk:.3f} Tn/m"
-            f"; qbaranda = {materials.railing.weight_kg_m:.3f}/1000 = {q_railing:.3f} Tn/m"
-            f"; qbarrera = {materials.barrier.weight_kg_m:.3f}/1000 = {q_barrier:.3f} Tn/m"
+            f"\nqver = {materials.sidewalk.specific_weight_tn_m3:.3f}·{materials.sidewalk.thickness_m:.3f}·{geometry.sidewalk_tributary_width_m:.3f} = {q_sidewalk:.3f} Tn/m"
+            f"\nqbaranda = {materials.railing.weight_kg_m:.3f}/1000 = {q_railing:.3f} Tn/m"
+            f"\nqbarrera = {materials.barrier.weight_kg_m:.3f}/1000 = {q_barrier:.3f} Tn/m"
         )
     q_dc = q_slab + q_web + extra_components
     _calc(
@@ -680,9 +700,10 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         "Cargas permanentes distribuidas sobre la viga",
         "qDC = qlosa + qalma + qver + qbaranda + qbarrera",
         "qDC: carga permanente lineal total; qlosa: peso de la losa tributaria; qalma: peso del alma; qver: peso de vereda; qbaranda y qbarrera: pesos lineales de accesorios",
-        f"qlosa = {materials.concrete.specific_weight_tn_m3:.3f}·{geometry.slab_thickness_m:.3f}·{geometry.tributary_width_m:.3f} = {q_slab:.3f} Tn/m; "
+        f"qlosa = {materials.concrete.specific_weight_tn_m3:.3f}·{geometry.slab_thickness_m:.3f}·{geometry.tributary_width_m:.3f} = {q_slab:.3f} Tn/m\n"
         f"qalma = {materials.concrete.specific_weight_tn_m3:.3f}·{geometry.web_width_m:.3f}·{geometry.girder_total_height_m:.3f} = {q_web:.3f} Tn/m"
-        f"{extra_substitution}; qDC = {q_dc:.3f} Tn/m",
+        f"{extra_substitution}\n"
+        f"qDC = {q_dc:.3f} Tn/m",
         f"la carga permanente uniformemente distribuida utilizada para la {label.lower()} es qDC = {q_dc:.3f} Tn/m, además de los pesos concentrados de los diafragmas.",
         "Los elementos se asignan de acuerdo con su ancho tributario; los accesorios de borde sólo se incorporan en la viga exterior.",
         REF_DEAD_LOAD,
@@ -757,9 +778,30 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         "Distribución transversal de carga viva",
         "Mᵥᵢgₐ(x) = gM·MHL93(x)  ;  Vᵥᵢgₐ(x) = gV·VHL93(x)",
         "gM y gV: factores de distribución para momento y cortante; MHL93 y VHL93: efectos del modelo vehicular HL-93 sobre una línea de ruedas antes de distribuir.",
-        f"gM = {analysis.distribution_factor_g:.5f}; gV = {analysis.shear_distribution_factor_g:.5f}. Los factores se aplican a cada posición del camión y tándem antes de formar la envolvente.",
+        f"gM = {analysis.distribution_factor_g:.5f}\n"
+        f"gV = {analysis.shear_distribution_factor_g:.5f}\n"
+        f"Los factores se aplican a cada posición del camión y tándem antes de formar la envolvente.",
         "La envolvente selecciona, en cada estación, la configuración vehicular que produce el efecto más desfavorable.",
         "El procedimiento mantiene separadas las reglas de distribución de momento y cortante.",
+        REF_DISTRIBUTION_FACTORS,
+    )
+    g_m = float(analysis.distribution_factor_g)
+    g_v = float(analysis.shear_distribution_factor_g)
+    ll_formula, ll_legend, ll_sub, ll_result, ll_comment = detail.ll_im_with_g_trace(
+        analysis=analysis,
+        strength_moment=strength_moment,
+        critical_shear=critical_shear,
+        g_m=g_m,
+        g_v=g_v,
+    )
+    _calc(
+        document,
+        "Aplicación numérica de gM y gV en LL+IM",
+        ll_formula,
+        ll_legend,
+        ll_sub,
+        ll_result,
+        ll_comment,
         REF_DISTRIBUTION_FACTORS,
     )
     document.add_heading(f"{number}.2 Efectos de Resistencia I", level=2)
@@ -783,19 +825,24 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         "Acero de temperatura en caras laterales",
         "As,temp = ρtemp·bw·100 / 2",
         "ρtemp: cuantía; bw: ancho del alma; la división asigna la mitad a cada cara.",
-        f"As,temp = {reinforcement.temperature.ratio:.6f}·{reinforcement.temperature.web_width_cm:.2f}·100/2 = {reinforcement.temperature.required_area_cm2_m_per_face:.3f} cm²/m por cara.",
+        f"As,temp = {reinforcement.temperature.ratio:.6f}·{reinforcement.temperature.web_width_cm:.2f}·100/2 = {reinforcement.temperature.required_area_cm2_m_per_face:.3f} cm²/m por cara",
         f"Se adopta {_option_text(temperature)}.",
         _compliance_comment(temperature, "El refuerzo se coloca en ambas caras del alma."),
         REF_TEMP,
     )
+    ask_formula, ask_legend, ask_sub, ask_result, ask_comment = detail.skin_steel_trace(
+        reinforcement.skin,
+        _option_text(skin),
+        _compliance_comment(skin, "Este acero controla la fisuración lateral asociada a la altura del alma."),
+    )
     _calc(
         document,
         "Acero longitudinal de piel",
-        "Ask,prov ≥ Ask,req  ;  sprov ≤ smax",
-        "Ask: acero longitudinal por cara; s: espaciamiento vertical.",
-        f"Ask,req = {reinforcement.skin.required_area_cm2_m_per_face:.3f} cm²/m; smax = {reinforcement.skin.maximum_spacing_m:.3f} m; opción adoptada: {_option_text(skin)}.",
-        "El acero de piel adoptado satisface simultáneamente cuantía y separación.",
-        _compliance_comment(skin, "Este acero controla la fisuración lateral asociada a la altura del alma."),
+        ask_formula,
+        ask_legend,
+        ask_sub,
+        ask_result,
+        ask_comment,
         REF_CRACK,
     )
     document.add_heading(f"{number}.4 Diseño por cortante", level=2)
@@ -806,8 +853,11 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         "Resistencia seccional a cortante",
         "Vu ≤ φ(Vc + Vs)  ;  Vs,req = max[0; Vu/φ − Vc]",
         "Vu: cortante factorizado; Vc: aporte del concreto; Vs: aporte de estribos; φ: factor de resistencia.",
-        f"Vu = {shear.controlling_shear.combined_shear_tn:.3f} Tn; Vc = {shear.vc_tn:.3f} Tn; φ = {shear.phi:.3f}; "
-        f"φVc = {phi_vc:.3f} Tn; Vs,req = {shear.required_vs_tn:.3f} Tn.",
+        f"Vu = {shear.controlling_shear.combined_shear_tn:.3f} Tn\n"
+        f"Vc = {shear.vc_tn:.3f} Tn\n"
+        f"φ = {shear.phi:.3f}\n"
+        f"φVc = {phi_vc:.3f} Tn\n"
+        f"Vs,req = {shear.required_vs_tn:.3f} Tn",
         f"Av,req = {shear.required_av_cm2_m:.3f} cm²/m; Av,min = {shear.minimum_av_cm2_m:.3f} cm²/m; "
         f"smax = {shear.maximum_spacing_m:.3f} m; se adopta {_option_text(stirrup)}.",
         _compliance_comment(stirrup, "La sección crítica se toma a una distancia dv desde el apoyo; la disposición adoptada se verifica también contra la resistencia nominal máxima."),
@@ -815,28 +865,33 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
     )
     document.add_heading(f"{number}.5 Servicio, fisuración y fatiga", level=2)
     _crack_calc(document, crack)
+    svc_formula, svc_legend, svc_sub, svc_result, svc_comment = detail.service_stress_trace(
+        service,
+        inputs.materials.concrete,
+        inputs.materials.steel,
+    )
     _calc(
         document,
         "Tensiones de Servicio I",
-        "fc,serv = Mserv·yc/Icr  ;  fs,serv = n·Mserv·ys/Icr",
-        "Icr: inercia fisurada transformada; n = Es/Ec; yc y ys: distancias al eje neutro.",
-        f"Mserv = {service.service_moment_tn_m:.3f} Tn·m en x = {service.position_m:.3f} m; n = {service.section.modular_ratio}; "
-        f"Icr = {service.section.inertia_cm4:,.0f} cm⁴. fc,serv = {service.concrete_compression_kg_cm2:.2f} kg/cm²; "
-        f"fs,serv = {service.steel_tension_kg_cm2:.1f} kg/cm².",
-        f"Límites: concreto {service.concrete_compression_limit_kg_cm2:.2f} kg/cm²; acero {service.steel_tension_limit_kg_cm2:.1f} kg/cm². "
-        f"Estados: concreto {service.concrete_status}, acero {service.steel_status}.",
-        _status_comment(service.concrete_status, "Las tensiones elásticas se mantienen dentro de los límites de Servicio I."),
+        svc_formula,
+        svc_legend,
+        svc_sub,
+        svc_result,
+        svc_comment,
         "Manual de Puentes MTC 2018, criterios de Servicio I y análisis elástico de sección fisurada; combinación de Servicio I.",
+    )
+    fat_formula, fat_legend, fat_sub, fat_result, fat_comment = detail.fatigue_trace(
+        fatigue,
+        inputs.materials.steel,
     )
     _calc(
         document,
         "Fatiga del acero longitudinal",
-        "ΔfF = γF·(fmax − fmin) ≤ ΔfTH",
-        "ΔfF: rango de tensión factorizado; γF: factor de fatiga; ΔfTH: rango admisible.",
-        f"Mf = {fatigue.fatigue_moment_tn_m:.3f} Tn·m en x = {fatigue.fatigue_position_m:.3f} m; "
-        f"fmin = {fatigue.minimum_stress_kg_cm2:.1f} kg/cm²; Δf = {fatigue.stress_range_kg_cm2:.1f} kg/cm².",
-        f"ΔfF = {fatigue.factored_stress_range_kg_cm2:.1f} kg/cm² ≤ {fatigue.allowable_stress_range_kg_cm2:.1f} kg/cm²: {fatigue.status}.",
-        _status_comment(fatigue.status, "El rango de tensión de las barras rectas adoptadas no gobierna el dimensionamiento."),
+        fat_formula,
+        fat_legend,
+        fat_sub,
+        fat_result,
+        fat_comment,
         REF_FATIGUE,
     )
     document.add_heading(f"{number}.6 Desarrollo y detalle constructivo", level=2)
@@ -845,9 +900,10 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         "Longitud de desarrollo del acero principal",
         "ld = max[ldb·λubic·λrec·λhorm·λconf·(As,req/As,prov); 30.48 cm]",
         "ldb: longitud básica; λ: modificadores normativos; As,req/As,prov: reducción por exceso de acero.",
-        f"Para {detail.selected_main_bar.bar_count} barras de {detail.selected_main_bar.bar_label}, As,prov = {detail.selected_main_bar.provided_area_cm2:.3f} cm²; "
-        f"ld = {detail.development_length_m:.3f} m.",
-        f"Se mantienen {detail.continuous_bar_count} barras continuas y se definen {detail.physical_cut_count} cortes físicos con prolongación de desarrollo.",
+        f"Para {girder_detail.selected_main_bar.bar_count} barras de {girder_detail.selected_main_bar.bar_label}\n"
+        f"As,prov = {girder_detail.selected_main_bar.provided_area_cm2:.3f} cm²\n"
+        f"ld = {girder_detail.development_length_m:.3f} m",
+        f"Se mantienen {girder_detail.continuous_bar_count} barras continuas y se definen {girder_detail.physical_cut_count} cortes físicos con prolongación de desarrollo.",
         "Los puntos teóricos de corte se desplazan mediante ld; si la longitud disponible no fuera suficiente, las barras deberían continuarse o anclarse.",
         REF_DEVELOPMENT,
     )
@@ -897,14 +953,19 @@ def _barrier(document: Document, data: DeckReportData) -> None:
         for component in flex.mw_components
     )
     _table(document, ("Componente", "As (cm²)", "d (cm)", "a (cm)", "Mn (Tn·m)"), rows, widths=(45, 30, 30, 30, 32))
+    mw_formula, mw_legend, mw_sub, mw_result, mw_comment = detail.barrier_mw_mc_trace(
+        flex,
+        data.project_inputs.materials.concrete,
+        data.project_inputs.materials.steel,
+    )
     _calc(
         document,
         "Momento nominal por componente",
-        "a = As·fy/(0.85·f'c·b)  ;  Mn = As·fy·(d − a/2)",
-        "As: acero que cruza la línea de fluencia; b: ancho comprimido; d: peralte efectivo; a: bloque equivalente.",
-        f"La suma de componentes da Mw = {flex.mw_tn_m:.3f} Tn·m; el promedio ponderado de los segmentos verticales da Mc = {flex.mc_tn_m:.3f} Tn·m/m.",
-        "Mw y Mc se incorporan al mecanismo interior correspondiente al patrón de impacto adoptado.",
-        "La subdivisión reproduce la geometría y el refuerzo de la barrera New Jersey adoptada.",
+        mw_formula,
+        mw_legend,
+        mw_sub,
+        mw_result,
+        mw_comment,
         REF_BARRIER,
     )
     document.add_heading("5.2 Línea de fluencia y resistencia transversal", level=2)
@@ -921,15 +982,19 @@ def _barrier(document: Document, data: DeckReportData) -> None:
     )
     document.add_heading("5.3 Interfaz, dowels y anclaje", level=2)
     shear = result.shear_transfer
+    iface_formula, iface_legend, iface_sub, iface_result, iface_comment = detail.barrier_interface_trace(
+        inputs,
+        data.project_inputs.materials,
+        shear,
+    )
     _calc(
         document,
         "Transferencia por corte–fricción",
-        "Vn = min[c·Acv + μ(Avf·fy + Pc); K₁·f'c·Acv; K₂·Acv]",
-        "c: cohesión; μ: fricción; Acv: interfaz; Avf: dowels; Pc: compresión permanente; K₁ y K₂: límites.",
-        f"Vn,bruto = {shear.nominal_shear_raw_tn_m:.3f} Tn/m; Vn,límite = {shear.nominal_shear_limit_tn_m:.3f} Tn/m; "
-        f"Vn = {shear.nominal_shear_tn_m:.3f} Tn/m.",
-        f"Vact = {shear.acting_shear_tn_m:.3f} Tn/m ≤ Vn: {shear.status}.",
-        _status_comment(shear.status, "La interfaz puede transferir el esfuerzo longitudinal asociado al mecanismo de impacto."),
+        iface_formula,
+        iface_legend,
+        iface_sub,
+        iface_result,
+        iface_comment,
         REF_BARRIER,
     )
     dowel = result.dowel
@@ -939,8 +1004,10 @@ def _barrier(document: Document, data: DeckReportData) -> None:
         "Cuantía mínima y desarrollo de dowels",
         "Avf,min = 3.52·Acv/fy  ;  ldh = max[0.076·db·fy/√f'c·λ; 8db; 15.24 cm]",
         "Avf,min: acero mínimo de interfaz; db: diámetro de dowel; λ: producto de modificadores del gancho.",
-        f"Avf,min = {dowel.required_avf_cm2_m:.3f} cm²/m; Avf,prov = {dowel.provided_avf_cm2_m:.3f} cm²/m: {dowel.status}. "
-        f"ldh,req = {development.required_ldh_cm:.2f} cm; ldisp = {development.available_length_cm:.2f} cm: {development.status}.",
+        f"Avf,min = {dowel.required_avf_cm2_m:.3f} cm²/m\n"
+        f"Avf,prov = {dowel.provided_avf_cm2_m:.3f} cm²/m: {dowel.status}\n"
+        f"ldh,req = {development.required_ldh_cm:.2f} cm\n"
+        f"ldisp = {development.available_length_cm:.2f} cm: {development.status}",
         f"La extensión del gancho adoptada es {development.hook_extension_cm:.2f} cm.",
         _status_comment(development.status, "El anclaje disponible desarrolla la barra de conexión adoptada."),
         REF_BARRIER,
@@ -970,6 +1037,20 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
         widths=(68, 31, 30, 38),
         font_size=8.1,
     )
+    arm_formula, arm_legend, arm_sub, arm_result, arm_comment = detail.cantilever_arm_trace(
+        result.load_effects,
+        geometry.overhang_m,
+    )
+    _calc(
+        document,
+        "Brazos de carga respecto a la raíz",
+        arm_formula,
+        arm_legend,
+        arm_sub,
+        arm_result,
+        arm_comment,
+        REF_DEAD_LOAD,
+    )
     control = result.controlling_strength
     _calc(
         document,
@@ -984,16 +1065,18 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
     )
     collision = result.barrier_collision
     if collision is not None:
+        col_formula, col_legend, col_sub, col_result, col_comment = detail.cantilever_collision_trace(
+            collision,
+            control,
+        )
         _calc(
             document,
             "Evento Extremo II — colisión de la barrera",
-            "Vct = Ft/Ltr  ;  Mcol = Vct·H  ;  Mu,EE-II = Mcol + Mperm",
-            "Ft: fuerza transversal de impacto; Ltr: longitud efectiva de transferencia; H: altura de aplicación; Mperm: momento permanente concurrente.",
-            f"Vct = {collision.transverse_force_tn:.3f}/{collision.transfer_length_m:.3f} = {collision.interface_shear_tn_m:.3f} Tn/m; "
-            f"Mcol = {collision.interface_shear_tn_m:.3f}·{collision.barrier_height_m:.3f} = {collision.collision_moment_tn_m:.3f} Tn·m/m; "
-            f"Mu,EE-II = {collision.collision_moment_tn_m:.3f} + {collision.permanent_moment_tn_m:.3f} = {collision.design_moment_tn_m:.3f} Tn·m/m.",
-            f"El diseño flexional adopta Mu = max({control.design_moment_tn_m:.3f}; {collision.design_moment_tn_m:.3f}) = {flex.design_moment_tn_m:.3f} Tn·m/m.",
-            "El Evento Extremo II gobierna el acero superior; por ello el momento de Resistencia I no se utiliza para dimensionar la armadura final.",
+            col_formula,
+            col_legend,
+            col_sub,
+            col_result,
+            col_comment,
             "Manual de Puentes MTC 2018, Art. 2.4.3.5.1.2; mecanismo y transferencia de barrera: Rodríguez Serquén.",
         )
     document.add_heading("6.2 Flexión y acero adoptado", level=2)
@@ -1010,27 +1093,33 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
     )
     document.add_heading("6.3 Cortante, fisuración y desarrollo", level=2)
     shear = result.shear
+    sh_formula, sh_legend, sh_sub, sh_result, sh_comment = detail.cantilever_shear_trace(shear)
     _calc(
         document,
         "Cortante unidireccional en la raíz",
-        "Vu ≤ φVc  ;  Vc = 0.083·β·√f'c·bv·dv",
-        "Vu: cortante factorizado; β: parámetro seccional; bv: ancho de franja; dv: peralte efectivo de corte.",
-        f"Vu = {abs(shear.combined_shear_tn):.3f} Tn; dv = {shear.effective_shear_depth_cm:.2f} cm; Vc = {shear.vc_tn:.3f} Tn; φVc = {shear.phi_vc_tn:.3f} Tn.",
-        f"Estado: {shear.status}.",
-        _status_comment(shear.status, "No se requiere refuerzo transversal independiente en la franja de voladizo."),
+        sh_formula,
+        sh_legend,
+        sh_sub,
+        sh_result,
+        sh_comment,
         REF_SHEAR,
     )
-    _crack_calc(document, data.cantilever_crack)
+    _crack_calc(document, data.cantilever_crack, slab_thickness_m=geometry.slab_thickness_m)
     dev = data.cantilever_development
+    cover_cm = getattr(result.parameters, "concrete_cover_cm", 5.0)
+    dev_formula, dev_legend, dev_sub, dev_result, dev_comment = detail.cantilever_development_trace(
+        dev,
+        geometry.overhang_m,
+        cover_cm=cover_cm,
+    )
     _calc(
         document,
         "Desarrollo de la barra superior adoptada",
-        "ld = max[ldb·λ·(As,req/As,prov); 30.48 cm]",
-        "ldb: longitud básica; λ: modificadores; As,req/As,prov: factor por exceso de refuerzo.",
-        f"Barra {dev.bar_label}; As,prov = {dev.provided_area_cm2_m:.3f} cm²/m; As,req = {dev.required_area_cm2_m:.3f} cm²/m; "
-        f"ldb = {dev.basic_development_length_cm:.2f} cm; ld = {dev.required_development_length_cm:.2f} cm.",
-        f"Longitud adicional total = {dev.total_additional_bar_length_m:.3f} m; estado: {dev.status}.",
-        _status_comment(dev.status, "La prolongación interior y la extensión exterior desarrollan el acero superior adoptado."),
+        dev_formula,
+        dev_legend,
+        dev_sub,
+        dev_result,
+        dev_comment,
         REF_DEVELOPMENT,
     )
 
@@ -1085,8 +1174,10 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
         "Estribos del diafragma",
         "Vu ≤ φ(Vc + Vs)  ;  Av,prov ≥ max(Av,req; Av,min)",
         "Vu: demanda; Vc y Vs: aportes; Av: acero transversal por unidad de longitud.",
-        f"Vu = {reinforcement.shear.controlling_shear.combined_shear_tn:.3f} Tn; Vc = {reinforcement.shear.vc_tn:.3f} Tn; "
-        f"Av,req = {reinforcement.shear.required_av_cm2_m:.3f} cm²/m; Av,min = {reinforcement.shear.minimum_av_cm2_m:.3f} cm²/m.",
+        f"Vu = {reinforcement.shear.controlling_shear.combined_shear_tn:.3f} Tn\n"
+        f"Vc = {reinforcement.shear.vc_tn:.3f} Tn\n"
+        f"Av,req = {reinforcement.shear.required_av_cm2_m:.3f} cm²/m\n"
+        f"Av,min = {reinforcement.shear.minimum_av_cm2_m:.3f} cm²/m",
         f"Se adopta {_option_text(stirrup)}.",
         _compliance_comment(stirrup, "El estribado satisface demanda, mínimo y separación máxima."),
         REF_SHEAR,
@@ -1119,6 +1210,20 @@ def _reactions(document: Document, data: DeckReportData) -> None:
             left, right = _two_reactions(case.support_reactions_tn)
             rows.append((label, action, f"{left:.3f}", f"{right:.3f}"))
     _table(document, ("Viga", "Acción", "Apoyo izquierdo (Tn)", "Apoyo derecho (Tn)"), tuple(rows), widths=(38, 35, 47, 47))
+    int_dc_l, _int_dc_r = _two_reactions(data.interior_result.dc.support_reactions_tn)
+    ext_dc_l, _ext_dc_r = _two_reactions(data.exterior_result.dc.support_reactions_tn)
+    _calc(
+        document,
+        "Uso de reacciones en el receptor de estribos",
+        "Rtotal,acción = nint·Rviga,int + next·Rviga,ext  ;  q = Rtotal / Ltablero",
+        "nint, next: número de vigas interior y exterior; Rviga: reacción no factorizada por apoyo; "
+        "q: carga lineal para el modelo de estribo por franja.",
+        f"Ejemplo DC en apoyo izquierdo: Rint = {int_dc_l:.3f} Tn/viga; Rext = {ext_dc_l:.3f} Tn/viga. "
+        f"Las reacciones de LL+IM ya incluyen g y el IM del caso vehicular; no se vuelve a aplicar g al transferirlas.",
+        "El estribo combina estas acciones con sus factores LRFD propios; aquí sólo se entregan valores sin factor.",
+        "No deben sumarse posiciones vehiculares incompatibles al formar otra envolvente fuera de este módulo.",
+        REF_DEAD_LOAD,
+    )
     _comment(document, "Las reacciones de LL+IM son envolventes de carga móvil. No deben sumarse posiciones vehiculares incompatibles al usarlas en otra combinación.")
 
 
@@ -1168,37 +1273,34 @@ def _references(document: Document) -> None:
 
 
 def _flexural_calc(document, title, design, option, concrete, steel, *, strip: bool) -> None:
-    width = 100.0 if strip else getattr(design, "section_width_cm", getattr(design, "flange_width_cm", 100.0))
-    strength_area = getattr(design, "strength_area_cm2_m", getattr(design, "strength_area_cm2", 0.0))
-    minimum_area = getattr(design, "minimum_area_cm2_m", getattr(design, "minimum_area_cm2", 0.0))
-    required_area = getattr(design, "required_area_cm2_m", getattr(design, "required_area_cm2", 0.0))
-    d = design.effective_depth_cm
-    as_for_a = strength_area
-    a = as_for_a * steel.yield_strength_kg_cm2 / (0.85 * concrete.compressive_strength_kg_cm2 * width)
-    units = "cm²/m" if strip else "cm²"
-    _calc(
-        document,
-        title,
-        "a = As·fy/(0.85·f'c·b)  ;  φMn = φ·As·fy·(d − a/2)  ;  As,req = max(As,res; As,min)",
-        "a: bloque equivalente; As: acero a tracción; b: ancho resistente; d: peralte efectivo; φ: factor de flexión.",
-        f"Mu = {design.design_moment_tn_m:.3f} Tn·m en x = {getattr(design, 'position_m', 0.0):.3f} m; d = {d:.2f} cm; b = {width:.2f} cm; "
-        f"con As,res = {strength_area:.3f} {units}, a = {a:.3f} cm.",
-        f"As,res = {strength_area:.3f} {units}; As,min = {minimum_area:.3f} {units}; As,req = {required_area:.3f} {units}. Se adopta {_option_text(option)}.",
-        _compliance_comment(option, "La resistencia provista es mayor o igual que la demanda y se respeta el mínimo reglamentario."),
-        REF_FLEX,
+    formula, legend, substitution, result, comment = detail.flexural_as_min_trace(
+        strip=strip,
+        design=design,
+        concrete=concrete,
+        steel=steel,
+        option_text=_option_text(option),
+        compliance_comment=_compliance_comment(
+            option,
+            "La resistencia provista es mayor o igual que la demanda y se respeta el mínimo reglamentario.",
+        ),
     )
+    _calc(document, title, formula, legend, substitution, result, comment, REF_FLEX)
 
 
-def _crack_calc(document, crack) -> None:
+def _crack_calc(document, crack, *, slab_thickness_m: float | None = None) -> None:
+    thickness_cm = None if slab_thickness_m is None else slab_thickness_m * 100.0
+    formula, legend, substitution, result, comment = detail.crack_control_trace(
+        crack,
+        slab_thickness_cm=thickness_cm,
+    )
     _calc(
         document,
         f"Control de fisuración — {getattr(crack, 'direction', 'acero adoptado')}",
-        "smax = 123 000·γe/(βs·fs) − 2·dc  ;  sprov ≤ smax",
-        "γe: factor de exposición; βs: relación geométrica; fs: tensión de servicio del acero; dc: recubrimiento al centro de barra.",
-        f"Mserv = {crack.service_moment_tn_m:.3f} Tn·m; barra {crack.bar_label}; As,prov = {crack.provided_area_cm2_m:.3f} cm²/m; "
-        f"fs = {crack.steel_stress_kg_cm2:.1f} kg/cm², fs usada = {crack.steel_stress_used_kg_cm2:.1f} kg/cm²; βs = {crack.beta_s:.3f}; dc = {crack.dc_cm:.2f} cm.",
-        f"smax = {crack.maximum_spacing_m:.3f} m; sprov = {crack.provided_spacing_m:.3f} m: {crack.status}.",
-        _status_comment(crack.status, "El espaciamiento adoptado limita el ancho de fisura bajo la combinación de servicio."),
+        formula,
+        legend,
+        substitution,
+        result,
+        _status_comment(getattr(crack, "status", "CUMPLE"), comment),
         REF_CRACK,
     )
 
@@ -1306,18 +1408,51 @@ def _legend_items(legend: str) -> tuple[str, ...]:
 
 
 def _add_substitution(document: Document, substitution: str) -> None:
-    parts = substitution.split(". ", 1)
-    equation_text = parts[0].strip().rstrip(".")
-    if _is_equation_text(equation_text):
-        _add_native_equation(document, equation_text)
-    else:
+    """Render substitution steps vertically: one assignment or note per line."""
+    for line in _substitution_lines(substitution):
+        if _is_equation_text(line):
+            _add_native_equation(document, line)
+            continue
         paragraph = document.add_paragraph(style="Normal")
         paragraph.paragraph_format.left_indent = Mm(7)
-        paragraph.add_run(equation_text + ("." if equation_text else ""))
-    if len(parts) == 2 and parts[1].strip():
-        paragraph = document.add_paragraph(style="Normal")
-        paragraph.paragraph_format.left_indent = Mm(7)
-        paragraph.add_run(parts[1].strip())
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(1)
+        paragraph.paragraph_format.keep_with_next = True
+        run = paragraph.add_run(line)
+        _format_run(run, 9.2, color=NAVY)
+
+
+def _substitution_lines(substitution: str) -> tuple[str, ...]:
+    """Split a substitution block into vertical development lines."""
+    text = substitution.replace("\r\n", "\n").strip()
+    if not text:
+        return ()
+    if "\n" in text:
+        return tuple(line.strip().rstrip(".") for line in text.split("\n") if line.strip())
+
+    lines: list[str] = []
+    for sentence in _split_substitution_sentences(text):
+        for piece in _equation_lines(sentence):
+            cleaned = piece.strip().rstrip(".")
+            if cleaned:
+                lines.append(cleaned)
+    return tuple(lines)
+
+
+def _split_substitution_sentences(text: str) -> tuple[str, ...]:
+    """Split on '. ' sentence boundaries (decimals use '.' without a following space)."""
+    parts: list[str] = []
+    remaining = text.strip()
+    while remaining:
+        index = remaining.find(". ")
+        if index < 0:
+            parts.append(remaining)
+            break
+        left = remaining[:index].strip()
+        if left:
+            parts.append(left)
+        remaining = remaining[index + 2 :].strip()
+    return tuple(parts)
 
 
 def _is_equation_text(value: str) -> bool:
