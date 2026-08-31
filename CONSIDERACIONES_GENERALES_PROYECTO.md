@@ -428,6 +428,8 @@ Alcance normativo y de calculo:
 - Empuje sismico por Mononobe-Okabe mediante `kAE`.
 - Componentes sismicas del muro y relleno: `EQterr` y `PIR`.
 - Combinacion `Evento Extremo I` para condiciones sismicas.
+- MTC Art. 2.8.1.1.14.1: se revisan `PAE+0.5·PIR` y `max(0.5·PAE, EH)+PIR`,
+  adoptando la combinacion mas desfavorable para estabilidad (y envolvente en pantalla).
 - Verificaciones LRFD de volteo, deslizamiento y presion de contacto.
 - Criterio de presion suelo-zapata:
   - Para presion admisible con `qadm`, se usa `Servicio I` con Meyerhof:
@@ -440,6 +442,14 @@ Alcance normativo y de calculo:
     triangular, sin traccion del suelo.
   - Para fisuracion se usa `Servicio I` con la presion lineal de servicio.
 - Diseno estructural de pantalla, talon y puntera.
+- Acero por temperatura y retraccion: MTC Art. 2.9.1.4.5.8 / AASHTO 5.10.8 con
+  As,temp = 0.18·b·h/(2(b+h)), limites 2.33-12.70 cm2/m por cara, smax = 30 cm
+  si espesor > 45 cm, b = espesor promedio (ei+es)/2 en pantalla trapezoidal,
+  h = Hp' (cuerpo rectangular), y As,adic = max(0, As,temp - As,principal).
+- Corte de concreto: pantalla con procedimiento general MTC 2.9.1.5.6.3.4.2
+  (β desde εs y sxe; ag = 3/4" por defecto de proyecto); zapata y dentellon
+  con procedimiento simplificado β = 2 cuando la seccion critica queda junto a
+  la cara del muro (< 3·dv).
 - Control de fisuracion, desarrollo/anclaje y cuadro de acero.
 
 ## 18. Memoria de calculo Word del tablero

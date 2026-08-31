@@ -144,6 +144,26 @@ def test_default_abutment_stability_matches_reference_workbook() -> None:
     assert service.bearing_status == "OK"
 
 
+def test_extreme_event_reviews_both_mtc_papir_combinations() -> None:
+    from bridge_design.domain.abutment import SEISMIC_PAPIR_COMBO_A, SEISMIC_PAPIR_COMBO_B
+
+    result = solve_abutment_design()
+    combo_a, combo_b = result.extreme_seismic_with_bridge
+    governing = result.with_bridge[2]
+
+    assert combo_a.seismic_papir_combination == SEISMIC_PAPIR_COMBO_A
+    assert combo_b.seismic_papir_combination == SEISMIC_PAPIR_COMBO_B
+    assert "0.5PIR" in {c.name for c in result.components.horizontal_with_bridge}
+    assert "PIR" in {c.name for c in result.components.horizontal_with_bridge_seismic_b}
+    assert "max(0.5PAE,EH)" in {c.name for c in result.components.horizontal_with_bridge_seismic_b}
+    # En el caso por defecto gobierna PAE+0.5PIR (mayor Hu y utilización).
+    assert combo_a.hu_tn_m > combo_b.hu_tn_m
+    assert governing.seismic_papir_combination == SEISMIC_PAPIR_COMBO_A
+    assert governing.hu_tn_m == pytest.approx(combo_a.hu_tn_m, abs=1e-9)
+    earth_b = max(0.5 * result.pressures.pae_tn_m, result.pressures.eh_tn_m)
+    assert earth_b == pytest.approx(result.pressures.eh_tn_m, abs=1e-9)
+
+
 def test_abutment_stability_report_includes_qmin_and_central_third_limit() -> None:
     from bridge_design.cli.abutment_ascii_output import format_abutment_design_result
 
@@ -528,7 +548,13 @@ def test_default_structural_design_matches_reference_workbook() -> None:
     assert result.stem_design.selected_bar_label == '3/4"'
     assert result.stem_design.selected_spacing_m == pytest.approx(0.125)
     assert result.stem_design.shear_demand_tn_m == pytest.approx(24.209938, abs=1e-6)
-    assert result.stem_design.shear_resistance_tn_m == pytest.approx(32.954965, abs=1e-6)
+    assert result.stem_design.shear_beta_method == "general"
+    assert result.stem_design.shear_beta == pytest.approx(1.194281, abs=1e-5)
+    assert result.stem_design.shear_longitudinal_strain == pytest.approx(0.002640, abs=1e-5)
+    assert result.stem_design.shear_resistance_tn_m == pytest.approx(34.692003, abs=1e-5)
+
+    assert result.heel_design.shear_beta_method == "simplified"
+    assert result.heel_design.shear_beta == pytest.approx(2.0, abs=1e-9)
 
     assert result.heel_design.controlling_moment_tn_m_m == pytest.approx(73.350916, abs=1e-6)
     assert result.heel_design.strength_as_cm2_m == pytest.approx(19.553577, abs=1e-6)
@@ -550,7 +576,7 @@ def test_default_structural_design_matches_reference_workbook() -> None:
     assert "Envolvente Resistencia/Evento Extremo" in result.toe_design.notes
     assert result.key_design is not None
     assert result.key_design.selected_bar_label == '1/2"'
-    assert result.key_design.selected_spacing_m == pytest.approx(0.175)
+    assert result.key_design.selected_spacing_m == pytest.approx(0.300)
     assert result.key_design.moment_status == "OK"
     assert result.key_design.shear_status == "OK"
 
@@ -588,6 +614,8 @@ def test_abutment_generates_single_stem_reinforcement_cut() -> None:
     assert cut.continuous_every_n_bars == 2
     assert cut.upper_spacing_m == pytest.approx(0.250)
     assert cut.upper_provided_as_cm2_m >= cut.minimum_as_cm2_m
+    assert cut.moment_resistance_at_cut_tn_m_m >= cut.required_moment_at_cut_tn_m_m - 1e-6
+    assert cut.upper_spacing_limit_m == pytest.approx(0.300)
     assert cut.required_as_at_cut_cm2_m <= cut.upper_provided_as_cm2_m + 1e-6
     assert cut.constructive_cut_height_m > cut.theoretical_cut_height_m
     assert cut.lower_cut_bar_length_m == pytest.approx(
@@ -735,9 +763,51 @@ def test_abutment_reports_missing_secondary_reinforcement_families() -> None:
     assert all(case.provided_as_cm2_m >= case.required_as_cm2_m for case in result.secondary_reinforcement)
     assert secondary_by_name["Pantalla - vertical exterior"].selected_bar_label == '1/2"'
     assert secondary_by_name["Pantalla - vertical exterior"].selected_spacing_m == pytest.approx(0.275)
-    assert secondary_by_name["Zapata - transversal superior"].required_as_cm2_m == pytest.approx(8.022413793)
-    assert secondary_by_name["Zapata - transversal superior"].selected_bar_label == '1/2"'
-    assert secondary_by_name["Zapata - transversal superior"].selected_spacing_m == pytest.approx(0.150)
+    assert secondary_by_name["Pantalla - vertical exterior"].temperature_required_as_cm2_m == pytest.approx(4.644643, abs=1e-4)
+    assert secondary_by_name["Pantalla - vertical exterior"].required_as_cm2_m == pytest.approx(4.644643, abs=1e-4)
+    assert secondary_by_name["Zapata - transversal superior"].temperature_required_as_cm2_m == pytest.approx(8.117919, abs=1e-4)
+    assert secondary_by_name["Zapata - transversal superior"].required_as_cm2_m == pytest.approx(0.0, abs=1e-9)
+    assert secondary_by_name["Zapata - transversal superior"].primary_steel_as_cm2_m >= 8.117919
+
+
+def test_abutment_temperature_still_required_when_transition_height_is_zero() -> None:
+    from bridge_design.domain.abutment import AbutmentGeometryInputs, AbutmentInputs, solve_abutment_design
+
+    result = solve_abutment_design(
+        AbutmentInputs(
+            geometry=AbutmentGeometryInputs(
+                backwall_taper_height_m=0.0,
+            )
+        )
+    )
+    exterior = next(
+        case
+        for case in result.secondary_reinforcement
+        if case.name == "Pantalla - vertical exterior"
+    )
+    assert exterior.temperature_required_as_cm2_m == pytest.approx(4.751553, abs=1e-4)
+    assert exterior.required_as_cm2_m > 0.0
+    assert exterior.temperature_b_cm == pytest.approx(60.0, abs=1e-6)
+
+
+def test_abutment_footing_temperature_is_capped_at_mtc_maximum() -> None:
+    from bridge_design.domain.abutment import AbutmentGeometryInputs, AbutmentInputs, solve_abutment_design
+
+    result = solve_abutment_design(
+        AbutmentInputs(
+            geometry=AbutmentGeometryInputs(
+                footing_width_m=20.0,
+                footing_thickness_m=2.0,
+            )
+        )
+    )
+    footing_case = next(
+        case
+        for case in result.secondary_reinforcement
+        if case.name == "Zapata - transversal superior"
+    )
+    assert footing_case.raw_temperature_as_cm2_m > 12.70
+    assert footing_case.temperature_required_as_cm2_m == pytest.approx(12.70, abs=1e-9)
 
 
 def test_abutment_material_prompts_use_tn_m3_for_unit_weights(monkeypatch) -> None:

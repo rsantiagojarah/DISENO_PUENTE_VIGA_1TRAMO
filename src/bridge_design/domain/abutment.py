@@ -5,7 +5,11 @@ from math import atan, cos, radians, sin, sqrt, tan
 from collections.abc import Mapping
 
 from bridge_design.codes.mtc_2018 import (
-    TEMPERATURE_REINFORCEMENT_REFERENCE,
+    ABUTMENT_TEMPERATURE_REINFORCEMENT_REFERENCE,
+    TEMPERATURE_STEEL_MAX_CM2_M,
+    TEMPERATURE_STEEL_MIN_CM2_M,
+    THICK_MEMBER_SPACING_MAX_M,
+    THICK_MEMBER_SPACING_THRESHOLD_CM,
     mtc_tension_development_length_cm,
 )
 from bridge_design.domain.crack_control import maximum_crack_control_spacing_m
@@ -26,6 +30,14 @@ ABUTMENT_STABILITY_REFERENCE = (
 ABUTMENT_KEY_REFERENCE = (
     "AASHTO LRFD 3.11.5.4 y 10.6.3.4: resistencia pasiva reducida del diente "
     "como aporte contra deslizamiento cuando puede movilizarse."
+)
+STEEL_ELASTIC_MODULUS_KG_CM2 = 2_000_000.0
+DEFAULT_MAX_AGGREGATE_SIZE_IN = 0.75
+SIMPLIFIED_SHEAR_BETA = 2.0
+CM_PER_IN = 2.54
+REF_SHEAR_BETA = (
+    "Manual de Puentes MTC 2018 Arts. 2.9.1.5.6.3.3, 2.9.1.5.6.3.4.1 y 2.9.1.5.6.3.4.2; "
+    "AASHTO LRFD 5.7.3.3 y 5.7.3.4."
 )
 
 
@@ -307,6 +319,18 @@ class ComponentGroup:
     horizontal_with_bridge: tuple[LoadComponent, ...]
     vertical_without_bridge: tuple[LoadComponent, ...]
     horizontal_without_bridge: tuple[LoadComponent, ...]
+    # MTC 2.8.1.1.14.1 combo B: max(0.5·PAE, EH) + PIR (full).
+    horizontal_with_bridge_seismic_b: tuple[LoadComponent, ...]
+    horizontal_without_bridge_seismic_b: tuple[LoadComponent, ...]
+
+
+SEISMIC_PAPIR_COMBO_A = "PAE+0.5PIR"
+SEISMIC_PAPIR_COMBO_B = "max(0.5PAE,EH)+PIR"
+REF_SEISMIC_PAPIR = (
+    "Manual de Puentes MTC 2018, Art. 2.8.1.1.14.1: como PAE y PIR no alcanzan "
+    "necesariamente sus máximos simultáneamente, se revisan PAE+0.5·PIR y "
+    "max(0.5·PAE, EH)+PIR, adoptando la combinación más desfavorable."
+)
 
 
 @dataclass(frozen=True)
@@ -354,6 +378,7 @@ class StabilityStateResult:
     bearing_status: str
     key_resistance_tn_m: float | None = None
     sliding_with_key_status: str | None = None
+    seismic_papir_combination: str | None = None
 
 
 @dataclass(frozen=True)
@@ -417,8 +442,27 @@ class StructuralDesignCase:
     shear_demand_tn_m: float
     shear_resistance_tn_m: float
     shear_status: str
+    shear_effective_depth_cm: float = 0.0
+    shear_beta: float = 0.0
+    shear_longitudinal_strain: float = 0.0
+    shear_crack_spacing_in: float = 0.0
+    shear_effective_crack_spacing_in: float = 0.0
+    shear_beta_method: str = ""
+    shear_controlling_moment_tn_m_m: float = 0.0
     is_custom_selection: bool = False
     notes: str = ""
+
+
+@dataclass(frozen=True)
+class AbutmentTemperatureSteelResult:
+    """Temperature and shrinkage steel for one abutment member zone."""
+
+    b_cm: float
+    h_cm: float
+    raw_as_cm2_m: float
+    required_as_cm2_m: float
+    maximum_spacing_m: float
+    reference: str = ABUTMENT_TEMPERATURE_REINFORCEMENT_REFERENCE
 
 
 @dataclass(frozen=True)
@@ -435,8 +479,15 @@ class AbutmentSecondaryReinforcementCase:
     selected_spacing_m: float
     provided_as_cm2_m: float
     status: str
+    temperature_required_as_cm2_m: float = 0.0
+    primary_steel_as_cm2_m: float = 0.0
+    temperature_b_cm: float = 0.0
+    temperature_h_cm: float = 0.0
+    raw_temperature_as_cm2_m: float = 0.0
+    maximum_spacing_m: float = THICK_MEMBER_SPACING_MAX_M
+    spacing_status: str = "OK"
     is_custom_selection: bool = False
-    reference: str = TEMPERATURE_REINFORCEMENT_REFERENCE
+    reference: str = ABUTMENT_TEMPERATURE_REINFORCEMENT_REFERENCE
     notes: str = ""
 
 
@@ -490,6 +541,13 @@ class AbutmentStemReinforcementCut:
     continuous_bar_length_m: float
     controlling_moment_at_cut_tn_m_m: float
     required_as_at_cut_cm2_m: float
+    moment_resistance_at_cut_tn_m_m: float
+    required_moment_at_cut_tn_m_m: float
+    effective_depth_at_cut_cm: float
+    thickness_at_cut_cm: float
+    strength_as_at_cut_cm2_m: float
+    minimum_as_at_cut_cm2_m: float
+    upper_spacing_limit_m: float
     status: str
     notes: str = ""
 
@@ -528,6 +586,8 @@ class AbutmentDesignResult:
     without_bridge: tuple[StabilityStateResult, ...]
     service_with_bridge: tuple[StabilityStateResult, ...]
     service_without_bridge: tuple[StabilityStateResult, ...]
+    extreme_seismic_with_bridge: tuple[StabilityStateResult, StabilityStateResult]
+    extreme_seismic_without_bridge: tuple[StabilityStateResult, StabilityStateResult]
     footing_width_recommendation: FootingWidthRecommendation | None
     key: PassiveKeyResult | None
     stem_design: StructuralDesignCase
@@ -606,25 +666,50 @@ def solve_abutment_design(
     pressures = _soil_pressures(data, dc_weight, ev_weight, dc_y, ev_y)
     components = _load_components(data, dc_weight, dc_x, dc_y, ev_weight, ev_x, ev_y, pressures)
     key = _passive_key(data) if data.key.enabled else None
-    wall_or_without_bridge = tuple(
-        _stability_state(
-            data,
-            factors,
-            components.vertical_without_bridge,
-            components.horizontal_without_bridge,
-            key,
+    strength_factors = DEFAULT_LOAD_FACTORS[:2]
+    extreme_factors = DEFAULT_LOAD_FACTORS[2]
+
+    def _strength_states(
+        vertical: tuple[LoadComponent, ...],
+        horizontal: tuple[LoadComponent, ...],
+    ) -> tuple[StabilityStateResult, ...]:
+        return tuple(
+            _stability_state(data, factors, vertical, horizontal, key)
+            for factors in strength_factors
         )
-        for factors in DEFAULT_LOAD_FACTORS[:3]
+
+    extreme_without = _extreme_seismic_pair(
+        data,
+        extreme_factors,
+        components.vertical_without_bridge,
+        components.horizontal_without_bridge,
+        components.horizontal_without_bridge_seismic_b,
+        key,
+    )
+    without_bridge = _strength_states(
+        components.vertical_without_bridge,
+        components.horizontal_without_bridge,
+    ) + (
+        replace(_governing_seismic_state(*extreme_without), name="Evento Extremo I"),
     )
     if data.is_pure_wall:
-        with_bridge = wall_or_without_bridge
-        without_bridge = wall_or_without_bridge
+        with_bridge = without_bridge
+        extreme_with = extreme_without
     else:
-        with_bridge = tuple(
-            _stability_state(data, factors, components.vertical_with_bridge, components.horizontal_with_bridge, key)
-            for factors in DEFAULT_LOAD_FACTORS[:3]
+        extreme_with = _extreme_seismic_pair(
+            data,
+            extreme_factors,
+            components.vertical_with_bridge,
+            components.horizontal_with_bridge,
+            components.horizontal_with_bridge_seismic_b,
+            key,
         )
-        without_bridge = wall_or_without_bridge
+        with_bridge = _strength_states(
+            components.vertical_with_bridge,
+            components.horizontal_with_bridge,
+        ) + (
+            replace(_governing_seismic_state(*extreme_with), name="Evento Extremo I"),
+        )
     service_without_bridge = (
         _stability_state(
             data,
@@ -652,7 +737,13 @@ def solve_abutment_design(
     )
     crack_checks = _crack_checks(data, pressures, service_with_bridge[0], structural_cases)
     development_checks = _development_checks(data, structural_cases)
-    secondary_reinforcement = _secondary_reinforcement(data, selected)
+    secondary_reinforcement = _secondary_reinforcement(
+        data,
+        selected,
+        stem_design,
+        heel_design,
+        toe_design,
+    )
     stem_reinforcement_cut = _stem_reinforcement_cut(data, pressures, stem_design, development_checks)
     bar_details = _bar_details(data, structural_cases, development_checks, secondary_reinforcement)
     return AbutmentDesignResult(
@@ -672,6 +763,8 @@ def solve_abutment_design(
         without_bridge=without_bridge,
         service_with_bridge=service_with_bridge,
         service_without_bridge=service_without_bridge,
+        extreme_seismic_with_bridge=extreme_with,
+        extreme_seismic_without_bridge=extreme_without,
         footing_width_recommendation=_footing_width_recommendation(
             data,
             with_bridge,
@@ -828,7 +921,9 @@ def _stability_states_for_width_recommendation(
     pressures = _soil_pressures(inputs, dc_weight, ev_weight, dc_y, ev_y)
     components = _load_components(inputs, dc_weight, dc_x, dc_y, ev_weight, ev_x, ev_y, pressures)
     key = _passive_key(inputs) if inputs.key.enabled else None
-    without_bridge = tuple(
+    strength_factors = DEFAULT_LOAD_FACTORS[:2]
+    extreme_factors = DEFAULT_LOAD_FACTORS[2]
+    without_strength = tuple(
         _stability_state(
             inputs,
             factors,
@@ -836,7 +931,18 @@ def _stability_states_for_width_recommendation(
             components.horizontal_without_bridge,
             key,
         )
-        for factors in DEFAULT_LOAD_FACTORS[:3]
+        for factors in strength_factors
+    )
+    extreme_without = _extreme_seismic_pair(
+        inputs,
+        extreme_factors,
+        components.vertical_without_bridge,
+        components.horizontal_without_bridge,
+        components.horizontal_without_bridge_seismic_b,
+        key,
+    )
+    without_bridge = without_strength + (
+        replace(_governing_seismic_state(*extreme_without), name="Evento Extremo I"),
     )
     service_without_bridge = (
         _stability_state(
@@ -852,7 +958,7 @@ def _stability_states_for_width_recommendation(
             *((f"MURO PURO - {state.name}", state) for state in without_bridge),
             *((f"MURO PURO - {state.name}", state) for state in service_without_bridge),
         )
-    with_bridge = tuple(
+    with_strength = tuple(
         _stability_state(
             inputs,
             factors,
@@ -860,7 +966,18 @@ def _stability_states_for_width_recommendation(
             components.horizontal_with_bridge,
             key,
         )
-        for factors in DEFAULT_LOAD_FACTORS[:3]
+        for factors in strength_factors
+    )
+    extreme_with = _extreme_seismic_pair(
+        inputs,
+        extreme_factors,
+        components.vertical_with_bridge,
+        components.horizontal_with_bridge,
+        components.horizontal_with_bridge_seismic_b,
+        key,
+    )
+    with_bridge = with_strength + (
+        replace(_governing_seismic_state(*extreme_with), name="Evento Extremo I"),
     )
     service_with_bridge = (
         _stability_state(
@@ -1223,6 +1340,7 @@ def _load_components(
     g = inputs.geometry
     loads = inputs.loads
     lsy_total = pressures.lsy_tn_m + pressures.pedestrian_lsy_tn_m
+    pir_arm = (dc_weight_tn_m * dc_y_m + ev_weight_tn_m * ev_y_m) / (dc_weight_tn_m + ev_weight_tn_m)
     if inputs.is_pure_wall:
         lsy_x = g.toe_length_m + g.lower_stem_thickness_m + g.backfill_step_width_m + (
             g.heel_length_m - g.backfill_step_width_m
@@ -1232,18 +1350,31 @@ def _load_components(
             LoadComponent("EV relleno", "EV", ev_weight_tn_m, ev_x_m),
             LoadComponent("LSy sobrecarga relleno", "LS", lsy_total, lsy_x),
         )
-        pir_arm = (dc_weight_tn_m * dc_y_m + ev_weight_tn_m * ev_y_m) / (dc_weight_tn_m + ev_weight_tn_m)
-        horizontal_without_bridge = (
-            LoadComponent("LSx sobrecarga", "LS", pressures.lsx_tn_m, g.retained_height_m / 2.0),
-            LoadComponent("EH terreno", "EH", pressures.eh_tn_m, g.retained_height_m / 3.0),
-            LoadComponent("EQterr", "EQ", pressures.eq_terr_tn_m, g.retained_height_m / 2.0),
-            LoadComponent("0.5PIR", "EQ", pressures.half_pir_tn_m, pir_arm),
+        horizontal_a = _horizontal_seismic_combo_a(
+            pressures,
+            pir_arm,
+            g.retained_height_m,
+            include_superstructure=False,
+            braking_tn_m=0.0,
+            peq_arm_m=0.0,
+            br_arm_m=0.0,
+        )
+        horizontal_b = _horizontal_seismic_combo_b(
+            pressures,
+            pir_arm,
+            g.retained_height_m,
+            include_superstructure=False,
+            braking_tn_m=0.0,
+            peq_arm_m=0.0,
+            br_arm_m=0.0,
         )
         return ComponentGroup(
             vertical_with_bridge=vertical_without_bridge,
-            horizontal_with_bridge=horizontal_without_bridge,
+            horizontal_with_bridge=horizontal_a,
             vertical_without_bridge=vertical_without_bridge,
-            horizontal_without_bridge=horizontal_without_bridge,
+            horizontal_without_bridge=horizontal_a,
+            horizontal_with_bridge_seismic_b=horizontal_b,
+            horizontal_without_bridge_seismic_b=horizontal_b,
         )
     lsy_x = g.load_x_m + g.bearing_seat_length_m + g.seat_wall_width_m + (g.heel_length_m - g.backfill_step_width_m) / 2.0
     vertical_with_bridge = (
@@ -1260,22 +1391,138 @@ def _load_components(
         LoadComponent("EV relleno", "EV", ev_weight_tn_m, ev_x_m),
         LoadComponent("LSy sobrecarga relleno", "LS", lsy_total, lsy_x),
     )
-    pir_arm = (dc_weight_tn_m * dc_y_m + ev_weight_tn_m * ev_y_m) / (dc_weight_tn_m + ev_weight_tn_m)
-    horizontal_with_bridge = (
-        LoadComponent("LSx sobrecarga", "LS", pressures.lsx_tn_m, g.retained_height_m / 2.0),
-        LoadComponent("EH terreno", "EH", pressures.eh_tn_m, g.retained_height_m / 3.0),
-        LoadComponent("EQterr", "EQ", pressures.eq_terr_tn_m, g.retained_height_m / 2.0),
-        LoadComponent("0.5PIR", "EQ", pressures.half_pir_tn_m, pir_arm),
-        LoadComponent("PEQ superestructura", "EQ", pressures.peq_tn_m, g.retained_height_m - g.seat_block_height_m / 2.0),
-        LoadComponent("BR frenado", "BR", inputs.loads.braking_tn_m, g.retained_height_m + g.bridge_seat_to_bearing_height_m),
+    peq_arm = g.retained_height_m - g.seat_block_height_m / 2.0
+    br_arm = g.retained_height_m + g.bridge_seat_to_bearing_height_m
+    horizontal_with_a = _horizontal_seismic_combo_a(
+        pressures,
+        pir_arm,
+        g.retained_height_m,
+        include_superstructure=True,
+        braking_tn_m=loads.braking_tn_m,
+        peq_arm_m=peq_arm,
+        br_arm_m=br_arm,
     )
-    horizontal_without_bridge = horizontal_with_bridge[:4]
+    horizontal_with_b = _horizontal_seismic_combo_b(
+        pressures,
+        pir_arm,
+        g.retained_height_m,
+        include_superstructure=True,
+        braking_tn_m=loads.braking_tn_m,
+        peq_arm_m=peq_arm,
+        br_arm_m=br_arm,
+    )
+    horizontal_without_a = horizontal_with_a[:4]
+    horizontal_without_b = horizontal_with_b[:3]  # LSx + max(0.5PAE,EH) + PIR
     return ComponentGroup(
         vertical_with_bridge=vertical_with_bridge,
-        horizontal_with_bridge=horizontal_with_bridge,
+        horizontal_with_bridge=horizontal_with_a,
         vertical_without_bridge=vertical_without_bridge,
-        horizontal_without_bridge=horizontal_without_bridge,
+        horizontal_without_bridge=horizontal_without_a,
+        horizontal_with_bridge_seismic_b=horizontal_with_b,
+        horizontal_without_bridge_seismic_b=horizontal_without_b,
     )
+
+
+def _horizontal_seismic_combo_a(
+    pressures: SoilPressureResult,
+    pir_arm_m: float,
+    retained_height_m: float,
+    *,
+    include_superstructure: bool,
+    braking_tn_m: float,
+    peq_arm_m: float,
+    br_arm_m: float,
+) -> tuple[LoadComponent, ...]:
+    """MTC combo A: PAE (= EH + EQterr) + 0.5·PIR."""
+    rows: list[LoadComponent] = [
+        LoadComponent("LSx sobrecarga", "LS", pressures.lsx_tn_m, retained_height_m / 2.0),
+        LoadComponent("EH terreno", "EH", pressures.eh_tn_m, retained_height_m / 3.0),
+        LoadComponent("EQterr", "EQ", pressures.eq_terr_tn_m, retained_height_m / 2.0),
+        LoadComponent("0.5PIR", "EQ", pressures.half_pir_tn_m, pir_arm_m),
+    ]
+    if include_superstructure:
+        rows.append(LoadComponent("PEQ superestructura", "EQ", pressures.peq_tn_m, peq_arm_m))
+        rows.append(LoadComponent("BR frenado", "BR", braking_tn_m, br_arm_m))
+    return tuple(rows)
+
+
+def _horizontal_seismic_combo_b(
+    pressures: SoilPressureResult,
+    pir_arm_m: float,
+    retained_height_m: float,
+    *,
+    include_superstructure: bool,
+    braking_tn_m: float,
+    peq_arm_m: float,
+    br_arm_m: float,
+) -> tuple[LoadComponent, ...]:
+    """MTC combo B: max(0.5·PAE, EH) + PIR completo."""
+    earth_b = max(0.5 * pressures.pae_tn_m, pressures.eh_tn_m)
+    # Si gobierna EH, brazo H/3; si gobierna 0.5·PAE, brazo H/2 (resultante sísmica).
+    earth_arm = retained_height_m / 3.0 if earth_b <= pressures.eh_tn_m + 1e-12 else retained_height_m / 2.0
+    earth_type = "EH" if earth_b <= pressures.eh_tn_m + 1e-12 else "EQ"
+    rows: list[LoadComponent] = [
+        LoadComponent("LSx sobrecarga", "LS", pressures.lsx_tn_m, retained_height_m / 2.0),
+        LoadComponent("max(0.5PAE,EH)", earth_type, earth_b, earth_arm),
+        LoadComponent("PIR", "EQ", pressures.pir_tn_m, pir_arm_m),
+    ]
+    if include_superstructure:
+        rows.append(LoadComponent("PEQ superestructura", "EQ", pressures.peq_tn_m, peq_arm_m))
+        rows.append(LoadComponent("BR frenado", "BR", braking_tn_m, br_arm_m))
+    return tuple(rows)
+
+
+def _stability_severity(state: StabilityStateResult) -> float:
+    """Return a utilization index to pick the more unfavorable seismic combination."""
+    e_limit = max(state.eccentricity_limit_m, 1e-9)
+    e_ratio = abs(state.eccentricity_m) / e_limit
+    resistance = (
+        state.key_resistance_tn_m
+        if state.key_resistance_tn_m is not None
+        else state.friction_resistance_tn_m
+    )
+    slide_ratio = state.hu_tn_m / max(resistance, 1e-9)
+    bearing_ratio = state.geotechnical_pressure_kg_cm2 / max(state.q_allow_kg_cm2, 1e-9)
+    return max(e_ratio, slide_ratio, bearing_ratio)
+
+
+def _governing_seismic_state(
+    combo_a: StabilityStateResult,
+    combo_b: StabilityStateResult,
+) -> StabilityStateResult:
+    """Return the more unfavorable of the two MTC PAE/PIR combinations."""
+    if _stability_severity(combo_b) > _stability_severity(combo_a) + 1e-12:
+        return combo_b
+    return combo_a
+
+
+def _extreme_seismic_pair(
+    inputs: AbutmentInputs,
+    factors: LoadFactors,
+    vertical: tuple[LoadComponent, ...],
+    horizontal_a: tuple[LoadComponent, ...],
+    horizontal_b: tuple[LoadComponent, ...],
+    key: PassiveKeyResult | None,
+) -> tuple[StabilityStateResult, StabilityStateResult]:
+    state_a = _stability_state(
+        inputs,
+        factors,
+        vertical,
+        horizontal_a,
+        key,
+        seismic_papir_combination=SEISMIC_PAPIR_COMBO_A,
+        state_name="Evento Extremo I (PAE+0.5PIR)",
+    )
+    state_b = _stability_state(
+        inputs,
+        factors,
+        vertical,
+        horizontal_b,
+        key,
+        seismic_papir_combination=SEISMIC_PAPIR_COMBO_B,
+        state_name="Evento Extremo I (max(0.5PAE,EH)+PIR)",
+    )
+    return state_a, state_b
 
 
 def _stability_state(
@@ -1284,6 +1531,9 @@ def _stability_state(
     vertical: tuple[LoadComponent, ...],
     horizontal: tuple[LoadComponent, ...],
     key: PassiveKeyResult | None,
+    *,
+    seismic_papir_combination: str | None = None,
+    state_name: str | None = None,
 ) -> StabilityStateResult:
     factor_map = {
         "DC": factors.dc,
@@ -1334,7 +1584,7 @@ def _stability_state(
         qmin = 0.0
     bearing_ok = geotechnical_pressure <= q_allow
     return StabilityStateResult(
-        name=factors.name,
+        name=state_name or factors.name,
         vu_tn_m=vu,
         stabilizing_moment_tn_m_m=mvu,
         hu_tn_m=hu,
@@ -1358,6 +1608,7 @@ def _stability_state(
         bearing_status="OK" if bearing_ok else "NO",
         key_resistance_tn_m=key_resistance if key is not None else None,
         sliding_with_key_status=("OK" if key_resistance >= hu else "NO") if key is not None else None,
+        seismic_papir_combination=seismic_papir_combination,
     )
 
 
@@ -1419,16 +1670,13 @@ def _structural_design(
     stem_demands = _stem_design_demands(inputs, pressures)
     stem_mu = max(stem_demands["strength_mu"], stem_demands["extreme_mu"])
     stem_vu = max(stem_demands["strength_vu"], stem_demands["extreme_vu"])
-    stem_vr = _concrete_shear_resistance_tn(stem_depth_cm, inputs, r.shear_phi, beta=1.1344830913108226)
     stem_temperature_as = _stem_temperature_as(inputs)
     heel_demands = tuple(_heel_design_demands(inputs, state) for state in with_bridge)
     heel_mu = max(moment for moment, _ in heel_demands)
     heel_vu = max(shear for _, shear in heel_demands)
-    heel_vr = _concrete_shear_resistance_tn(footing_depth_cm, inputs, r.shear_phi, beta=2.0)
     toe_demands = tuple(_toe_design_demands(inputs, state, toe_depth_cm) for state in with_bridge)
     toe_mu = max(moment for moment, _ in toe_demands)
     toe_vu = max(shear for _, shear in toe_demands)
-    toe_vr = _concrete_shear_resistance_tn(toe_depth_cm, inputs, r.shear_phi, beta=2.0)
     footing_temperature_as = _footing_temperature_as(inputs)
     return (
         _reinforced_case(
@@ -1437,13 +1685,13 @@ def _structural_design(
             stem_depth_cm,
             stem_temperature_as,
             stem_vu,
-            stem_vr,
             inputs,
             grid,
             r.stem_design_phi_for_as,
             r.stem_main_bar_label,
             stem_temperature_as,
             selected_reinforcement.get("Pantalla"),
+            shear_method="general",
         ),
         _reinforced_case(
             "Zapata - talon superior",
@@ -1451,7 +1699,6 @@ def _structural_design(
             footing_depth_cm,
             footing_temperature_as,
             heel_vu,
-            heel_vr,
             inputs,
             grid,
             r.footing_design_phi_for_as,
@@ -1462,6 +1709,7 @@ def _structural_design(
                 "Envolvente Resistencia/Evento Extremo; Mu neto = |M descendente - M reaccion suelo| "
                 "con presion triangular/trapezoidal adoptada."
             ),
+            shear_method="simplified",
         ),
         _reinforced_case(
             "Zapata - puntera inferior",
@@ -1469,7 +1717,6 @@ def _structural_design(
             toe_depth_cm,
             footing_temperature_as,
             toe_vu,
-            toe_vr,
             inputs,
             grid,
             r.footing_design_phi_for_as,
@@ -1478,6 +1725,7 @@ def _structural_design(
             selected_reinforcement.get("Zapata - puntera inferior"),
             r.toe_moment_capacity_multiplier,
             "Envolvente Resistencia/Evento Extremo con presion triangular/trapezoidal adoptada.",
+            shear_method="simplified",
         ),
     )
 
@@ -1495,21 +1743,20 @@ def _key_structural_design(
     effective_depth_cm = inputs.key.width_m * 100.0 - r.footing_cover_cm - bar.diameter_cm / 2.0
     moment = _key_base_moment_tn_m(inputs, key)
     shear = key.passive_resistance_tn_m
-    shear_resistance = _concrete_shear_resistance_tn(effective_depth_cm, inputs, r.shear_phi, beta=2.0)
-    minimum_as = _temperature_min_rect_cm2_m(inputs.key.width_m)
+    minimum_as = _key_temperature_as(inputs)
     return _reinforced_case(
         "Diente de concreto",
         moment,
         effective_depth_cm,
         minimum_as,
         shear,
-        shear_resistance,
         inputs,
         grid,
         r.footing_design_phi_for_as,
         r.key_main_bar_label,
         minimum_as,
         selected_reinforcement.get("Diente de concreto"),
+        shear_method="simplified",
     )
 
 
@@ -1519,7 +1766,6 @@ def _reinforced_case(
     effective_depth_cm: float,
     minimum_as_cm2_m: float,
     shear_demand_tn_m: float,
-    shear_resistance_tn_m: float,
     inputs: AbutmentInputs,
     grid: SpacingGrid,
     design_phi_for_as: float,
@@ -1528,6 +1774,7 @@ def _reinforced_case(
     selected_option: ReinforcementSpacingOption | None = None,
     moment_capacity_multiplier: float = 1.0,
     notes: str = "Mr >= max(Mu, min(Mcr, 1.33Mu))",
+    shear_method: str = "general",
 ) -> StructuralDesignCase:
     as_strength = _flexural_steel_area_workbook_cm2_m(
         mu_tn_m=abs(mu_tn_m),
@@ -1592,6 +1839,21 @@ def _reinforced_case(
                 inputs.materials.steel_yield_kg_cm2,
                 design_phi_for_as,
             )
+    shear_detail = _shear_beta_detail(
+        mu_tn_m=abs(mu_tn_m),
+        vu_tn_m=shear_demand_tn_m,
+        provided_as_cm2_m=provided_as,
+        effective_depth_cm=effective_depth_cm,
+        gross_depth_cm=gross_depth_cm,
+        method=shear_method,
+        inputs=inputs,
+    )
+    shear_resistance_tn_m = _concrete_shear_resistance_tn(
+        effective_depth_cm,
+        inputs,
+        inputs.reinforcement.shear_phi,
+        shear_detail["beta"],
+    )
     return StructuralDesignCase(
         name=name,
         controlling_moment_tn_m_m=abs(mu_tn_m),
@@ -1613,6 +1875,13 @@ def _reinforced_case(
         shear_demand_tn_m=shear_demand_tn_m,
         shear_resistance_tn_m=shear_resistance_tn_m,
         shear_status="OK" if shear_resistance_tn_m >= shear_demand_tn_m else "NO",
+        shear_effective_depth_cm=shear_detail["dv_cm"],
+        shear_beta=shear_detail["beta"],
+        shear_longitudinal_strain=shear_detail["epsilon_s"],
+        shear_crack_spacing_in=shear_detail["s_x_in"],
+        shear_effective_crack_spacing_in=shear_detail["s_xe_in"],
+        shear_beta_method=shear_detail["method"],
+        shear_controlling_moment_tn_m_m=shear_detail["mu_used_tn_m_m"],
         is_custom_selection=bool(selected_option and selected_option.is_custom),
         notes=notes,
     )
@@ -1657,21 +1926,23 @@ def _select_reinforcement_for_required_area(
 def _secondary_reinforcement(
     inputs: AbutmentInputs,
     selected_reinforcement: Mapping[str, ReinforcementSpacingOption],
+    stem_design: StructuralDesignCase,
+    heel_design: StructuralDesignCase,
+    toe_design: StructuralDesignCase,
 ) -> tuple[AbutmentSecondaryReinforcementCase, ...]:
     r = inputs.reinforcement
     grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m, r.maximum_spacing_m)
-    vertical_stem_minimum = _stem_vertical_temperature_as(inputs)
-    horizontal_stem_minimum = _stem_horizontal_temperature_as(inputs)
-    footing_transverse_minimum = _footing_temperature_as(inputs)
+    stem_temperature = _stem_temperature_result(inputs)
+    footing_temperature = _footing_temperature_result(inputs)
     vertical_stem_note = (
-        "Minimo por retraccion y temperatura con espesor inferior; la cara de relleno queda cubierta por el acero principal."
-        if inputs.is_pure_wall
-        else "Minimo por retraccion y temperatura; la cara de relleno queda cubierta por el acero principal."
+        "Acero vertical adicional en cara exterior; la cara de relleno queda cubierta "
+        "por el acero principal vertical."
+        if not inputs.is_pure_wall
+        else "Acero vertical adicional en cara exterior; la cara opuesta queda cubierta "
+        "por el acero principal vertical."
     )
     horizontal_stem_note = (
-        "Acero horizontal de distribucion uniforme; controla el espesor inferior de pantalla."
-        if inputs.is_pure_wall
-        else "Acero horizontal de distribucion."
+        "Acero horizontal de distribucion en ambas caras; el acero principal es vertical."
     )
     return (
         _secondary_reinforcement_case(
@@ -1679,7 +1950,8 @@ def _secondary_reinforcement(
             "Pantalla",
             "Cara exterior al relleno",
             "Vertical",
-            vertical_stem_minimum,
+            stem_temperature,
+            0.0,
             grid,
             vertical_stem_note,
             selected_reinforcement.get("Pantalla - vertical exterior"),
@@ -1689,7 +1961,8 @@ def _secondary_reinforcement(
             "Pantalla",
             "Cara interior / relleno",
             "Horizontal transversal",
-            horizontal_stem_minimum,
+            stem_temperature,
+            0.0,
             grid,
             f"{horizontal_stem_note} Cara de relleno.",
             selected_reinforcement.get("Pantalla - horizontal relleno"),
@@ -1699,7 +1972,8 @@ def _secondary_reinforcement(
             "Pantalla",
             "Cara exterior al relleno",
             "Horizontal transversal",
-            horizontal_stem_minimum,
+            stem_temperature,
+            0.0,
             grid,
             f"{horizontal_stem_note} Cara exterior.",
             selected_reinforcement.get("Pantalla - horizontal exterior"),
@@ -1709,9 +1983,11 @@ def _secondary_reinforcement(
             "Zapata",
             "Superior",
             "Horizontal transversal a talon/puntera",
-            footing_transverse_minimum,
+            footing_temperature,
+            heel_design.provided_as_cm2_m,
             grid,
-            "Acero minimo de retraccion y temperatura segun 5.10.6-1.",
+            "Acero transversal superior; el acero principal del talon puede cubrir parte "
+            "del minimo por temperatura en la misma direccion.",
             selected_reinforcement.get("Zapata - transversal superior"),
         ),
         _secondary_reinforcement_case(
@@ -1719,9 +1995,11 @@ def _secondary_reinforcement(
             "Zapata",
             "Inferior",
             "Horizontal transversal a talon/puntera",
-            footing_transverse_minimum,
+            footing_temperature,
+            toe_design.provided_as_cm2_m,
             grid,
-            "Acero minimo de retraccion y temperatura segun 5.10.6-1.",
+            "Acero transversal inferior; el acero principal de la puntera puede cubrir parte "
+            "del minimo por temperatura en la misma direccion.",
             selected_reinforcement.get("Zapata - transversal inferior"),
         ),
     )
@@ -1732,24 +2010,36 @@ def _secondary_reinforcement_case(
     element: str,
     face: str,
     direction: str,
-    required_as_cm2_m: float,
+    temperature: AbutmentTemperatureSteelResult,
+    primary_steel_as_cm2_m: float,
     grid: SpacingGrid,
     notes: str,
     selected_option: ReinforcementSpacingOption | None = None,
 ) -> AbutmentSecondaryReinforcementCase:
-    spacing_options = generate_spacing_options(name, required_as_cm2_m, grid)
+    additional_required = max(0.0, temperature.required_as_cm2_m - primary_steel_as_cm2_m)
+    spacing_options = generate_spacing_options(name, additional_required, grid)
     selected = selected_option or spacing_options.recommended or spacing_options.options[-1]
+    area_status = "OK" if selected.provided_area_cm2_m + 1e-9 >= additional_required else "NO"
+    spacing_status = "OK" if selected.spacing_m <= temperature.maximum_spacing_m + 1e-9 else "NO"
+    status = "OK" if area_status == "OK" and spacing_status == "OK" else "NO"
     return AbutmentSecondaryReinforcementCase(
         name=name,
         element=element,
         face=face,
         direction=direction,
-        required_as_cm2_m=required_as_cm2_m,
+        required_as_cm2_m=additional_required,
         spacing_options=spacing_options,
         selected_bar_label=selected.bar.label,
         selected_spacing_m=selected.spacing_m,
         provided_as_cm2_m=selected.provided_area_cm2_m,
-        status="OK" if selected.provided_area_cm2_m + 1e-9 >= required_as_cm2_m else "NO",
+        status=status,
+        temperature_required_as_cm2_m=temperature.required_as_cm2_m,
+        primary_steel_as_cm2_m=primary_steel_as_cm2_m,
+        temperature_b_cm=temperature.b_cm,
+        temperature_h_cm=temperature.h_cm,
+        raw_temperature_as_cm2_m=temperature.raw_as_cm2_m,
+        maximum_spacing_m=temperature.maximum_spacing_m,
+        spacing_status=spacing_status,
         is_custom_selection=selected.is_custom,
         notes=notes,
     )
@@ -1964,12 +2254,28 @@ def _stem_reinforcement_cut(
         theoretical_cut = high
 
     constructive_cut = min(height, theoretical_cut + development_extension_m)
-    moment_at_cut, effective_depth_cm, _, minimum_as, required_as, _ = _stem_cut_design_at_height(
+    (
+        moment_at_cut,
+        effective_depth_cm,
+        strength_as_at_cut,
+        minimum_as_at_cut,
+        required_as,
+        required_moment_at_cut,
+    ) = _stem_cut_design_at_height(
         inputs,
         pressures,
         theoretical_cut,
         lower_bar.diameter_cm,
     )
+    moment_resistance_at_cut = _moment_resistance_tn_m(
+        upper_as,
+        100.0,
+        effective_depth_cm,
+        inputs.materials.concrete_strength_kg_cm2,
+        inputs.materials.steel_yield_kg_cm2,
+        inputs.reinforcement.stem_design_phi_for_as,
+    )
+    thickness_at_cut_cm = _stem_thickness_at_height_m(inputs, theoretical_cut) * 100.0
     status = "OK"
     notes = (
         "Acero superior continuo: "
@@ -1998,6 +2304,13 @@ def _stem_reinforcement_cut(
         continuous_bar_length_m=height + development_extension_m,
         controlling_moment_at_cut_tn_m_m=moment_at_cut,
         required_as_at_cut_cm2_m=required_as,
+        moment_resistance_at_cut_tn_m_m=moment_resistance_at_cut,
+        required_moment_at_cut_tn_m_m=required_moment_at_cut,
+        effective_depth_at_cut_cm=effective_depth_cm,
+        thickness_at_cut_cm=thickness_at_cut_cm,
+        strength_as_at_cut_cm2_m=strength_as_at_cut,
+        minimum_as_at_cut_cm2_m=minimum_as_at_cut,
+        upper_spacing_limit_m=upper_spacing_limit,
         status=status,
         notes=notes,
     )
@@ -2110,7 +2423,14 @@ def _stem_design_moment_at_height(
         0.0,
     )
     strength_mu = 1.75 * ls_moment + 1.50 * eh_moment + 1.75 * br_moment
-    extreme_mu = 0.50 * ls_moment + eh_moment + eq_moment + pir_moment + peq_moment + 0.50 * br_moment
+    pae_force = eh_force + eq_force
+    # MTC 2.8.1.1.14.1 — envolvente de las dos combinaciones PAE/PIR
+    extreme_mu_a = 0.50 * ls_moment + eh_moment + eq_moment + pir_moment + peq_moment + 0.50 * br_moment
+    earth_b = max(0.5 * pae_force, eh_force)
+    earth_moment_b = eh_moment if earth_b <= eh_force + 1e-12 else earth_b * remaining_height / 2.0
+    pir_moment_full = (pir * upper_concrete[1]) * (remaining_height / height)
+    extreme_mu_b = 0.50 * ls_moment + earth_moment_b + pir_moment_full + peq_moment + 0.50 * br_moment
+    extreme_mu = max(extreme_mu_a, extreme_mu_b)
     return max(strength_mu, extreme_mu)
 
 
@@ -2142,19 +2462,33 @@ def _stem_design_demands(
     eh_force = 0.5 * height * eh_pressure_base
     eq_pressure_base = 0.5 * (k_ae - ka) * height * gamma_soil
     eq_force = eq_pressure_base * height
+    pae_force = eh_force + eq_force
     peq_force = pressures.peq_tn_m
     br_force = inputs.loads.braking_tn_m
     ls_moment = ls_force * height / 2.0
     eh_moment = eh_force * height / 3.0
     eq_moment = eq_force * height / 2.0
-    pir_moment = 0.5 * pir * pir_arm
+    pir_moment_half = 0.5 * pir * pir_arm
+    pir_moment_full = pir * pir_arm
     peq_moment = peq_force * (height - g.seat_block_height_m / 2.0)
     br_moment = br_force * (height + g.bridge_seat_to_bearing_height_m)
+    # MTC 2.8.1.1.14.1 — combo A: PAE + 0.5·PIR
+    extreme_mu_a = 0.50 * ls_moment + eh_moment + eq_moment + pir_moment_half + peq_moment + 0.50 * br_moment
+    extreme_vu_a = 0.50 * ls_force + eh_force + eq_force + 0.50 * pir + peq_force + 0.50 * br_force
+    # MTC combo B: max(0.5·PAE, EH) + PIR
+    earth_b = max(0.5 * pae_force, eh_force)
+    earth_moment_b = eh_moment if earth_b <= eh_force + 1e-12 else earth_b * height / 2.0
+    extreme_mu_b = 0.50 * ls_moment + earth_moment_b + pir_moment_full + peq_moment + 0.50 * br_moment
+    extreme_vu_b = 0.50 * ls_force + earth_b + pir + peq_force + 0.50 * br_force
     return {
         "strength_mu": 1.75 * ls_moment + 1.50 * eh_moment + 1.75 * br_moment,
-        "extreme_mu": 0.50 * ls_moment + eh_moment + eq_moment + pir_moment + peq_moment + 0.50 * br_moment,
+        "extreme_mu": max(extreme_mu_a, extreme_mu_b),
+        "extreme_mu_a": extreme_mu_a,
+        "extreme_mu_b": extreme_mu_b,
         "strength_vu": 1.75 * ls_force + 1.50 * eh_force + 1.75 * br_force,
-        "extreme_vu": 0.50 * ls_force + eh_force + eq_force + 0.50 * pir + peq_force + 0.50 * br_force,
+        "extreme_vu": max(extreme_vu_a, extreme_vu_b),
+        "extreme_vu_a": extreme_vu_a,
+        "extreme_vu_b": extreme_vu_b,
     }
 
 
@@ -2486,51 +2820,94 @@ def _detail_note(element: str) -> str:
 
 
 def _stem_temperature_as(inputs: AbutmentInputs) -> float:
-    return _stem_vertical_temperature_as(inputs)
+    return _stem_temperature_result(inputs).required_as_cm2_m
 
 
-def _stem_vertical_temperature_as(inputs: AbutmentInputs) -> float:
+def _stem_average_thickness_cm(inputs: AbutmentInputs) -> float:
+    g = inputs.geometry
+    return (g.lower_stem_thickness_m + g.upper_stem_thickness_m) * 50.0
+
+
+def _stem_panel_height_cm(inputs: AbutmentInputs) -> float:
+    g = inputs.geometry
     if inputs.is_pure_wall:
-        return _stem_rectangular_temperature_as(inputs)
-    return _stem_non_prismatic_temperature_as(inputs)
-
-
-def _stem_horizontal_temperature_as(inputs: AbutmentInputs) -> float:
-    if inputs.is_pure_wall:
-        return _stem_rectangular_temperature_as(inputs)
-    return _stem_non_prismatic_temperature_as(inputs)
-
-
-def _stem_non_prismatic_temperature_as(inputs: AbutmentInputs) -> float:
-    b_cm = inputs.geometry.backwall_taper_height_m * 100.0
-    if inputs.is_pure_wall:
-        b_cm = (
-            inputs.geometry.lower_stem_thickness_m
-            + inputs.geometry.upper_stem_thickness_m
-        ) * 50.0
-    h_cm = (
-        inputs.geometry.stem_height_above_footing_m
-        - inputs.geometry.seat_block_height_m
-        - inputs.geometry.backwall_drop_m
-        - inputs.geometry.backwall_taper_height_m
+        return g.stem_height_above_footing_m * 100.0
+    return (
+        g.stem_height_above_footing_m
+        - g.seat_block_height_m
+        - g.backwall_drop_m
+        - g.backwall_taper_height_m
     ) * 100.0
-    return 0.18 * b_cm * h_cm / (2.0 * (b_cm + h_cm))
+
+
+def _temperature_max_spacing_m(thickness_cm: float, grid: SpacingGrid) -> float:
+    if thickness_cm > THICK_MEMBER_SPACING_THRESHOLD_CM:
+        return min(grid.maximum_m, THICK_MEMBER_SPACING_MAX_M)
+    return grid.maximum_m
+
+
+def _temperature_mtc_bounded(
+    b_cm: float,
+    h_cm: float,
+    steel_yield_kg_cm2: float,
+    grid: SpacingGrid,
+) -> AbutmentTemperatureSteelResult:
+    raw = _temperature_mtc_aashto_cm2_m(b_cm, h_cm, steel_yield_kg_cm2)
+    bounded = max(TEMPERATURE_STEEL_MIN_CM2_M, min(TEMPERATURE_STEEL_MAX_CM2_M, raw))
+    return AbutmentTemperatureSteelResult(
+        b_cm=b_cm,
+        h_cm=h_cm,
+        raw_as_cm2_m=raw,
+        required_as_cm2_m=bounded,
+        maximum_spacing_m=_temperature_max_spacing_m(max(b_cm, h_cm), grid),
+    )
+
+
+def _stem_temperature_result(inputs: AbutmentInputs) -> AbutmentTemperatureSteelResult:
+    grid = SpacingGrid(
+        inputs.reinforcement.spacing_step_m,
+        inputs.reinforcement.minimum_spacing_m,
+        inputs.reinforcement.maximum_spacing_m,
+    )
+    return _temperature_mtc_bounded(
+        _stem_average_thickness_cm(inputs),
+        _stem_panel_height_cm(inputs),
+        inputs.materials.steel_yield_kg_cm2,
+        grid,
+    )
 
 
 def _footing_temperature_as(inputs: AbutmentInputs) -> float:
-    b_cm = inputs.geometry.footing_width_m * 100.0
-    h_cm = inputs.geometry.footing_thickness_m * 100.0
-    return 0.18 * b_cm * h_cm / (2.0 * (b_cm + h_cm))
+    return _footing_temperature_result(inputs).required_as_cm2_m
 
 
-def _stem_rectangular_temperature_as(inputs: AbutmentInputs) -> float:
-    b_cm = 100.0
-    h_cm = inputs.geometry.lower_stem_thickness_m * 100.0
-    return _temperature_mtc_aashto_cm2_m(
-        b_cm,
-        h_cm,
-        inputs.materials.steel_yield_kg_cm2,
+def _footing_temperature_result(inputs: AbutmentInputs) -> AbutmentTemperatureSteelResult:
+    grid = SpacingGrid(
+        inputs.reinforcement.spacing_step_m,
+        inputs.reinforcement.minimum_spacing_m,
+        inputs.reinforcement.maximum_spacing_m,
     )
+    g = inputs.geometry
+    return _temperature_mtc_bounded(
+        g.footing_width_m * 100.0,
+        g.footing_thickness_m * 100.0,
+        inputs.materials.steel_yield_kg_cm2,
+        grid,
+    )
+
+
+def _key_temperature_as(inputs: AbutmentInputs) -> float:
+    grid = SpacingGrid(
+        inputs.reinforcement.spacing_step_m,
+        inputs.reinforcement.minimum_spacing_m,
+        inputs.reinforcement.maximum_spacing_m,
+    )
+    return _temperature_mtc_bounded(
+        inputs.key.width_m * 100.0,
+        inputs.key.height_m * 100.0,
+        inputs.materials.steel_yield_kg_cm2,
+        grid,
+    ).required_as_cm2_m
 
 
 def _temperature_mtc_aashto_cm2_m(
@@ -2544,8 +2921,79 @@ def _temperature_mtc_aashto_cm2_m(
     return 7.65 * b_cm * h_cm / (2.0 * (b_cm + h_cm) * steel_yield_kg_cm2) * 100.0
 
 
-def _temperature_min_rect_cm2_m(thickness_m: float) -> float:
-    return 0.0018 * 100.0 * thickness_m * 100.0
+def _effective_shear_depth_cm(effective_depth_cm: float, gross_depth_cm: float) -> float:
+    return max(0.9 * effective_depth_cm, 0.72 * gross_depth_cm)
+
+
+def _footing_simplified_shear_eligible(
+    inputs: AbutmentInputs,
+    effective_shear_depth_cm: float,
+) -> bool:
+    """Simplified β=2 applies when the critical section is within 3·dv of the stem face."""
+    stem_thickness_m = inputs.geometry.lower_stem_thickness_m
+    return stem_thickness_m <= 0.0 or stem_thickness_m <= 3.0 * effective_shear_depth_cm / 100.0
+
+
+def _general_shear_beta(
+    mu_tn_m_m: float,
+    vu_tn_m: float,
+    provided_as_cm2_m: float,
+    effective_shear_depth_cm: float,
+    steel_modulus_kg_cm2: float = STEEL_ELASTIC_MODULUS_KG_CM2,
+    max_aggregate_size_in: float = DEFAULT_MAX_AGGREGATE_SIZE_IN,
+) -> tuple[float, float, float, float, float]:
+    """Return beta, epsilon_s, s_x (in), s_xe (in) and Mu used for the general procedure."""
+    dv_m = effective_shear_depth_cm / 100.0
+    mu_used = max(mu_tn_m_m, abs(vu_tn_m) * dv_m)
+    if provided_as_cm2_m <= 0.0 or steel_modulus_kg_cm2 <= 0.0:
+        return SIMPLIFIED_SHEAR_BETA, 0.0, 0.0, 0.0, mu_used
+    force_tn_per_m = mu_used / dv_m + abs(vu_tn_m)
+    epsilon_s = 1000.0 * force_tn_per_m / (steel_modulus_kg_cm2 * provided_as_cm2_m)
+    epsilon_s = max(epsilon_s, 0.0)
+    s_x_in = effective_shear_depth_cm / CM_PER_IN
+    s_xe_in = s_x_in * 1.38 / (max_aggregate_size_in + 0.63)
+    beta = (4.8 / (1.0 + 750.0 * epsilon_s)) * (51.0 / (39.0 + s_xe_in))
+    return beta, epsilon_s, s_x_in, s_xe_in, mu_used
+
+
+def _shear_beta_detail(
+    mu_tn_m: float,
+    vu_tn_m: float,
+    provided_as_cm2_m: float,
+    effective_depth_cm: float,
+    gross_depth_cm: float,
+    method: str,
+    inputs: AbutmentInputs | None = None,
+) -> dict[str, float | str]:
+    dv_cm = _effective_shear_depth_cm(effective_depth_cm, gross_depth_cm)
+    use_simplified = method == "simplified"
+    if use_simplified and inputs is not None:
+        use_simplified = _footing_simplified_shear_eligible(inputs, dv_cm)
+    if use_simplified:
+        return {
+            "method": "simplified",
+            "dv_cm": dv_cm,
+            "beta": SIMPLIFIED_SHEAR_BETA,
+            "epsilon_s": 0.0,
+            "s_x_in": dv_cm / CM_PER_IN,
+            "s_xe_in": 0.0,
+            "mu_used_tn_m_m": mu_tn_m,
+        }
+    beta, epsilon_s, s_x_in, s_xe_in, mu_used = _general_shear_beta(
+        mu_tn_m_m=mu_tn_m,
+        vu_tn_m=vu_tn_m,
+        provided_as_cm2_m=provided_as_cm2_m,
+        effective_shear_depth_cm=dv_cm,
+    )
+    return {
+        "method": "general",
+        "dv_cm": dv_cm,
+        "beta": beta,
+        "epsilon_s": epsilon_s,
+        "s_x_in": s_x_in,
+        "s_xe_in": s_xe_in,
+        "mu_used_tn_m_m": mu_used,
+    }
 
 
 def _concrete_shear_resistance_tn(

@@ -214,7 +214,7 @@ def test_pure_wall_solver_sanitizes_bridge_geometry_and_loads() -> None:
     ]
 
 
-def test_pure_wall_stem_secondary_minimum_uses_lower_stem_thickness_for_uniform_layout() -> None:
+def test_pure_wall_stem_secondary_minimum_uses_average_stem_thickness() -> None:
     from bridge_design.domain.abutment import AbutmentGeometryInputs, AbutmentInputs
     from bridge_design.domain.cantilever_wall import solve_cantilever_wall_design
 
@@ -239,7 +239,8 @@ def test_pure_wall_stem_secondary_minimum_uses_lower_stem_thickness_for_uniform_
         "Pantalla - horizontal relleno",
         "Pantalla - horizontal exterior",
     ):
-        assert secondary_by_name[name].required_as_cm2_m == pytest.approx(4.436813, abs=1e-6)
+        assert secondary_by_name[name].temperature_required_as_cm2_m == pytest.approx(5.595901, abs=1e-6)
+        assert secondary_by_name[name].required_as_cm2_m == pytest.approx(5.595901, abs=1e-6)
     for case in secondary_by_name.values():
         assert case.provided_as_cm2_m >= case.required_as_cm2_m
 
@@ -345,7 +346,7 @@ def test_pure_wall_footing_primary_reinforcement_uses_temperature_minimum() -> N
     assert result.toe_design.required_as_cm2_m == pytest.approx(
         result.toe_design.temperature_as_cm2_m
     )
-    assert result.toe_design.required_as_cm2_m == pytest.approx(3.60)
+    assert result.toe_design.required_as_cm2_m == pytest.approx(3.642857, abs=1e-5)
 
 
 def test_cantilever_wall_domain_api_uses_wall_names() -> None:

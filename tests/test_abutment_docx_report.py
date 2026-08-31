@@ -25,9 +25,27 @@ def test_abutment_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "del estribo de puente" in xml
     assert "Reemplazando los valores correspondientes" in xml
     assert "Coeficiente activo de Coulomb" in xml
+    assert "Coeficiente sísmico Mononobe-Okabe kAE" in xml
+    assert "arctan" in xml
+    assert "Inventario vertical factorizado" in xml
+    assert "Presión admisible factorizada" in xml
+    assert "Límite de excentricidad" in xml
+    assert "Origen de Mu y Vu" in xml
     assert "Resultantes factorizadas" in xml
     assert "Verificación al deslizamiento" in xml
-    assert "Presión de contacto y capacidad del suelo" in xml
+    assert "Presión de contacto estructural y Meyerhof" in xml
+    assert "Expresión Ai" in xml
+    assert "0.5PIR" in xml
+    assert "2.8.1.1.14.1" in xml
+    assert "max(0.5PAE,EH)+PIR" in xml or "max(0.5" in xml
+    assert "750" in xml
+    assert "2.9.1.4.5.8" in xml
+    assert "As,adic" in xml
+    assert "smax,pat" in xml
+    assert "Altura teórica de corte ht" in xml
+    assert "Lcort" in xml
+    assert "2.9.1.5.6.3.4.2" in xml or "Procedimiento general" in xml
+    assert "123000" in xml
     assert "36.629" in xml
     assert "71.294" not in xml
     assert "Estado q" in xml

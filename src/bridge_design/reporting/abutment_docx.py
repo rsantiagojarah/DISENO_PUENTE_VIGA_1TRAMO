@@ -21,6 +21,34 @@ from bridge_design.reporting.abutment_docx_charts import (
     save_abutment_geometry,
     save_contact_pressure_diagrams,
 )
+from bridge_design.reporting.abutment_docx_detail import (
+    allowable_bearing_trace,
+    component_factor_rows,
+    concrete_geometry_rows,
+    coulomb_ka_trace,
+    crack_control_trace,
+    cracking_and_temperature_trace,
+    development_trace,
+    eccentricity_limit_trace,
+    effective_depth_trace,
+    factors_for_state,
+    heel_toe_demand_trace,
+    horizontal_components_for_state,
+    mononobe_okabe_trace,
+    mtc_seismic_envelope_trace,
+    passive_key_height_trace,
+    peq_trace,
+    pir_trace,
+    pressure_arms_trace,
+    seismic_angle_trace,
+    secondary_temperature_trace,
+    stem_cut_constructive_length_trace,
+    stem_cut_continuous_pattern_trace,
+    stem_cut_theoretical_height_trace,
+    shear_beta_trace,
+    stem_demand_trace,
+    surcharge_height_trace,
+)
 from bridge_design.reporting.deck_docx import (
     GRAY,
     RULE,
@@ -41,10 +69,15 @@ REF_COMBINATIONS = "Manual de Puentes MTC 2018, Art. 2.4.5.3.1 y Tabla 2.4.5.3.1
 REF_EARTH = "Manual de Puentes MTC 2018, criterios de empuje de suelo de la Sección 2.11; AASHTO LRFD 3.11."
 REF_STABILITY = "Manual de Puentes MTC 2018, criterios de estribos y cimentaciones; AASHTO LRFD 10.6.3.1 y 11.6.3."
 REF_FLEXURE = "Manual de Puentes MTC 2018, Sección 2.9.4.2; AASHTO LRFD 5.7.3."
-REF_SHEAR = "Manual de Puentes MTC 2018, criterios de resistencia al corte de concreto armado; AASHTO LRFD 5.7.3.3."
+REF_SHEAR = (
+    "Manual de Puentes MTC 2018 Arts. 2.9.1.5.6.3.3, 2.9.1.5.6.3.4.1 y 2.9.1.5.6.3.4.2; "
+    "AASHTO LRFD 5.7.3.3 y 5.7.3.4."
+)
 REF_CRACK = "Manual de Puentes MTC 2018, Sección 2.9.4.4; AASHTO LRFD 5.7.3.4."
 REF_DEVELOPMENT = "Manual de Puentes MTC 2018, Art. 2.6.5.6.2.1; AASHTO LRFD 5.11.2.1."
-REF_TEMPERATURE = "Manual de Puentes MTC 2018 y AASHTO LRFD, refuerzo mínimo por retracción y temperatura."
+REF_TEMPERATURE = (
+    "Manual de Puentes MTC 2018, Art. 2.9.1.4.5.8; AASHTO LRFD 5.10.8."
+)
 
 
 def generate_abutment_docx(result: AbutmentDesignResult, output_path: str | Path) -> Path:
@@ -236,6 +269,13 @@ def _design_basis(document: Document, result: AbutmentDesignResult, chart_dir: P
             ("Espesor superior de pantalla", "es", f"{g.upper_stem_thickness_m:.3f} m"),
             ("Longitud de talón", "Lt", f"{g.heel_length_m:.3f} m"),
             ("Suelo frontal", "hf", f"{g.front_soil_depth_m:.3f} m"),
+            ("Longitud de cajuela", "Lc", f"{g.bearing_seat_length_m:.3f} m"),
+            ("Espesor parapeto posterior", "ep", f"{g.seat_wall_width_m:.3f} m"),
+            ("Altura de cajuela", "hc", f"{g.seat_block_height_m:.3f} m"),
+            ("Altura bloque cajuela", "hb", f"{g.backwall_drop_m:.3f} m"),
+            ("Altura transición", "ht", f"{g.backwall_taper_height_m:.3f} m"),
+            ("Retiro/transición t1", "t1", f"{g.small_batter_width_m:.3f} m"),
+            ("Retiro superior t2", "t2", f"{g.backfill_step_width_m:.3f} m"),
         ),
         widths=(78, 30, 59),
     )
@@ -297,14 +337,22 @@ def _weights(document: Document, result: AbutmentDesignResult) -> None:
         for component in result.concrete_components
     )
     _table(document, ("Componente", "A (m²)", "γc", "W (Tn/m)", "x (m)", "W·x"), concrete_rows, widths=(58, 21, 20, 27, 19, 22))
+    _table(
+        document,
+        ("Componente", "Expresión Ai", "Ai (m²)", "xi (m)"),
+        concrete_geometry_rows(result),
+        widths=(52, 55, 30, 30),
+    )
     _calc(
         document,
         "Peso y momento de cada componente",
-        "Wi = Ai·γc·b ; Mi = Wi·xi",
+        "Wi = Ai·γc·b ; Mi = Wi·xi ; xDC = ΣMi/ΣWi",
         "Wi: peso lineal; Ai: área de la sección; γc: peso específico; b: franja unitaria; xi: brazo desde la puntera; Mi: momento estabilizante.",
-        f"Para cada fila se usa γc = {gamma_c:.3f} Tn/m³ y b = {data.geometry.strip_width_m:.2f} m; ΣWi = {result.dc_self_weight_tn_m:.3f} Tn/m; ΣMi = {result.dc_self_weight_tn_m * result.dc_self_x_m:.3f} Tn·m/m",
+        f"γc = {gamma_c:.3f} Tn/m³; b = {data.geometry.strip_width_m:.2f} m\n"
+        f"ΣWi = {result.dc_self_weight_tn_m:.3f} Tn/m; ΣMi = {result.dc_self_weight_tn_m * result.dc_self_x_m:.3f} Tn·m/m\n"
+        f"xDC = {result.dc_self_weight_tn_m * result.dc_self_x_m:.3f}/{result.dc_self_weight_tn_m:.3f} = {result.dc_self_x_m:.3f} m",
         f"El peso propio del estribo es {result.dc_self_weight_tn_m:.3f} Tn/m y su brazo resultante es {result.dc_self_x_m:.3f} m.",
-        "La descomposición mantiene cada volumen en su posición física y evita redistribuir artificialmente el peso propio.",
+        "La descomposición mantiene cada volumen (cajuela, parapeto, pantalla, zapata) en su posición física.",
         REF_STABILITY,
     )
     document.add_heading("2.2 Peso del relleno sobre el talón", level=2)
@@ -335,31 +383,22 @@ def _weights(document: Document, result: AbutmentDesignResult) -> None:
 def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
     data = result.inputs
     g = data.geometry
-    soil = data.soil
     p = result.pressures
     gamma = data.materials.soil_unit_weight_kg_m3 / 1000.0
     effective_heel = g.heel_length_m - g.backfill_step_width_m
-    seismic = soil.fpga * soil.pga
-    kh = 0.5 * seismic
     document.add_heading("3. Empujes de suelo, sobrecargas y sismo", level=1)
-    _calc(
-        document,
-        "Coeficiente activo de Coulomb",
-        "Ka = sin²(θ+φ)/[sin²θ·sin(θ−δ)·(1+√[sin(φ+δ)·sin(φ−β)/(sin(θ−δ)·sin(θ+β))])²]",
-        "Ka: coeficiente activo; φ: fricción interna; δ: fricción muro-suelo; β: pendiente del relleno; θ: ángulo de la cara posterior medido desde la horizontal.",
-        f"φ = {soil.friction_angle_deg:.3f}°; δ = {soil.wall_soil_friction_deg:.3f}°; β = {soil.backfill_slope_deg:.3f}°; θ = {soil.wall_backface_angle_deg:.3f}°; Ka = {p.ka:.5f}",
-        f"Se adopta Ka = {p.ka:.5f}.",
-        "El coeficiente conserva los ángulos ingresados; para cara vertical y relleno horizontal reproduce el caso activo convencional.",
-        REF_EARTH,
-    )
+    _calc(document, "Coeficiente activo de Coulomb", *coulomb_ka_trace(result), REF_EARTH)
+    _calc(document, "Altura equivalente de sobrecarga vehicular", *surcharge_height_trace(result), REF_EARTH)
     _calc(
         document,
         "Sobrecarga vehicular equivalente",
         "LSy = Lt,ef·h'·γs ; LSx = Ka·h'·γs·H",
         "LSy: componente vertical; LSx: empuje horizontal uniforme; Lt,ef: talón efectivo; h': altura equivalente; γs: peso específico; H: altura retenida.",
-        f"LSy = {effective_heel:.3f}·{p.live_surcharge_height_m:.3f}·{gamma:.3f} = {p.lsy_tn_m:.3f} Tn/m; LSx = {p.ka:.5f}·{p.live_surcharge_height_m:.3f}·{gamma:.3f}·{g.retained_height_m:.3f} = {p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m",
+        f"Lt,ef = {effective_heel:.3f} m; h' = {p.live_surcharge_height_m:.3f} m\n"
+        f"LSy = {effective_heel:.3f}·{p.live_surcharge_height_m:.3f}·{gamma:.3f} = {p.lsy_tn_m:.3f} Tn/m\n"
+        f"LSx = {p.ka:.5f}·{p.live_surcharge_height_m:.3f}·{gamma:.3f}·{g.retained_height_m:.3f} = {p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m",
         f"La sobrecarga vehicular produce LSy = {p.lsy_tn_m:.3f} Tn/m y LSx = {p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m.",
-        "La altura equivalente se adopta según la altura del estribo y se aplica como presión uniforme sobre toda la altura activa.",
+        "La altura equivalente se aplica como presión uniforme sobre toda la altura activa.",
         REF_EARTH,
     )
     _calc(
@@ -372,48 +411,37 @@ def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
         "La distribución es triangular y su resultante actúa a H/3 desde la base del diagrama.",
         REF_EARTH,
     )
-    _calc(
-        document,
-        "Parámetros sísmicos del relleno",
-        "As = Fpga·PGA ; kh = 0.5·As",
-        "As: coeficiente sísmico del sitio; Fpga: factor de amplificación; PGA: aceleración pico; kh: coeficiente horizontal empleado.",
-        f"As = {soil.fpga:.3f}·{soil.pga:.3f} = {seismic:.4f}; kh = 0.5·{seismic:.4f} = {kh:.4f}",
-        f"Se utiliza kh = {kh:.4f} y un ángulo sísmico de {p.seismic_angle_deg:.3f}°.",
-        "El coeficiente se utiliza en Mononobe-Okabe y en las fuerzas inerciales del estribo y la superestructura.",
-        REF_EARTH,
-    )
+    _calc(document, "Brazos de las acciones horizontales", *pressure_arms_trace(result), REF_EARTH)
+    _calc(document, "Parámetros sísmicos y ángulo ψ", *seismic_angle_trace(result), REF_EARTH)
+    _calc(document, "Coeficiente sísmico Mononobe-Okabe kAE", *mononobe_okabe_trace(result), REF_EARTH)
     _calc(
         document,
         "Incremento sísmico de empuje",
         "PAE = 0.5·kAE·γs·H² ; EQterr = PAE − EH",
         "PAE: empuje activo sísmico total; kAE: coeficiente Mononobe-Okabe; EQterr: incremento sísmico respecto del empuje estático.",
-        f"PAE = 0.5·{p.k_ae:.5f}·{gamma:.3f}·{g.retained_height_m:.3f}² = {p.pae_tn_m:.3f} Tn/m; EQterr = {p.pae_tn_m:.3f} − {p.eh_tn_m:.3f} = {p.eq_terr_tn_m:.3f} Tn/m",
-        f"Se obtiene kAE = {p.k_ae:.5f} y EQterr = {p.eq_terr_tn_m:.3f} Tn/m.",
+        f"PAE = 0.5·{p.k_ae:.5f}·{gamma:.3f}·{g.retained_height_m:.3f}² = {p.pae_tn_m:.3f} Tn/m\n"
+        f"EQterr = {p.pae_tn_m:.3f} − {p.eh_tn_m:.3f} = {p.eq_terr_tn_m:.3f} Tn/m",
+        f"Se obtiene PAE = {p.pae_tn_m:.3f} Tn/m y EQterr = {p.eq_terr_tn_m:.3f} Tn/m.",
         "El incremento EQ se combina únicamente en el estado de Evento Extremo I.",
         REF_EARTH,
     )
-    _calc(
-        document,
-        "Fuerza inercial del estribo",
-        "PIR = kh·(WDC + WEV)",
-        "PIR: fuerza inercial de la masa del estribo y relleno; kh: coeficiente horizontal; WDC: peso propio; WEV: peso del relleno.",
-        f"PIR = {kh:.4f}·({result.dc_self_weight_tn_m:.3f} + {result.ev_weight_tn_m:.3f}) = {p.pir_tn_m:.3f} Tn/m",
-        f"La fuerza inercial total es PIR = {p.pir_tn_m:.3f} Tn/m.",
-        "La mitad de la fuerza inercial se incorpora en las acciones horizontales del modelo conforme al criterio adoptado.",
-        REF_EARTH,
-    )
+    _calc(document, "Fuerza inercial del estribo y combinaciones MTC PAE/PIR", *pir_trace(result), REF_EARTH)
+    _calc(document, "Envolvente sísmica Art. 2.8.1.1.14.1", *mtc_seismic_envelope_trace(result), REF_EARTH)
+    _calc(document, "Fuerza inercial de la superestructura PEQ", *peq_trace(result), REF_EARTH)
     _table(
         document,
         ("Efecto", "Valor"),
         (
             ("Ka", f"{p.ka:.5f}"),
             ("kAE", f"{p.k_ae:.5f}"),
+            ("ψ", f"{p.seismic_angle_deg:.3f}°"),
             ("LS vertical vehicular", f"{p.lsy_tn_m:.3f} Tn/m"),
             ("LS horizontal total", f"{p.lsx_tn_m:.3f} Tn/m"),
             ("EH", f"{p.eh_tn_m:.3f} Tn/m"),
             ("PAE", f"{p.pae_tn_m:.3f} Tn/m"),
             ("EQ del terreno", f"{p.eq_terr_tn_m:.3f} Tn/m"),
             ("PIR", f"{p.pir_tn_m:.3f} Tn/m"),
+            ("0.5PIR", f"{p.half_pir_tn_m:.3f} Tn/m"),
             ("PEQ superestructura", f"{p.peq_tn_m:.3f} Tn/m"),
         ),
         widths=(100, 67),
@@ -477,14 +505,42 @@ def _stability_state_calculations(
 ) -> None:
     b = result.inputs.geometry.footing_width_m
     phi = result.inputs.soil.friction_angle_deg
+    factors = factors_for_state(result, state)
     title = f"{state.name} - {condition}"
     document.add_heading(title, level=3)
+    if condition == "con puente":
+        vertical = result.components.vertical_with_bridge
+        horizontal = horizontal_components_for_state(result, state, with_bridge=True)
+    else:
+        vertical = result.components.vertical_without_bridge
+        horizontal = horizontal_components_for_state(result, state, with_bridge=False)
+    if state.seismic_papir_combination:
+        _comment(
+            document,
+            f"Combinación sísmica MTC Art. 2.8.1.1.14.1 adoptada en este estado: "
+            f"{state.seismic_papir_combination}.",
+        )
+    _comment(document, "Inventario vertical factorizado (fuerzas estabilizantes):")
+    _table(
+        document,
+        ("Componente", "Tipo", "P (Tn/m)", "x (m)", "γ", "γP", "γP·x"),
+        component_factor_rows(vertical, factors, horizontal=False),
+        widths=(46, 14, 22, 18, 14, 22, 31),
+    )
+    _comment(document, "Inventario horizontal factorizado (fuerzas volcadoras/deslizantes):")
+    _table(
+        document,
+        ("Componente", "Tipo", "H (Tn/m)", "y (m)", "γ", "γH", "γH·y"),
+        component_factor_rows(horizontal, factors, horizontal=True),
+        widths=(46, 14, 22, 18, 14, 22, 31),
+    )
     _calc(
         document,
         "Resultantes factorizadas",
         "Vu = Σ(γi·Pi) ; MVu = Σ(γi·Pi·xi) ; Hu = Σ(γi·Hi) ; MHu = Σ(γi·Hi·yi)",
         "Vu: resultante vertical; MVu: momento estabilizante; Hu: resultante horizontal; MHu: momento volcador; γi: factor LRFD; xi, yi: brazos.",
-        f"Vu = {state.vu_tn_m:.3f} Tn/m; MVu = {state.stabilizing_moment_tn_m_m:.3f} Tn·m/m; Hu = {state.hu_tn_m:.3f} Tn/m; MHu = {state.overturning_moment_tn_m_m:.3f} Tn·m/m",
+        f"Vu = {state.vu_tn_m:.3f} Tn/m; MVu = {state.stabilizing_moment_tn_m_m:.3f} Tn·m/m\n"
+        f"Hu = {state.hu_tn_m:.3f} Tn/m; MHu = {state.overturning_moment_tn_m_m:.3f} Tn·m/m",
         f"Para {title} se obtienen las cuatro resultantes factorizadas indicadas.",
         "Las fuerzas y momentos proceden de una única combinación compatible del estado límite.",
         REF_COMBINATIONS,
@@ -494,11 +550,13 @@ def _stability_state_calculations(
         "Posición de la resultante y excentricidad",
         "xR = (MVu − MHu)/Vu ; e = B/2 − xR",
         "xR: distancia de la resultante desde la puntera; e: excentricidad respecto del centro; B: ancho de zapata.",
-        f"xR = ({state.stabilizing_moment_tn_m_m:.3f} − {state.overturning_moment_tn_m_m:.3f})/{state.vu_tn_m:.3f} = {state.resultant_x_m:.3f} m; e = {b:.3f}/2 − {state.resultant_x_m:.3f} = {state.eccentricity_m:.3f} m",
-        f"|e| = {abs(state.eccentricity_m):.3f} m y el límite adoptado es {state.eccentricity_limit_m:.3f} m: {state.overturning_status}.",
-        _status_comment(state.overturning_status, "La resultante satisface el límite de estabilidad al vuelco del estado analizado."),
+        f"xR = ({state.stabilizing_moment_tn_m_m:.3f} − {state.overturning_moment_tn_m_m:.3f})/{state.vu_tn_m:.3f} = {state.resultant_x_m:.3f} m\n"
+        f"e = {b:.3f}/2 − {state.resultant_x_m:.3f} = {state.eccentricity_m:.3f} m",
+        f"|e| = {abs(state.eccentricity_m):.3f} m.",
+        "La excentricidad se compara a continuación con el límite del estado límite.",
         REF_STABILITY,
     )
+    _calc(document, "Límite de excentricidad y contacto", *eccentricity_limit_trace(result, state), REF_STABILITY)
     if state.key_resistance_tn_m is None:
         passive_contribution = 0.0
         total_resistance = state.friction_resistance_tn_m
@@ -511,7 +569,9 @@ def _stability_state_calculations(
         "Verificación al deslizamiento",
         "Ff = Vu·tan(φ) ; Rdes = Ff + φep·Rep ≥ Hu",
         "Ff: resistencia por fricción; φ: fricción del suelo; φep·Rep: resistencia pasiva factorizada; Hu: demanda horizontal.",
-        f"Ff = {state.vu_tn_m:.3f}·tan({phi:.3f}°) = {state.friction_resistance_tn_m:.3f} Tn/m; Rdes = {state.friction_resistance_tn_m:.3f} + {passive_contribution:.3f} = {total_resistance:.3f} Tn/m; {total_resistance:.3f} ≥ {state.hu_tn_m:.3f}",
+        f"Ff = {state.vu_tn_m:.3f}·tan({phi:.3f}°) = {state.friction_resistance_tn_m:.3f} Tn/m\n"
+        f"Rdes = {state.friction_resistance_tn_m:.3f} + {passive_contribution:.3f} = {total_resistance:.3f} Tn/m\n"
+        f"{total_resistance:.3f} ≥ {state.hu_tn_m:.3f}",
         f"El estado de deslizamiento es {sliding_status}.",
         _status_comment(sliding_status, "La fricción y la resistencia pasiva movilizable cubren la demanda horizontal."),
         REF_STABILITY,
@@ -519,22 +579,29 @@ def _stability_state_calculations(
     if state.contact_type == "Completo":
         structural_formula = "qmax,min = Vu/B·(1 ± 6|e|/B)"
         structural_sub = (
-            f"qmax = {state.vu_tn_m:.3f}/{b:.3f}·(1 + 6·{abs(state.eccentricity_m):.3f}/{b:.3f})/10 = {state.qmax_kg_cm2:.3f} kg/cm²; "
+            f"qmax = {state.vu_tn_m:.3f}/{b:.3f}·(1 + 6·{abs(state.eccentricity_m):.3f}/{b:.3f})/10 = {state.qmax_kg_cm2:.3f} kg/cm²\n"
             f"qmin = {state.vu_tn_m:.3f}/{b:.3f}·(1 − 6·{abs(state.eccentricity_m):.3f}/{b:.3f})/10 = {state.qmin_kg_cm2:.3f} kg/cm²"
         )
     else:
         structural_formula = "Lc = 3·(B/2 − |e|) ; qmax = 2·Vu/Lc"
-        structural_sub = f"Lc = 3·({b:.3f}/2 − |{state.eccentricity_m:.3f}|) = {state.contact_length_m:.3f} m; qmax = 2·{state.vu_tn_m:.3f}/{state.contact_length_m:.3f}/10 = {state.qmax_kg_cm2:.3f} kg/cm²; qmin = {state.qmin_kg_cm2:.3f} kg/cm²"
+        structural_sub = (
+            f"Lc = 3·({b:.3f}/2 − |{state.eccentricity_m:.3f}|) = {state.contact_length_m:.3f} m\n"
+            f"qmax = 2·{state.vu_tn_m:.3f}/{state.contact_length_m:.3f}/10 = {state.qmax_kg_cm2:.3f} kg/cm²; "
+            f"qmin = {state.qmin_kg_cm2:.3f} kg/cm²"
+        )
     _calc(
         document,
-        "Presión de contacto y capacidad del suelo",
+        "Presión de contacto estructural y Meyerhof",
         "B' = B − 2|e| ; qM = Vu/B' ; " + structural_formula,
         "B': ancho efectivo Meyerhof; qM: presión geotécnica; Lc: longitud comprimida; qmax, qmin: presiones del diagrama estructural.",
-        f"B' = {b:.3f} − 2·|{state.eccentricity_m:.3f}| = {state.effective_width_m:.3f} m; qM = {state.vu_tn_m:.3f}/{state.effective_width_m:.3f}/10 = {state.geotechnical_pressure_kg_cm2:.3f} kg/cm²; {structural_sub}",
-        f"qM = {state.geotechnical_pressure_kg_cm2:.3f} kg/cm² ≤ qlím = {state.q_allow_kg_cm2:.3f} kg/cm²: {state.bearing_status}.",
-        _status_comment(state.bearing_status, "La presión Meyerhof satisface el límite geotécnico aplicable al estado analizado."),
+        f"B' = {b:.3f} − 2·|{state.eccentricity_m:.3f}| = {state.effective_width_m:.3f} m\n"
+        f"qM = {state.vu_tn_m:.3f}/{state.effective_width_m:.3f}/10 = {state.geotechnical_pressure_kg_cm2:.3f} kg/cm²\n"
+        f"{structural_sub}",
+        f"La presión Meyerhof es qM = {state.geotechnical_pressure_kg_cm2:.3f} kg/cm².",
+        "A continuación se desarrolla la presión límite qlím del estado.",
         REF_STABILITY,
     )
+    _calc(document, "Presión admisible factorizada qlím", *allowable_bearing_trace(result, state), REF_STABILITY)
 
 
 def _key_design(document: Document, result: AbutmentDesignResult) -> None:
@@ -572,11 +639,16 @@ def _key_design(document: Document, result: AbutmentDesignResult) -> None:
         "Resistencia pasiva factorizada",
         "Rep = 0.5·(pp,sup + pp,inf)·hk ; Rk = φep·Rep,total",
         "Rep: resistencia del dentellón; Rep,total: incluye el suelo frontal superior cuando se autoriza; φep: factor de resistencia; Rk: aporte de diseño.",
-        f"Rep = 0.5·({key.top_pressure_tn_m2:.3f}+{key.bottom_pressure_tn_m2:.3f})·{hk:.3f} = {key.passive_resistance_tn_m:.3f} Tn/m; Rk = {data.key.passive_resistance_factor:.3f}·{key.total_passive_resistance_tn_m:.3f} = {key.factored_passive_tn_m:.3f} Tn/m",
+        f"Rep = 0.5·({key.top_pressure_tn_m2:.3f}+{key.bottom_pressure_tn_m2:.3f})·{hk:.3f} = {key.passive_resistance_tn_m:.3f} Tn/m\n"
+        f"φep = {data.key.passive_resistance_factor:.3f}\n"
+        f"Rk = {data.key.passive_resistance_factor:.3f}·{key.total_passive_resistance_tn_m:.3f} = {key.factored_passive_tn_m:.3f} Tn/m",
         f"El aporte pasivo factorizado del dentellón es Rk = {key.factored_passive_tn_m:.3f} Tn/m.",
         "La resistencia pasiva se suma a la fricción únicamente en la comprobación de deslizamiento.",
         ABUTMENT_KEY_REFERENCE,
     )
+    key_height = passive_key_height_trace(result)
+    if key_height is not None:
+        _calc(document, "Altura de suelo pasivo y factor φep", *key_height, ABUTMENT_KEY_REFERENCE)
 
 
 def _structural_design(document: Document, result: AbutmentDesignResult) -> None:
@@ -594,35 +666,28 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
     rho = case.strength_as_cm2_m / (100.0 * case.effective_depth_cm) if case.effective_depth_cm else 0.0
     omega = rho * data.materials.steel_yield_kg_cm2 / data.materials.concrete_strength_kg_cm2
     bar_area = _bar_area_cm2(case.selected_bar_label)
-    beta = 1.1344830913108226 if case.name == "Pantalla" else 2.0
-    _calc(
-        document,
-        "Peralte efectivo",
-        "d = h − rec − db/2",
-        "d: peralte efectivo; h: espesor total; rec: recubrimiento; db: diámetro de la barra principal.",
-        f"h = {gross_depth:.2f} cm; d = {case.effective_depth_cm:.2f} cm",
-        f"El peralte efectivo utilizado es d = {case.effective_depth_cm:.2f} cm.",
-        "El recubrimiento y el diámetro corresponden a la cara traccionada del elemento adoptado.",
-        REF_FLEXURE,
-    )
+    if case.name == "Pantalla":
+        _calc(document, "Origen de Mu y Vu de pantalla", *stem_demand_trace(result), REF_FLEXURE)
+    else:
+        demand = heel_toe_demand_trace(result, case)
+        if demand is not None:
+            _calc(document, f"Origen de Mu y Vu - {case.name}", *demand, REF_FLEXURE)
+    _calc(document, "Peralte efectivo", *effective_depth_trace(result, case, gross_depth), REF_FLEXURE)
     _calc(
         document,
         "Acero por resistencia a flexión",
         "ω = [1 − √(1 − 4·0.59·Mu/(φ·f'c·b·d²))]/(2·0.59) ; ρ = ω·f'c/fy ; As = ρ·b·d",
         "ω: índice mecánico; Mu: momento último; φ: factor de resistencia; b: ancho unitario; d: peralte efectivo; ρ: cuantía; As: acero requerido.",
-        f"Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; φ = {phi:.3f}; b = 100 cm; d = {case.effective_depth_cm:.2f} cm; ω = {omega:.6f}; ρ = {rho:.6f}; As = {case.strength_as_cm2_m:.3f} cm²/m",
+        f"Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; φ = {phi:.3f}; b = 100 cm; d = {case.effective_depth_cm:.2f} cm\n"
+        f"ω = {omega:.6f}; ρ = {rho:.6f}; As = {case.strength_as_cm2_m:.3f} cm²/m",
         f"El acero por resistencia es As,flex = {case.strength_as_cm2_m:.3f} cm²/m.",
         "La expresión corresponde a una sección rectangular con bloque equivalente de compresión.",
         REF_FLEXURE,
     )
     _calc(
         document,
-        "Capacidad mínima y acero requerido",
-        "fr = 2.01·√f'c ; Mcr = 1.1·fr·S ; Mmin = min(Mcr, 1.33·Mu) ; As,req = max(As,flex, As,temp, As,cap)",
-        "fr: módulo de rotura; S: módulo de sección; Mcr: momento de fisuración; Mmin: capacidad mínima; As,temp: acero por temperatura; As,cap: acero para Mmin.",
-        f"Mcr = {case.cracking_moment_tn_m_m:.3f} Tn·m/m; 1.33Mu = {case.multiplier_minimum_moment_tn_m_m:.3f} Tn·m/m; Mmin = {case.minimum_capacity_moment_tn_m_m:.3f} Tn·m/m; As,temp = {case.temperature_as_cm2_m:.3f}; As,cap = {case.capacity_minimum_as_cm2_m:.3f}; As,req = {case.required_as_cm2_m:.3f} cm²/m",
-        f"Gobierna As,req = {case.required_as_cm2_m:.3f} cm²/m.",
-        "El refuerzo adoptado no puede ser menor que los controles de resistencia, temperatura y capacidad mínima.",
+        "Capacidad mínima, temperatura y acero requerido",
+        *cracking_and_temperature_trace(result, case, gross_depth),
         REF_FLEXURE,
     )
     a_cm = case.provided_as_cm2_m * data.materials.steel_yield_kg_cm2 / (0.85 * data.materials.concrete_strength_kg_cm2 * 100.0)
@@ -631,23 +696,15 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
         "Refuerzo adoptado y momento resistente",
         "As,prov = Ab/s ; a = As,prov·fy/(0.85·f'c·b) ; Mr = φ·As,prov·fy·(d − a/2)",
         "Ab: área de una barra; s: espaciamiento; a: profundidad del bloque equivalente; Mr: momento resistente.",
-        f"As,prov = {bar_area:.3f}/{case.selected_spacing_m:.3f} = {case.provided_as_cm2_m:.3f} cm²/m; a = {a_cm:.3f} cm; Mr = {case.moment_resistance_tn_m_m:.3f} Tn·m/m",
+        f"As,prov = {bar_area:.3f}/{case.selected_spacing_m:.3f} = {case.provided_as_cm2_m:.3f} cm²/m\n"
+        f"a = {a_cm:.3f} cm; Mr = {case.moment_resistance_tn_m_m:.3f} Tn·m/m",
         f"Se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"
         f"{' (selección personalizada del usuario)' if case.is_custom_selection else ''}, "
         f"con estado a flexión {case.moment_status}.",
         _status_comment(case.moment_status, "El momento resistente cubre la demanda y la capacidad mínima aplicable."),
         REF_FLEXURE,
     )
-    _calc(
-        document,
-        "Verificación de cortante",
-        "Vr = φv·0.265·β·√f'c·b·d",
-        "Vr: resistencia de diseño del concreto; φv: factor de corte; β: parámetro seccional; b: ancho unitario; d: peralte efectivo.",
-        f"Vr = {data.reinforcement.shear_phi:.3f}·0.265·{beta:.6f}·√{data.materials.concrete_strength_kg_cm2:.1f}·100·{case.effective_depth_cm:.2f}/1000 = {case.shear_resistance_tn_m:.3f} Tn/m; Vu = {case.shear_demand_tn_m:.3f} Tn/m",
-        f"Vu = {case.shear_demand_tn_m:.3f} Tn/m ≤ Vr = {case.shear_resistance_tn_m:.3f} Tn/m: {case.shear_status}.",
-        _status_comment(case.shear_status, "El concreto satisface la demanda de cortante del elemento."),
-        REF_SHEAR,
-    )
+    _calc(document, "Verificación de cortante", *shear_beta_trace(result, case), REF_SHEAR)
     if case.notes:
         _comment(document, case.notes)
 
@@ -656,28 +713,18 @@ def _service_and_detailing(document: Document, result: AbutmentDesignResult) -> 
     document.add_heading("7. Servicio y detallado", level=1)
     document.add_heading("7.1 Control de fisuración", level=2)
     for check in result.crack_checks:
-        section_depth = _gross_depth_cm(result, check.element)
         _calc(
             document,
             f"Fisuración - {check.element}",
-            "fs = Ms/(As,prov·0.90·d) ; βs = 1 + dc/[0.7·(h − dc)] ; smax = 123000·γe/(βs·fs) − 2dc",
-            "fs: tensión de servicio; Ms: momento de servicio; dc: distancia a la barra; h: espesor; βs: factor geométrico; smax: separación máxima.",
-            f"Ms = {check.service_moment_tn_m_m:.3f} Tn·m/m; fs = {check.steel_stress_kg_cm2:.1f} kg/cm²; fs usada = {check.steel_stress_used_kg_cm2:.1f} kg/cm²; h = {section_depth:.2f} cm; dc = {check.dc_cm:.2f} cm; βs = {check.beta_s:.4f}; smax = {check.maximum_spacing_m:.3f} m",
-            f"sprov = {check.provided_spacing_m:.3f} m ≤ smax = {check.maximum_spacing_m:.3f} m: {check.status}.",
-            _status_comment(check.status, "La separación adoptada satisface el control de fisuración en Servicio I."),
+            *crack_control_trace(result, check),
             REF_CRACK,
         )
     document.add_heading("7.2 Desarrollo y anclaje", level=2)
     for check in result.development_checks:
-        required = check.required_ld_cm if check.anchorage_type == "RECTO" else check.required_hooked_ld_cm
         _calc(
             document,
             f"Desarrollo - {check.element}",
-            "ld = ldb·λubic·λrec·λhorm·λconf·(As,req/As,prov) ; ldisp ≥ ld",
-            "ldb: longitud básica; λ: modificadores; As,req/As,prov: reducción por exceso de acero; ldisp: longitud disponible.",
-            f"ldb = {check.basic_ld_cm:.2f} cm; As,req/As,prov = {check.excess_reinforcement_factor:.4f}; ld recto = {check.required_ld_cm:.2f} cm; ld gancho = {check.required_hooked_ld_cm:.2f} cm; ldisp = {check.available_length_cm:.2f} cm",
-            f"Se adopta anclaje {check.anchorage_type}; ldisp = {check.available_length_cm:.2f} cm y longitud requerida = {required:.2f} cm: {check.status}.",
-            _status_comment(check.status, "La longitud disponible desarrolla la barra principal adoptada."),
+            *development_trace(result, check),
             REF_DEVELOPMENT,
         )
     document.add_heading("7.3 Corte del acero principal de pantalla", level=2)
@@ -687,17 +734,25 @@ def _service_and_detailing(document: Document, result: AbutmentDesignResult) -> 
     else:
         _calc(
             document,
-            "Altura constructiva del corte",
-            "hc = ht + ld",
-            "hc: altura constructiva de terminación de barras; ht: altura teórica de corte; ld: prolongación por desarrollo.",
-            f"hc = {cut.theoretical_cut_height_m:.3f} + {cut.development_extension_m:.3f} = {cut.constructive_cut_height_m:.3f} m sobre la zapata",
-            f"Las barras cortadas terminan a hc = {cut.constructive_cut_height_m:.3f} m y tienen longitud {cut.lower_cut_bar_length_m:.3f} m.",
-            _status_comment(cut.status, "La prolongación por desarrollo conserva la capacidad requerida por encima del punto teórico."),
+            "Patrón de acero superior continuo",
+            *stem_cut_continuous_pattern_trace(result, cut),
+            REF_TEMPERATURE,
+        )
+        _calc(
+            document,
+            "Altura teórica de corte ht",
+            *stem_cut_theoretical_height_trace(result, cut),
+            REF_FLEXURE,
+        )
+        _calc(
+            document,
+            "Altura constructiva y longitudes de barras",
+            *stem_cut_constructive_length_trace(result, cut),
             REF_DEVELOPMENT,
         )
         _body(
             document,
-            f"Patrón constructivo: continúa 1 de cada {cut.continuous_every_n_bars} barras de la parrilla inferior; "
+            f"Patrón constructivo adoptado: continúa 1 de cada {cut.continuous_every_n_bars} barras de la parrilla inferior; "
             "las barras restantes terminan en la altura constructiva de corte.",
         )
         _table(
@@ -709,19 +764,14 @@ def _service_and_detailing(document: Document, result: AbutmentDesignResult) -> 
             ),
             widths=(39, 55, 36, 37),
         )
+        _comment(document, f"Estado del corte: {cut.status}. {cut.notes}")
     document.add_heading("7.4 Acero secundario y transversal", level=2)
     for case in result.secondary_reinforcement:
         _calc(
             document,
             case.name,
-            "As,prov = Ab/s ≥ As,req",
-            "As,prov: acero suministrado; Ab: área de barra; s: espaciamiento; As,req: mínimo por retracción, temperatura o distribución.",
-            f"As,req = {case.required_as_cm2_m:.3f} cm²/m; se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"
-            f"{' (selección personalizada del usuario)' if case.is_custom_selection else ''}; "
-            f"As,prov = {case.provided_as_cm2_m:.3f} cm²/m",
-            f"As,prov = {case.provided_as_cm2_m:.3f} cm²/m ≥ As,req = {case.required_as_cm2_m:.3f} cm²/m: {case.status}.",
-            _status_comment(case.status, "La distribución adoptada satisface el mínimo requerido en la cara y dirección indicadas."),
-            case.reference or REF_TEMPERATURE,
+            *secondary_temperature_trace(case),
+            REF_TEMPERATURE,
         )
         _comment(document, f"Ubicación: {case.face}; dirección: {case.direction}. {case.notes}")
 

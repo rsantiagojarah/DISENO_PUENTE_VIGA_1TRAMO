@@ -63,6 +63,14 @@ TEMPERATURE_REINFORCEMENT_REFERENCE = (
     "Criterio minimo de refuerzo por retraccion y temperatura para losas "
     "de concreto armado, cuantia adoptada rho=0.0018."
 )
+ABUTMENT_TEMPERATURE_REINFORCEMENT_REFERENCE = (
+    "Manual de Puentes MTC 2018, Art. 2.9.1.4.5.8 "
+    "(AASHTO LRFD 5.10.8): refuerzo por temperatura y acortamiento de fragua."
+)
+TEMPERATURE_STEEL_MIN_CM2_M = 2.33
+TEMPERATURE_STEEL_MAX_CM2_M = 12.70
+THICK_MEMBER_SPACING_MAX_M = 0.30
+THICK_MEMBER_SPACING_THRESHOLD_CM = 45.0
 DISTRIBUTION_REINFORCEMENT_REFERENCE = (
     "Manual de Puentes MTC 2018, Art. 2.9.7.3.2 "
     "(9.7.3.2 AASHTO): acero de distribucion en losas."

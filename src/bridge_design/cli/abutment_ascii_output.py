@@ -1150,7 +1150,9 @@ def _format_secondary_reinforcement(result: AbutmentDesignResult) -> list[str]:
                         ("Elemento", case.element),
                         ("Cara", case.face),
                         ("Direccion", case.direction),
-                        ("As requerido", f"{case.required_as_cm2_m:.3f} cm2/m"),
+                        ("As temp requerido", f"{case.temperature_required_as_cm2_m:.3f} cm2/m"),
+                        ("As principal", f"{case.primary_steel_as_cm2_m:.3f} cm2/m"),
+                        ("As adicional req.", f"{case.required_as_cm2_m:.3f} cm2/m"),
                         ("As provisto", f"{case.provided_as_cm2_m:.3f} cm2/m"),
                         ("Acero seleccionado", f"{case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"),
                         ("Origen del acero", "USUARIO" if case.is_custom_selection else "TABLA"),
@@ -1165,9 +1167,8 @@ def _format_secondary_reinforcement(result: AbutmentDesignResult) -> list[str]:
         [
             "",
             (
-                "Referencia: "
-                "Manual de Puentes MTC 2018 / AASHTO LRFD, refuerzo minimo "
-                "por retraccion y temperatura adoptado en el proyecto."
+                "Referencia: Manual de Puentes MTC 2018, Art. 2.9.1.4.5.8 "
+                "(AASHTO LRFD 5.10.8): refuerzo por temperatura y acortamiento de fragua."
             ),
         ]
     )
