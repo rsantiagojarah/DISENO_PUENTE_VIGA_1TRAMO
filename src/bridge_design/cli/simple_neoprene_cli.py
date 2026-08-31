@@ -29,6 +29,7 @@ from bridge_design.domain.simple_neoprene_support import (
     climate_temperature,
     design_simple_neoprene_support,
 )
+from bridge_design.reporting.simple_neoprene_docx import generate_simple_neoprene_docx_with_dialog
 
 
 def _prompt_choice(label: str, options: dict[str, str], default: str) -> str:
@@ -148,7 +149,9 @@ def collect_simple_neoprene_inputs() -> SimpleSupportInputs:
 def run_simple_neoprene_design(inputs: SimpleSupportInputs | None = None) -> None:
     if inputs is None:
         inputs = collect_simple_neoprene_inputs()
-    print(format_simple_neoprene_result(design_simple_neoprene_support(inputs)))
+    result = design_simple_neoprene_support(inputs)
+    print(format_simple_neoprene_result(result))
+    generate_simple_neoprene_docx_with_dialog(result)
 
 
 def _run_yaml_mode(args: list[str]) -> bool:
