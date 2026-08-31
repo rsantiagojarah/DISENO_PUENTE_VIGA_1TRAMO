@@ -445,7 +445,9 @@ Alcance normativo y de calculo:
 - Acero por temperatura y retraccion: MTC Art. 2.9.1.4.5.8 / AASHTO 5.10.8 con
   As,temp = 0.18·b·h/(2(b+h)), limites 2.33-12.70 cm2/m por cara, smax = 30 cm
   si espesor > 45 cm, b = espesor promedio (ei+es)/2 en pantalla trapezoidal,
-  h = Hp' (cuerpo rectangular), y As,adic = max(0, As,temp - As,principal).
+  h = Hp' (cuerpo rectangular), y As,adic = max(0, As,temp - As,principal)
+  solo cuando As,principal esta en la misma cara y direccion; el acero
+  longitudinal de talon/puntera no cubre el minimo transversal de zapata.
 - Corte de concreto: pantalla con procedimiento general MTC 2.9.1.5.6.3.4.2
   (β desde εs y sxe; ag = 3/4" por defecto de proyecto); zapata y dentellon
   con procedimiento simplificado β = 2 cuando la seccion critica queda junto a

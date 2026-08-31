@@ -766,8 +766,10 @@ def test_abutment_reports_missing_secondary_reinforcement_families() -> None:
     assert secondary_by_name["Pantalla - vertical exterior"].temperature_required_as_cm2_m == pytest.approx(4.644643, abs=1e-4)
     assert secondary_by_name["Pantalla - vertical exterior"].required_as_cm2_m == pytest.approx(4.644643, abs=1e-4)
     assert secondary_by_name["Zapata - transversal superior"].temperature_required_as_cm2_m == pytest.approx(8.117919, abs=1e-4)
-    assert secondary_by_name["Zapata - transversal superior"].required_as_cm2_m == pytest.approx(0.0, abs=1e-9)
-    assert secondary_by_name["Zapata - transversal superior"].primary_steel_as_cm2_m >= 8.117919
+    assert secondary_by_name["Zapata - transversal superior"].primary_steel_as_cm2_m == pytest.approx(0.0, abs=1e-9)
+    assert secondary_by_name["Zapata - transversal superior"].required_as_cm2_m == pytest.approx(8.117919, abs=1e-4)
+    assert secondary_by_name["Zapata - transversal inferior"].primary_steel_as_cm2_m == pytest.approx(0.0, abs=1e-9)
+    assert secondary_by_name["Zapata - transversal inferior"].required_as_cm2_m == pytest.approx(8.117919, abs=1e-4)
 
 
 def test_abutment_temperature_still_required_when_transition_height_is_zero() -> None:

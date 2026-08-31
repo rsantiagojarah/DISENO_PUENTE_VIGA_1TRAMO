@@ -1,7 +1,8 @@
-"""Detailed A4 Word calculation report for ``diseno-estribos``."""
+"""Detailed A4 Word calculation report for ``diseno-estribos`` and ``diseno-muros``."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -80,6 +81,83 @@ REF_TEMPERATURE = (
 )
 
 
+@dataclass(frozen=True)
+class _ReportLabels:
+    header: str
+    cover_title: str
+    cover_subtitle: str
+    system: str
+    analysis_intro: str
+    structure: str
+    geometry_caption: str
+    filename_prefix: str
+    save_title: str
+    cancel_msg: str
+    saved_msg: str
+    stability_intro: str
+    weight_owner: str
+    pressure_chart_caption: str
+
+
+def _labels(*, is_pure_wall: bool) -> _ReportLabels:
+    if is_pure_wall:
+        return _ReportLabels(
+            header="MEMORIA DE CÁLCULO · MURO EN CANTILEVER",
+            cover_title="Memoria de cálculo\ndel muro en cantilever",
+            cover_subtitle="Geometría · empujes · estabilidad · dentellón · diseño estructural · detalle",
+            system="Muro de contención de concreto armado en cantilever, franja de 1.00 m",
+            analysis_intro=(
+                "El muro se analiza por una franja longitudinal de 1.00 m sin acciones del tablero. "
+                "Las acciones se conservan por naturaleza de carga y se combinan mediante factores LRFD. "
+                "La estabilidad se verifica con la resultante en la base, la resistencia al deslizamiento "
+                "y la presión de contacto; el diseño estructural emplea las presiones lineales adoptadas "
+                "para la zapata."
+            ),
+            structure="muro",
+            geometry_caption="Figura 1.1. Sección transversal y dimensiones principales del muro adoptado.",
+            filename_prefix="MEMORIA_CALCULO_MURO",
+            save_title="Guardar memoria de cálculo detallada del muro",
+            cancel_msg="Generación de la memoria Word del muro cancelada por el usuario.",
+            saved_msg="Memoria Word del muro guardada en:",
+            stability_intro=(
+                "Las verificaciones se desarrollan para el muro independiente. "
+                "Se mantienen separados Servicio I, Resistencia I y Evento Extremo I."
+            ),
+            weight_owner="muro",
+            pressure_chart_caption=(
+                "Figura 4.1. Diagramas lineales de presión estructural bajo la zapata "
+                "para la condición del muro."
+            ),
+        )
+    return _ReportLabels(
+        header="MEMORIA DE CÁLCULO · ESTRIBO DE PUENTE",
+        cover_title="Memoria de cálculo\ndel estribo de puente",
+        cover_subtitle="Geometría · empujes · estabilidad · dentellón · diseño estructural · detalle",
+        system="Estribo de concreto armado tipo cantilever, franja de 1.00 m",
+        analysis_intro=(
+            "El estribo se analiza por una franja longitudinal de 1.00 m. Las acciones se conservan "
+            "por naturaleza de carga y se combinan mediante factores LRFD. La estabilidad se verifica "
+            "con la resultante en la base, la resistencia al deslizamiento y la presión de contacto; "
+            "el diseño estructural emplea las presiones lineales adoptadas para la zapata."
+        ),
+        structure="estribo",
+        geometry_caption="Figura 1.1. Sección transversal y dimensiones principales del estribo adoptado.",
+        filename_prefix="MEMORIA_CALCULO_ESTRIBO",
+        save_title="Guardar memoria de cálculo detallada del estribo",
+        cancel_msg="Generación de la memoria Word del estribo cancelada por el usuario.",
+        saved_msg="Memoria Word del estribo guardada en:",
+        stability_intro=(
+            "Las verificaciones se desarrollan con puente y sin puente. "
+            "Se mantienen separados Servicio I, Resistencia I y Evento Extremo I."
+        ),
+        weight_owner="estribo",
+        pressure_chart_caption=(
+            "Figura 4.1. Diagramas lineales de presión estructural bajo la zapata "
+            "para la condición con puente."
+        ),
+    )
+
+
 def generate_abutment_docx(result: AbutmentDesignResult, output_path: str | Path) -> Path:
     """Create the detailed abutment Word memory and return its absolute path."""
     path = Path(output_path).expanduser().resolve()
@@ -87,16 +165,17 @@ def generate_abutment_docx(result: AbutmentDesignResult, output_path: str | Path
         path = path.with_suffix(".docx")
     path.parent.mkdir(parents=True, exist_ok=True)
     document = Document()
+    labels = _labels(is_pure_wall=result.inputs.is_pure_wall)
     _configure_document(document)
-    _configure_abutment_header_footer(document)
+    _configure_abutment_header_footer(document, labels)
     with TemporaryDirectory(prefix="abutment_report_") as chart_dir:
         chart_path = Path(chart_dir)
-        _cover(document, result)
+        _cover(document, result, labels)
         _contents(document)
-        _design_basis(document, result, chart_path)
-        _weights(document, result)
+        _design_basis(document, result, chart_path, labels)
+        _weights(document, result, labels)
         _earth_pressures(document, result)
-        _stability(document, result, chart_path)
+        _stability(document, result, chart_path, labels)
         _key_design(document, result)
         _structural_design(document, result)
         _service_and_detailing(document, result)
@@ -107,8 +186,10 @@ def generate_abutment_docx(result: AbutmentDesignResult, output_path: str | Path
     return path
 
 
-def select_abutment_docx_save_path() -> Path | None:
-    """Open a native save dialog for the abutment Word memory."""
+def select_abutment_docx_save_path(result: AbutmentDesignResult | None = None) -> Path | None:
+    """Open a native save dialog for the abutment or wall Word memory."""
+    is_pure_wall = result.inputs.is_pure_wall if result is not None else False
+    labels = _labels(is_pure_wall=is_pure_wall)
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -117,11 +198,11 @@ def select_abutment_docx_save_path() -> Path | None:
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
-    default_name = f"MEMORIA_CALCULO_ESTRIBO_{datetime.now():%Y%m%d_%H%M}.docx"
+    default_name = f"{labels.filename_prefix}_{datetime.now():%Y%m%d_%H%M}.docx"
     try:
         selected = filedialog.asksaveasfilename(
             parent=root,
-            title="Guardar memoria de cálculo detallada del estribo",
+            title=labels.save_title,
             defaultextension=".docx",
             initialfile=default_name,
             filetypes=(("Documento de Word", "*.docx"),),
@@ -133,21 +214,22 @@ def select_abutment_docx_save_path() -> Path | None:
 
 def generate_abutment_docx_with_dialog(result: AbutmentDesignResult) -> Path | None:
     """Ask for a destination and create the Word memory when accepted."""
-    path = select_abutment_docx_save_path()
+    labels = _labels(is_pure_wall=result.inputs.is_pure_wall)
+    path = select_abutment_docx_save_path(result)
     if path is None:
-        print("Generación de la memoria Word del estribo cancelada por el usuario.")
+        print(labels.cancel_msg)
         return None
     generated = generate_abutment_docx(result, path)
-    print(f"Memoria Word del estribo guardada en: {generated}")
+    print(f"{labels.saved_msg} {generated}")
     return generated
 
 
-def _configure_abutment_header_footer(document: Document) -> None:
+def _configure_abutment_header_footer(document: Document, labels: _ReportLabels) -> None:
     section = document.sections[0]
     header = section.header.paragraphs[0]
     header.clear()
     header.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    run = header.add_run("MEMORIA DE CÁLCULO · ESTRIBO DE PUENTE")
+    run = header.add_run(labels.header)
     _format_run(run, 11, bold=True, color=TEAL)
     _bottom_border(header, RULE, 5)
     footer = section.footer.paragraphs[0]
@@ -158,7 +240,7 @@ def _configure_abutment_header_footer(document: Document) -> None:
     _field(footer, "PAGE")
 
 
-def _cover(document: Document, result: AbutmentDesignResult) -> None:
+def _cover(document: Document, result: AbutmentDesignResult, labels: _ReportLabels) -> None:
     data = result.inputs
     g = data.geometry
     p = document.add_paragraph()
@@ -170,9 +252,9 @@ def _cover(document: Document, result: AbutmentDesignResult) -> None:
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.line_spacing = 1.0
     p.paragraph_format.space_before = Pt(42)
-    p.add_run("Memoria de cálculo\ndel estribo de puente")
+    p.add_run(labels.cover_title)
     p = document.add_paragraph(style="Subtitle")
-    p.add_run("Geometría · empujes · estabilidad · dentellón · diseño estructural · detalle")
+    p.add_run(labels.cover_subtitle)
     p = document.add_paragraph()
     p.paragraph_format.space_before = Pt(32)
     p.paragraph_format.space_after = Pt(4)
@@ -182,7 +264,7 @@ def _cover(document: Document, result: AbutmentDesignResult) -> None:
         document,
         ("Dato", "Descripción"),
         (
-            ("Sistema", "Estribo de concreto armado tipo cantilever, franja de 1.00 m"),
+            ("Sistema", labels.system),
             ("Altura retenida", f"{g.retained_height_m:.2f} m"),
             ("Ancho de zapata", f"{g.footing_width_m:.2f} m"),
             ("Ángulo de fricción", f"{data.soil.friction_angle_deg:.1f}°"),
@@ -226,18 +308,17 @@ def _contents(document: Document) -> None:
     document.add_page_break()
 
 
-def _design_basis(document: Document, result: AbutmentDesignResult, chart_dir: Path) -> None:
+def _design_basis(
+    document: Document,
+    result: AbutmentDesignResult,
+    chart_dir: Path,
+    labels: _ReportLabels,
+) -> None:
     data = result.inputs
     g = data.geometry
     m = data.materials
     document.add_heading("1. Bases de diseño", level=1)
-    _body(
-        document,
-        "El estribo se analiza por una franja longitudinal de 1.00 m. Las acciones se conservan "
-        "por naturaleza de carga y se combinan mediante factores LRFD. La estabilidad se verifica "
-        "con la resultante en la base, la resistencia al deslizamiento y la presión de contacto; "
-        "el diseño estructural emplea las presiones lineales adoptadas para la zapata.",
-    )
+    _body(document, labels.analysis_intro)
     document.add_heading("1.1 Materiales y parámetros geotécnicos", level=2)
     _table(
         document,
@@ -257,36 +338,48 @@ def _design_basis(document: Document, result: AbutmentDesignResult, chart_dir: P
         widths=(78, 30, 59),
     )
     document.add_heading("1.2 Geometría adoptada", level=2)
+    geometry_rows = [
+        ("Altura retenida", "H", f"{g.retained_height_m:.3f} m"),
+        ("Espesor de zapata", "D", f"{g.footing_thickness_m:.3f} m"),
+        ("Ancho de zapata", "B", f"{g.footing_width_m:.3f} m"),
+        ("Longitud de puntera", "Lp", f"{g.toe_length_m:.3f} m"),
+        ("Espesor inferior de pantalla", "ei", f"{g.lower_stem_thickness_m:.3f} m"),
+        ("Espesor superior de pantalla", "es", f"{g.upper_stem_thickness_m:.3f} m"),
+        ("Longitud de talón", "Lt", f"{g.heel_length_m:.3f} m"),
+        ("Suelo frontal", "hf", f"{g.front_soil_depth_m:.3f} m"),
+    ]
+    if not data.is_pure_wall:
+        geometry_rows.extend(
+            (
+                ("Longitud de cajuela", "Lc", f"{g.bearing_seat_length_m:.3f} m"),
+                ("Espesor parapeto posterior", "ep", f"{g.seat_wall_width_m:.3f} m"),
+                ("Altura de cajuela", "hc", f"{g.seat_block_height_m:.3f} m"),
+                ("Altura bloque cajuela", "hb", f"{g.backwall_drop_m:.3f} m"),
+                ("Altura transición", "ht", f"{g.backwall_taper_height_m:.3f} m"),
+                ("Retiro/transición t1", "t1", f"{g.small_batter_width_m:.3f} m"),
+                ("Retiro superior t2", "t2", f"{g.backfill_step_width_m:.3f} m"),
+            )
+        )
     _table(
         document,
         ("Parámetro", "Símbolo", "Valor"),
-        (
-            ("Altura retenida", "H", f"{g.retained_height_m:.3f} m"),
-            ("Espesor de zapata", "D", f"{g.footing_thickness_m:.3f} m"),
-            ("Ancho de zapata", "B", f"{g.footing_width_m:.3f} m"),
-            ("Longitud de puntera", "Lp", f"{g.toe_length_m:.3f} m"),
-            ("Espesor inferior de pantalla", "ei", f"{g.lower_stem_thickness_m:.3f} m"),
-            ("Espesor superior de pantalla", "es", f"{g.upper_stem_thickness_m:.3f} m"),
-            ("Longitud de talón", "Lt", f"{g.heel_length_m:.3f} m"),
-            ("Suelo frontal", "hf", f"{g.front_soil_depth_m:.3f} m"),
-            ("Longitud de cajuela", "Lc", f"{g.bearing_seat_length_m:.3f} m"),
-            ("Espesor parapeto posterior", "ep", f"{g.seat_wall_width_m:.3f} m"),
-            ("Altura de cajuela", "hc", f"{g.seat_block_height_m:.3f} m"),
-            ("Altura bloque cajuela", "hb", f"{g.backwall_drop_m:.3f} m"),
-            ("Altura transición", "ht", f"{g.backwall_taper_height_m:.3f} m"),
-            ("Retiro/transición t1", "t1", f"{g.small_batter_width_m:.3f} m"),
-            ("Retiro superior t2", "t2", f"{g.backfill_step_width_m:.3f} m"),
-        ),
+        tuple(geometry_rows),
         widths=(78, 30, 59),
+    )
+    hp_label = "Hp" if data.is_pure_wall else "Hp'"
+    hp_comment = (
+        "La altura se utiliza para obtener los empujes y sus brazos respecto de la cara superior de la zapata."
+        if data.is_pure_wall
+        else "La altura libre de pantalla Hp' excluye la cajuela y el bloque de asiento del tablero."
     )
     _calc(
         document,
         "Altura libre de pantalla",
-        "Hp = H − D",
-        "Hp: altura de pantalla sobre la zapata; H: altura retenida desde el fondo; D: espesor de zapata.",
-        f"Hp = {g.retained_height_m:.3f} − {g.footing_thickness_m:.3f} = {g.stem_height_above_footing_m:.3f} m",
-        f"La altura libre de pantalla es Hp = {g.stem_height_above_footing_m:.3f} m.",
-        "La altura se utiliza para obtener los empujes y sus brazos respecto de la cara superior de la zapata.",
+        f"{hp_label} = H − D",
+        f"{hp_label}: altura de pantalla sobre la zapata; H: altura retenida desde el fondo; D: espesor de zapata.",
+        f"{hp_label} = {g.retained_height_m:.3f} − {g.footing_thickness_m:.3f} = {g.stem_height_above_footing_m:.3f} m",
+        f"La altura libre de pantalla es {hp_label} = {g.stem_height_above_footing_m:.3f} m.",
+        hp_comment,
         REF_EARTH,
     )
     _calc(
@@ -300,25 +393,32 @@ def _design_basis(document: Document, result: AbutmentDesignResult, chart_dir: P
         REF_STABILITY,
     )
     geometry = save_abutment_geometry(result, chart_dir / "geometria_estribo.png")
-    _picture(document, geometry, "Figura 1.1. Sección transversal y dimensiones principales del estribo adoptado.")
-    document.add_heading("1.3 Acciones transferidas por el tablero", level=2)
-    loads = data.loads
-    _table(
-        document,
-        ("Acción", "Símbolo", "Valor por metro de estribo"),
-        (
-            ("Carga permanente estructural", "PDC", f"{loads.pdc_tn_m:.3f} Tn/m"),
-            ("Superficie de rodadura", "PDW", f"{loads.pdw_tn_m:.3f} Tn/m"),
-            ("Carga peatonal vertical", "PPL", f"{loads.ppl_tn_m:.3f} Tn/m"),
-            ("Carga vehicular con impacto", "PLL+IM", f"{loads.pll_im_tn_m:.3f} Tn/m"),
-            ("Frenado longitudinal", "BR", f"{loads.braking_tn_m:.3f} Tn/m"),
-        ),
-        widths=(83, 29, 55),
-    )
-    _comment(document, "Las reacciones del tablero se introducen sin factor y por metro lineal; los factores se aplican posteriormente dentro de cada estado límite.")
+    _picture(document, geometry, labels.geometry_caption)
+    if not data.is_pure_wall:
+        document.add_heading("1.3 Acciones transferidas por el tablero", level=2)
+        loads = data.loads
+        _table(
+            document,
+            ("Acción", "Símbolo", "Valor por metro de estribo"),
+            (
+                ("Carga permanente estructural", "PDC", f"{loads.pdc_tn_m:.3f} Tn/m"),
+                ("Superficie de rodadura", "PDW", f"{loads.pdw_tn_m:.3f} Tn/m"),
+                ("Carga peatonal vertical", "PPL", f"{loads.ppl_tn_m:.3f} Tn/m"),
+                ("Carga vehicular con impacto", "PLL+IM", f"{loads.pll_im_tn_m:.3f} Tn/m"),
+                ("Frenado longitudinal", "BR", f"{loads.braking_tn_m:.3f} Tn/m"),
+            ),
+            widths=(83, 29, 55),
+        )
+        _comment(document, "Las reacciones del tablero se introducen sin factor y por metro lineal; los factores se aplican posteriormente dentro de cada estado límite.")
+    else:
+        _comment(
+            document,
+            "El muro se modela sin transferencia de acciones del tablero; las combinaciones LRFD "
+            "consideran únicamente pesos propios, relleno, empujes y sismo.",
+        )
 
 
-def _weights(document: Document, result: AbutmentDesignResult) -> None:
+def _weights(document: Document, result: AbutmentDesignResult, labels: _ReportLabels) -> None:
     data = result.inputs
     gamma_c = data.materials.concrete_unit_weight_kg_m3 / 1000.0
     gamma_s = data.materials.soil_unit_weight_kg_m3 / 1000.0
@@ -351,8 +451,8 @@ def _weights(document: Document, result: AbutmentDesignResult) -> None:
         f"γc = {gamma_c:.3f} Tn/m³; b = {data.geometry.strip_width_m:.2f} m\n"
         f"ΣWi = {result.dc_self_weight_tn_m:.3f} Tn/m; ΣMi = {result.dc_self_weight_tn_m * result.dc_self_x_m:.3f} Tn·m/m\n"
         f"xDC = {result.dc_self_weight_tn_m * result.dc_self_x_m:.3f}/{result.dc_self_weight_tn_m:.3f} = {result.dc_self_x_m:.3f} m",
-        f"El peso propio del estribo es {result.dc_self_weight_tn_m:.3f} Tn/m y su brazo resultante es {result.dc_self_x_m:.3f} m.",
-        "La descomposición mantiene cada volumen (cajuela, parapeto, pantalla, zapata) en su posición física.",
+        f"El peso propio del {labels.weight_owner} es {result.dc_self_weight_tn_m:.3f} Tn/m y su brazo resultante es {result.dc_self_x_m:.3f} m.",
+        f"La descomposición mantiene cada volumen (pantalla, zapata y componentes asociados) en su posición física.",
         REF_STABILITY,
     )
     document.add_heading("2.2 Peso del relleno sobre el talón", level=2)
@@ -425,32 +525,40 @@ def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
         "El incremento EQ se combina únicamente en el estado de Evento Extremo I.",
         REF_EARTH,
     )
-    _calc(document, "Fuerza inercial del estribo y combinaciones MTC PAE/PIR", *pir_trace(result), REF_EARTH)
+    _calc(document, "Fuerza inercial del muro y combinaciones MTC PAE/PIR", *pir_trace(result), REF_EARTH)
     _calc(document, "Envolvente sísmica Art. 2.8.1.1.14.1", *mtc_seismic_envelope_trace(result), REF_EARTH)
-    _calc(document, "Fuerza inercial de la superestructura PEQ", *peq_trace(result), REF_EARTH)
+    if not result.inputs.is_pure_wall:
+        _calc(document, "Fuerza inercial de la superestructura PEQ", *peq_trace(result), REF_EARTH)
+    pressure_summary = [
+        ("Ka", f"{p.ka:.5f}"),
+        ("kAE", f"{p.k_ae:.5f}"),
+        ("ψ", f"{p.seismic_angle_deg:.3f}°"),
+        ("LS vertical vehicular", f"{p.lsy_tn_m:.3f} Tn/m"),
+        ("LS horizontal total", f"{p.lsx_tn_m:.3f} Tn/m"),
+        ("EH", f"{p.eh_tn_m:.3f} Tn/m"),
+        ("PAE", f"{p.pae_tn_m:.3f} Tn/m"),
+        ("EQ del terreno", f"{p.eq_terr_tn_m:.3f} Tn/m"),
+        ("PIR", f"{p.pir_tn_m:.3f} Tn/m"),
+        ("0.5PIR", f"{p.half_pir_tn_m:.3f} Tn/m"),
+    ]
+    if not result.inputs.is_pure_wall:
+        pressure_summary.append(("PEQ superestructura", f"{p.peq_tn_m:.3f} Tn/m"))
     _table(
         document,
         ("Efecto", "Valor"),
-        (
-            ("Ka", f"{p.ka:.5f}"),
-            ("kAE", f"{p.k_ae:.5f}"),
-            ("ψ", f"{p.seismic_angle_deg:.3f}°"),
-            ("LS vertical vehicular", f"{p.lsy_tn_m:.3f} Tn/m"),
-            ("LS horizontal total", f"{p.lsx_tn_m:.3f} Tn/m"),
-            ("EH", f"{p.eh_tn_m:.3f} Tn/m"),
-            ("PAE", f"{p.pae_tn_m:.3f} Tn/m"),
-            ("EQ del terreno", f"{p.eq_terr_tn_m:.3f} Tn/m"),
-            ("PIR", f"{p.pir_tn_m:.3f} Tn/m"),
-            ("0.5PIR", f"{p.half_pir_tn_m:.3f} Tn/m"),
-            ("PEQ superestructura", f"{p.peq_tn_m:.3f} Tn/m"),
-        ),
+        tuple(pressure_summary),
         widths=(100, 67),
     )
 
 
-def _stability(document: Document, result: AbutmentDesignResult, chart_dir: Path) -> None:
+def _stability(
+    document: Document,
+    result: AbutmentDesignResult,
+    chart_dir: Path,
+    labels: _ReportLabels,
+) -> None:
     document.add_heading("4. Combinaciones y estabilidad", level=1)
-    _body(document, "Las verificaciones se desarrollan con puente y sin puente. Se mantienen separados Servicio I, Resistencia I y Evento Extremo I.")
+    _body(document, labels.stability_intro)
     document.add_heading("4.1 Factores LRFD", level=2)
     _table(
         document,
@@ -467,18 +575,25 @@ def _stability(document: Document, result: AbutmentDesignResult, chart_dir: Path
         widths=(44, 13.6, 13.6, 13.6, 13.6, 13.6, 13.6, 13.6, 13.6, 13.6),
     )
     _comment(document, "Los factores se aplican a cada componente antes de sumar fuerzas y momentos. No se combinan máximos provenientes de estados incompatibles.")
-    document.add_heading("4.2 Condición con puente", level=2)
-    for state in result.with_bridge + result.service_with_bridge:
-        _stability_state_calculations(document, result, state, "con puente")
-    document.add_heading("4.3 Condición sin puente", level=2)
-    for state in result.without_bridge + result.service_without_bridge:
-        _stability_state_calculations(document, result, state, "sin puente")
+    if result.inputs.is_pure_wall:
+        document.add_heading("4.2 Estabilidad del muro", level=2)
+        for state in result.without_bridge + result.service_without_bridge:
+            _stability_state_calculations(document, result, state, "muro puro")
+        stability_groups = (("Muro puro", result.without_bridge + result.service_without_bridge),)
+    else:
+        document.add_heading("4.2 Condición con puente", level=2)
+        for state in result.with_bridge + result.service_with_bridge:
+            _stability_state_calculations(document, result, state, "con puente")
+        document.add_heading("4.3 Condición sin puente", level=2)
+        for state in result.without_bridge + result.service_without_bridge:
+            _stability_state_calculations(document, result, state, "sin puente")
+        stability_groups = (
+            ("Con puente", result.with_bridge + result.service_with_bridge),
+            ("Sin puente", result.without_bridge + result.service_without_bridge),
+        )
     document.add_heading("4.4 Resumen de estabilidad", level=2)
     rows = []
-    for condition, states in (
-        ("Con puente", result.with_bridge + result.service_with_bridge),
-        ("Sin puente", result.without_bridge + result.service_without_bridge),
-    ):
+    for condition, states in stability_groups:
         for state in states:
             rows.append(
                 (
@@ -494,7 +609,7 @@ def _stability(document: Document, result: AbutmentDesignResult, chart_dir: Path
             )
     _table(document, ("Condición", "Estado", "e (m)", "Vuelco", "Desliz.", "q", "qlím", "Estado q"), rows, widths=(25, 35, 17, 18, 19, 15, 15, 23))
     pressure_chart = save_contact_pressure_diagrams(result, chart_dir / "presiones_contacto.png")
-    _picture(document, pressure_chart, "Figura 4.1. Diagramas lineales de presión estructural bajo la zapata para la condición con puente.")
+    _picture(document, pressure_chart, labels.pressure_chart_caption)
 
 
 def _stability_state_calculations(
@@ -508,12 +623,12 @@ def _stability_state_calculations(
     factors = factors_for_state(result, state)
     title = f"{state.name} - {condition}"
     document.add_heading(title, level=3)
-    if condition == "con puente":
-        vertical = result.components.vertical_with_bridge
-        horizontal = horizontal_components_for_state(result, state, with_bridge=True)
-    else:
+    if result.inputs.is_pure_wall or condition != "con puente":
         vertical = result.components.vertical_without_bridge
         horizontal = horizontal_components_for_state(result, state, with_bridge=False)
+    else:
+        vertical = result.components.vertical_with_bridge
+        horizontal = horizontal_components_for_state(result, state, with_bridge=True)
     if state.seismic_papir_combination:
         _comment(
             document,

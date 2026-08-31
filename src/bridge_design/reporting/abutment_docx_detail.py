@@ -170,7 +170,11 @@ def seismic_angle_trace(result: AbutmentDesignResult) -> tuple[str, str, str, st
     result_text = f"Se utiliza kh = {kh:.4f} y un ángulo sísmico ψ = {psi:.3f}°."
     comment = (
         "El ángulo sísmico inclina la resultante peso–inercia e interviene en Mononobe-Okabe "
-        "y en las fuerzas inerciales del estribo y la superestructura."
+        + (
+            "y en las fuerzas inerciales del muro."
+            if result.inputs.is_pure_wall
+            else "y en las fuerzas inerciales del estribo y la superestructura."
+        )
     )
     return formula, legend, substitution, result_text, comment
 
@@ -257,8 +261,9 @@ def pir_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, str]:
         "PIR = kh·(WDC + WEV) ; Combo A: PAE + 0.5·PIR ; "
         "Combo B: max(0.5·PAE, EH) + PIR"
     )
+    mass_label = "muro y relleno" if result.inputs.is_pure_wall else "estribo y relleno"
     legend = (
-        "PIR: fuerza inercial de la masa del estribo y relleno; kh: coeficiente horizontal; "
+        f"PIR: fuerza inercial de la masa del {mass_label}; kh: coeficiente horizontal; "
         "WDC, WEV: pesos propios; PAE: empuje activo sísmico total; EH: empuje estático; "
         "las dos combinaciones siguen MTC Art. 2.8.1.1.14.1."
     )
@@ -273,16 +278,40 @@ def pir_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, str]:
         f"Combo B: max(0.5·PAE, EH) + PIR = {earth_b:.3f} + {p.pir_tn_m:.3f} = "
         f"{earth_b + p.pir_tn_m:.3f} Tn/m"
     )
-    governing = result.with_bridge[2].seismic_papir_combination or SEISMIC_PAPIR_COMBO_A
+    governing_state = (
+        result.without_bridge[2] if result.inputs.is_pure_wall else result.with_bridge[2]
+    )
+    governing = governing_state.seismic_papir_combination or SEISMIC_PAPIR_COMBO_A
     result_text = (
         f"Se revisan ambas combinaciones MTC; gobierna {governing} "
-        f"(Hu = {result.with_bridge[2].hu_tn_m:.3f} Tn/m)."
+        f"(Hu = {governing_state.hu_tn_m:.3f} Tn/m)."
     )
     comment = REF_SEISMIC_PAPIR
     return formula, legend, substitution, result_text, comment
 
 
 def mtc_seismic_envelope_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, str]:
+    if result.inputs.is_pure_wall:
+        a, b = result.extreme_seismic_without_bridge
+        governing = result.without_bridge[2]
+        formula = "Adoptar max{verificación(Combo A), verificación(Combo B)}"
+        legend = (
+            "Combo A = PAE+0.5·PIR; Combo B = max(0.5·PAE, EH)+PIR; "
+            "la más desfavorable se define por el mayor índice de utilización "
+            "(vuelco, deslizamiento o presión Meyerhof)."
+        )
+        substitution = (
+            f"Muro puro — A: Hu={a.hu_tn_m:.3f} Tn/m; e={a.eccentricity_m:.3f} m; "
+            f"qM={a.geotechnical_pressure_kg_cm2:.3f} kg/cm²; vuelco={a.overturning_status}; "
+            f"desliz.={a.sliding_with_key_status or a.sliding_status}; "
+            f"q={a.bearing_status}\n"
+            f"Muro puro — B: Hu={b.hu_tn_m:.3f} Tn/m; e={b.eccentricity_m:.3f} m; "
+            f"qM={b.geotechnical_pressure_kg_cm2:.3f} kg/cm²; vuelco={b.overturning_status}; "
+            f"desliz.={b.sliding_with_key_status or b.sliding_status}; "
+            f"q={b.bearing_status}"
+        )
+        result_text = f"Gobierna {governing.seismic_papir_combination}."
+        return formula, legend, substitution, result_text, REF_SEISMIC_PAPIR
     a_with, b_with = result.extreme_seismic_with_bridge
     a_without, b_without = result.extreme_seismic_without_bridge
     formula = "Adoptar max{verificación(Combo A), verificación(Combo B)}"
@@ -471,35 +500,64 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
     peq_m = peq * (height - g.seat_block_height_m / 2.0)
     br_m = br * (height + g.bridge_seat_to_bearing_height_m)
     controlling = "Resistencia I" if demands["strength_mu"] >= demands["extreme_mu"] else "Evento Extremo I"
-    formula = (
-        "Mu,R = 1.75·MLS + 1.50·MEH + 1.75·MBR ; "
-        "Mu,E = max(Mu,E-A, Mu,E-B) ; "
-        "Mu,E-A = 0.50·MLS + MEH + MEQ + 0.5·MPIR + MPEQ + 0.50·MBR ; "
-        "Mu,E-B = 0.50·MLS + M[max(0.5PAE,EH)] + MPIR + MPEQ + 0.50·MBR"
-    )
-    legend = (
-        "MLS, MEH, MEQ, MPIR, MPEQ, MBR: momentos en la base de pantalla; "
-        "Mu,E-A y Mu,E-B: combinaciones MTC Art. 2.8.1.1.14.1; Mu = max(Mu,R, Mu,E)."
-    )
-    substitution = (
-        f"Hp = {height:.3f} m; Ka = {ka:.5f}; kAE = {k_ae:.5f}\n"
-        f"FLS = {ls_force:.3f} Tn/m; FEH = {eh_force:.3f} Tn/m; FEQ = {eq_force:.3f} Tn/m; "
-        f"0.5PIR = {0.5*pir:.3f} Tn/m; PIR = {pir:.3f} Tn/m; PEQ = {peq:.3f} Tn/m; BR = {br:.3f} Tn/m\n"
-        f"MLS = {ls_m:.3f}; MEH = {eh_m:.3f}; MEQ = {eq_m:.3f}; MPEQ = {peq_m:.3f}; MBR = {br_m:.3f} Tn·m/m\n"
-        f"Mu,R = {demands['strength_mu']:.3f} Tn·m/m\n"
-        f"Mu,E-A = {demands['extreme_mu_a']:.3f} Tn·m/m; Mu,E-B = {demands['extreme_mu_b']:.3f} Tn·m/m\n"
-        f"Vu,R = {demands['strength_vu']:.3f}; Vu,E-A = {demands['extreme_vu_a']:.3f}; "
-        f"Vu,E-B = {demands['extreme_vu_b']:.3f} Tn/m\n"
-        f"Gobierna {controlling}: Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; "
-        f"Vu = {case.shear_demand_tn_m:.3f} Tn/m"
-    )
+    if result.inputs.is_pure_wall:
+        formula = (
+            "Mu,R = 1.75·MLS + 1.50·MEH ; "
+            "Mu,E = max(Mu,E-A, Mu,E-B) ; "
+            "Mu,E-A = 0.50·MLS + MEH + MEQ + 0.5·MPIR ; "
+            "Mu,E-B = 0.50·MLS + M[max(0.5PAE,EH)] + MPIR"
+        )
+        legend = (
+            "MLS, MEH, MEQ, MPIR: momentos en la base de pantalla; "
+            "Mu,E-A y Mu,E-B: combinaciones MTC Art. 2.8.1.1.14.1; Mu = max(Mu,R, Mu,E). "
+            "El muro no incorpora acciones del tablero."
+        )
+        substitution = (
+            f"Hp = {height:.3f} m; Ka = {ka:.5f}; kAE = {k_ae:.5f}\n"
+            f"FLS = {ls_force:.3f} Tn/m; FEH = {eh_force:.3f} Tn/m; FEQ = {eq_force:.3f} Tn/m; "
+            f"0.5PIR = {0.5*pir:.3f} Tn/m; PIR = {pir:.3f} Tn/m\n"
+            f"MLS = {ls_m:.3f}; MEH = {eh_m:.3f}; MEQ = {eq_m:.3f}; M0.5PIR = {0.5*pir*height:.3f} Tn·m/m\n"
+            f"Mu,R = {demands['strength_mu']:.3f} Tn·m/m\n"
+            f"Mu,E-A = {demands['extreme_mu_a']:.3f} Tn·m/m; Mu,E-B = {demands['extreme_mu_b']:.3f} Tn·m/m\n"
+            f"Vu,R = {demands['strength_vu']:.3f}; Vu,E-A = {demands['extreme_vu_a']:.3f}; "
+            f"Vu,E-B = {demands['extreme_vu_b']:.3f} Tn/m\n"
+            f"Gobierna {controlling}: Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; "
+            f"Vu = {case.shear_demand_tn_m:.3f} Tn/m"
+        )
+        comment = (
+            "El Evento Extremo de pantalla envuelve las dos combinaciones MTC PAE/PIR "
+            "sin acciones de superestructura; el PIR usa la masa de concreto sobre zapata."
+        )
+    else:
+        formula = (
+            "Mu,R = 1.75·MLS + 1.50·MEH + 1.75·MBR ; "
+            "Mu,E = max(Mu,E-A, Mu,E-B) ; "
+            "Mu,E-A = 0.50·MLS + MEH + MEQ + 0.5·MPIR + MPEQ + 0.50·MBR ; "
+            "Mu,E-B = 0.50·MLS + M[max(0.5PAE,EH)] + MPIR + MPEQ + 0.50·MBR"
+        )
+        legend = (
+            "MLS, MEH, MEQ, MPIR, MPEQ, MBR: momentos en la base de pantalla; "
+            "Mu,E-A y Mu,E-B: combinaciones MTC Art. 2.8.1.1.14.1; Mu = max(Mu,R, Mu,E)."
+        )
+        substitution = (
+            f"Hp = {height:.3f} m; Ka = {ka:.5f}; kAE = {k_ae:.5f}\n"
+            f"FLS = {ls_force:.3f} Tn/m; FEH = {eh_force:.3f} Tn/m; FEQ = {eq_force:.3f} Tn/m; "
+            f"0.5PIR = {0.5*pir:.3f} Tn/m; PIR = {pir:.3f} Tn/m; PEQ = {peq:.3f} Tn/m; BR = {br:.3f} Tn/m\n"
+            f"MLS = {ls_m:.3f}; MEH = {eh_m:.3f}; MEQ = {eq_m:.3f}; MPEQ = {peq_m:.3f}; MBR = {br_m:.3f} Tn·m/m\n"
+            f"Mu,R = {demands['strength_mu']:.3f} Tn·m/m\n"
+            f"Mu,E-A = {demands['extreme_mu_a']:.3f} Tn·m/m; Mu,E-B = {demands['extreme_mu_b']:.3f} Tn·m/m\n"
+            f"Vu,R = {demands['strength_vu']:.3f}; Vu,E-A = {demands['extreme_vu_a']:.3f}; "
+            f"Vu,E-B = {demands['extreme_vu_b']:.3f} Tn/m\n"
+            f"Gobierna {controlling}: Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; "
+            f"Vu = {case.shear_demand_tn_m:.3f} Tn/m"
+        )
+        comment = (
+            "El Evento Extremo de pantalla envuelve las dos combinaciones MTC PAE/PIR; "
+            "el PIR de pantalla usa la masa de concreto sobre zapata."
+        )
     result_text = (
         f"Para pantalla gobierna {controlling} con Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m "
         f"y Vu = {case.shear_demand_tn_m:.3f} Tn/m."
-    )
-    comment = (
-        "El Evento Extremo de pantalla envuelve las dos combinaciones MTC PAE/PIR; "
-        "el PIR de pantalla usa la masa de concreto sobre zapata."
     )
     return formula, legend, substitution, result_text, comment
 
@@ -509,9 +567,10 @@ def heel_toe_demand_trace(
     case: StructuralDesignCase,
 ) -> tuple[str, str, str, str, str] | None:
     if case.name == "Zapata - talon superior":
+        envelope_label = "estados del muro" if result.inputs.is_pure_wall else "estados con puente"
         formula = (
-            "Mu = |Σ(γi·Wi·xi) − Msuelo| ; Vu = |Σ(γi·Wi) − Vsuelo| ; "
-            "envolvente sobre estados con puente"
+            f"Mu = |Σ(γi·Wi·xi) − Msuelo| ; Vu = |Σ(γi·Wi) − Vsuelo| ; "
+            f"envolvente sobre {envelope_label}"
         )
         legend = (
             "Wi: pesos de zapata/relleno/LSy sobre el talón; Msuelo, Vsuelo: resultante de la "
@@ -527,7 +586,9 @@ def heel_toe_demand_trace(
             f"Para el talón Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m y "
             f"Vu = {case.shear_demand_tn_m:.3f} Tn/m."
         )
-        comment = case.notes or "Envolvente de estados con puente."
+        comment = case.notes or (
+            f"Envolvente de {envelope_label}."
+        )
         return formula, legend, substitution, result_text, comment
     if case.name == "Zapata - puntera inferior":
         g = result.inputs.geometry

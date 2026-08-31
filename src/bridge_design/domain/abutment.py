@@ -737,13 +737,7 @@ def solve_abutment_design(
     )
     crack_checks = _crack_checks(data, pressures, service_with_bridge[0], structural_cases)
     development_checks = _development_checks(data, structural_cases)
-    secondary_reinforcement = _secondary_reinforcement(
-        data,
-        selected,
-        stem_design,
-        heel_design,
-        toe_design,
-    )
+    secondary_reinforcement = _secondary_reinforcement(data, selected)
     stem_reinforcement_cut = _stem_reinforcement_cut(data, pressures, stem_design, development_checks)
     bar_details = _bar_details(data, structural_cases, development_checks, secondary_reinforcement)
     return AbutmentDesignResult(
@@ -1926,9 +1920,6 @@ def _select_reinforcement_for_required_area(
 def _secondary_reinforcement(
     inputs: AbutmentInputs,
     selected_reinforcement: Mapping[str, ReinforcementSpacingOption],
-    stem_design: StructuralDesignCase,
-    heel_design: StructuralDesignCase,
-    toe_design: StructuralDesignCase,
 ) -> tuple[AbutmentSecondaryReinforcementCase, ...]:
     r = inputs.reinforcement
     grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m, r.maximum_spacing_m)
@@ -1984,10 +1975,10 @@ def _secondary_reinforcement(
             "Superior",
             "Horizontal transversal a talon/puntera",
             footing_temperature,
-            heel_design.provided_as_cm2_m,
+            0.0,
             grid,
-            "Acero transversal superior; el acero principal del talon puede cubrir parte "
-            "del minimo por temperatura en la misma direccion.",
+            "Acero transversal superior; el acero principal del talon es longitudinal "
+            "y no cubre el minimo por temperatura en esta direccion.",
             selected_reinforcement.get("Zapata - transversal superior"),
         ),
         _secondary_reinforcement_case(
@@ -1996,10 +1987,10 @@ def _secondary_reinforcement(
             "Inferior",
             "Horizontal transversal a talon/puntera",
             footing_temperature,
-            toe_design.provided_as_cm2_m,
+            0.0,
             grid,
-            "Acero transversal inferior; el acero principal de la puntera puede cubrir parte "
-            "del minimo por temperatura en la misma direccion.",
+            "Acero transversal inferior; el acero principal de la puntera es longitudinal "
+            "y no cubre el minimo por temperatura en esta direccion.",
             selected_reinforcement.get("Zapata - transversal inferior"),
         ),
     )

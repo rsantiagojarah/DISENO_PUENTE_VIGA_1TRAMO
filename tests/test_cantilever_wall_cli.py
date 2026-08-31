@@ -241,6 +241,14 @@ def test_pure_wall_stem_secondary_minimum_uses_average_stem_thickness() -> None:
     ):
         assert secondary_by_name[name].temperature_required_as_cm2_m == pytest.approx(5.595901, abs=1e-6)
         assert secondary_by_name[name].required_as_cm2_m == pytest.approx(5.595901, abs=1e-6)
+    for name in (
+        "Zapata - transversal superior",
+        "Zapata - transversal inferior",
+    ):
+        assert secondary_by_name[name].primary_steel_as_cm2_m == pytest.approx(0.0, abs=1e-9)
+        assert secondary_by_name[name].required_as_cm2_m == pytest.approx(
+            secondary_by_name[name].temperature_required_as_cm2_m
+        )
     for case in secondary_by_name.values():
         assert case.provided_as_cm2_m >= case.required_as_cm2_m
 
@@ -501,6 +509,23 @@ def test_wall_soil_prompt_rejects_theta_measured_from_vertical(monkeypatch, caps
 
     assert soil.wall_backface_angle_deg == 90.0
     assert "theta cara posterior se mide desde la horizontal" in capsys.readouterr().out
+
+
+def test_pure_wall_report_includes_shear_beta_trace() -> None:
+    from bridge_design.cli.abutment_ascii_output import format_abutment_design_result
+    from bridge_design.domain.abutment import AbutmentInputs, solve_abutment_design
+
+    result = solve_abutment_design(AbutmentInputs(is_pure_wall=True))
+    report = format_abutment_design_result(
+        result,
+        title="DISENO DE MURO DE CONCRETO ARMADO EN CANTILEVER",
+        primary_stability_title="MURO PURO",
+    )
+
+    assert result.stem_design.shear_beta_method == "general"
+    assert "Beta de corte" in report
+    assert "Metodo beta" in report
+    assert "Profundidad efectiva cortante dv" in report
 
 
 def test_pure_wall_report_omits_bridge_load_terms() -> None:

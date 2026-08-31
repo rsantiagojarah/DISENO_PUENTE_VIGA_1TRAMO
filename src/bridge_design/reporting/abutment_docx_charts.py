@@ -27,7 +27,14 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
     bold = _font(34, bold=True)
     g = result.inputs.geometry
 
-    draw.text((70, 35), "Sección transversal adoptada del estribo", font=bold, fill=INK)
+    draw.text(
+        (70, 35),
+        "Sección transversal adoptada del muro"
+        if result.inputs.is_pure_wall
+        else "Sección transversal adoptada del estribo",
+        font=bold,
+        fill=INK,
+    )
     left, right, top, base = 170, 1620, 145, 760
     width = right - left
     height = base - top
@@ -109,8 +116,13 @@ def save_contact_pressure_diagrams(
     regular = _font(29)
     small = _font(25)
     bold = _font(34, bold=True)
-    draw.text((70, 35), "Diagramas de presión de contacto - condición con puente", font=bold, fill=INK)
-    states = result.with_bridge + result.service_with_bridge
+    if result.inputs.is_pure_wall:
+        states = result.without_bridge + result.service_without_bridge
+        chart_title = "Diagramas de presión de contacto - condición del muro"
+    else:
+        states = result.with_bridge + result.service_with_bridge
+        chart_title = "Diagramas de presión de contacto - condición con puente"
+    draw.text((70, 35), chart_title, font=bold, fill=INK)
     boxes = ((80, 130, 860, 540), (940, 130, 1720, 540), (80, 600, 860, 1010), (940, 600, 1720, 1010))
     for state, box in zip(states, boxes):
         _draw_pressure_panel(draw, state, result.inputs.geometry.footing_width_m, box, regular, small)
