@@ -1,0 +1,74 @@
+version_esquema: 1
+comando: diseno-tablero
+nota: Complete o modifique los valores. Las unidades estan indicadas en cada clave.
+modelo_transversal_losa:
+  separacion_vigas_m: 2.1
+  volado_losa_m: 0.825
+  numero_vigas: 4
+  espesor_losa_m: 0.2
+  altura_total_viga_m: 1.2
+  ancho_viga_m: 0.3
+materiales:
+  concreto:
+    peso_especifico_tn_m3: 2.4
+    fc_kg_cm2: 280.0
+  asfalto:
+    peso_especifico_tn_m3: 2.2
+    espesor_m: 0.05
+  vereda:
+    peso_especifico_tn_m3: 2.4
+    espesor_m: 0.2
+  baranda:
+    peso_lineal_kg_m: 100.0
+  barrera:
+    peso_lineal_kg_m: 500.0
+barrera_concreto:
+  geometria:
+    altura_total_m: 0.85
+    ancho_base_m: 0.375
+    area_seccion_m2: 0.202875
+    longitud_disponible_anclaje_cm: 17.5
+    momento_adicional_superior_tn_m: 0.0
+  impacto:
+    nivel_ensayo: TL-4
+    fuerza_transversal_tn: 24.47
+    longitud_distribucion_m: 1.07
+    patron: segmento
+  seccion:
+    separacion_dowel_m: 0.17
+cargas_vivas:
+  peatonal_veredas_tn_m2: 0.36618207269999997
+ubicacion_cargas_modelo_transversal:
+  ancho_vereda_cada_lado_m: 0.825
+  ancho_barrera_m: 0.25
+  ubicacion_barrera_izquierda_m: 0.825
+  asfalto_inicio_m: 1.075
+  asfalto_fin_m: 6.875000000000001
+  ubicacion_baranda_izquierda_m: 0.13
+  recorrido_vehicular_inicio_m: 1.075
+  recorrido_vehicular_fin_m: 6.875000000000001
+  paso_movimiento_vehicular_m: 0.1
+viga_interior:
+  luz_puente_m: 15.0
+  diafragmas:
+  - ubicacion_m: 3.75
+    espesor_longitudinal_m: 0.25
+    altura_m: 1.0999999999999999
+    ancho_tributario_transversal_m: 2.1
+  - ubicacion_m: 7.5
+    espesor_longitudinal_m: 0.25
+    altura_m: 1.0999999999999999
+    ancho_tributario_transversal_m: 2.1
+  - ubicacion_m: 11.25
+    espesor_longitudinal_m: 0.25
+    altura_m: 1.0999999999999999
+    ancho_tributario_transversal_m: 2.1
+  paso_carga_movil_m: 0.1
+  paso_muestreo_momentos_m: 0.1
+viga_exterior:
+  de_alma_exterior_a_cara_interior_barrera_m: -0.25
+diafragma:
+  espesor_longitudinal_m: 0.25
+  altura_resistente_m: 1.0999999999999999
+  longitud_tributaria_cargas_m: 0.25
+  paso_vehicular_m: 0.1

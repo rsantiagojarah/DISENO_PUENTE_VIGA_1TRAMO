@@ -155,6 +155,15 @@ def run_bridge_design(project_inputs=None) -> None:
     """Run the full slab, girder, barrier and diaphragm design workflow."""
     if project_inputs is None:
         project_inputs = collect_project_inputs()
+    from bridge_design.domain.transverse_patterns import TransverseLaneGeometryError, validate_lane_geometry
+    layout = project_inputs.transverse_slab.load_layout
+    vehicle = project_inputs.live_loads.vehicular
+    try:
+        validate_lane_geometry(layout.vehicle_move_end_m - layout.vehicle_move_start_m,
+                               vehicle.wheel_transverse_spacing_m, vehicle.lane_load_width_m)
+    except TransverseLaneGeometryError as exc:
+        print(f"CALCULO NO INICIADO: {exc}")
+        return
     print()
     input_report = format_input_summary(project_inputs)
     load_scheme_report = format_transverse_load_location_schemes(project_inputs)

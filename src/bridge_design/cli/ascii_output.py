@@ -50,6 +50,7 @@ from bridge_design.domain.interior_girder import (
     design_interior_girder_shear,
 )
 from bridge_design.domain.project_inputs import ProjectInputs
+from bridge_design.domain.transverse_patterns import TransverseLaneGeometryError, validate_lane_geometry
 from bridge_design.domain.rebar_catalog import (
     ReinforcementCaseOptions,
     ReinforcementSpacingOption,
@@ -61,13 +62,13 @@ from bridge_design.domain.reinforcement import (
 )
 from bridge_design.domain.transverse_slab import (
     LoadCaseAnalysis,
-    TRANSVERSE_DESIGN_LANE_SPACING_M,
     TRANSVERSE_WHEEL_CLEARANCE_M,
     TransverseLoadPlacementCase,
     TransverseSlabAnalysisResult,
     transverse_load_placement_cases,
 )
 from bridge_design.codes.mtc_2018 import (
+    mtc_design_lanes,
     mtc_cast_in_place_slab_equivalent_strip_widths_m,
     mtc_dynamic_load_allowance_for_slab,
     mtc_multiple_presence_factor,
@@ -407,22 +408,25 @@ def _format_mobile_load_location_schemes(project_inputs: ProjectInputs) -> list[
     geometry = project_inputs.transverse_slab.geometry
     layout = project_inputs.transverse_slab.load_layout
     vehicle = project_inputs.live_loads.vehicular
+    lane_count, lane_width = mtc_design_lanes(layout.vehicle_move_end_m - layout.vehicle_move_start_m)
     lines = [
         "",
         *audit_subtitle("", "LL+IM - cargas moviles vehiculares", 96),
+        "Convencion metrica del proyecto: calzada de 6.00 m admite 2 carriles de 3.00 m.",
         (
             f"Recorrido vehicular ingresado: {layout.vehicle_move_start_m:.3f} a "
             f"{layout.vehicle_move_end_m:.3f} m | separacion minima rueda-barrera="
-            f"{TRANSVERSE_WHEEL_CLEARANCE_M:.3f} m | paso={layout.vehicle_step_m:.3f} m."
+            f"{TRANSVERSE_WHEEL_CLEARANCE_M:.4f} m | paso={layout.vehicle_step_m:.3f} m."
         ),
         (
             f"Eje pesado HL-93={max(vehicle.design_truck_axles_tn):.3f} Tn | "
             f"separacion transversal de ruedas={vehicle.wheel_transverse_spacing_m:.3f} m | "
-            f"separacion entre carriles={TRANSVERSE_DESIGN_LANE_SPACING_M:.3f} m | "
+            f"ancho de carril de diseno={lane_width:.3f} m | "
+            f"franja cargada={vehicle.lane_load_width_m:.3f} m | "
             f"IM={mtc_dynamic_load_allowance_for_slab():.2f}."
         ),
     ]
-    for truck_count in (1, 2):
+    for truck_count in range(1, lane_count + 1):
         lines.extend(_format_mobile_load_case(project_inputs, truck_count))
     return lines
 
@@ -436,7 +440,8 @@ def _format_mobile_load_case(
     vehicle = project_inputs.live_loads.vehicular
     width = geometry.total_width_m
     wheel_spacing = vehicle.wheel_transverse_spacing_m
-    group_width = (truck_count - 1) * TRANSVERSE_DESIGN_LANE_SPACING_M + wheel_spacing
+    lane_count, lane_width = mtc_design_lanes(layout.vehicle_move_end_m - layout.vehicle_move_start_m)
+    group_width = (truck_count - 1) * lane_width + wheel_spacing
     path_start = layout.vehicle_move_start_m + TRANSVERSE_WHEEL_CLEARANCE_M
     path_end = layout.vehicle_move_end_m - TRANSVERSE_WHEEL_CLEARANCE_M - group_width
     positive_strip, negative_strip = mtc_cast_in_place_slab_equivalent_strip_widths_m(
@@ -448,7 +453,12 @@ def _format_mobile_load_case(
     positive_wheel_load = heavy_axle / 2.0 * (1.0 + impact) * multiple_presence / positive_strip
     negative_wheel_load = heavy_axle / 2.0 * (1.0 + impact) * multiple_presence / negative_strip
     title = f"LL+IM - {truck_count} carril(es) movil(es)"
-    if path_end < path_start:
+    try:
+        validate_lane_geometry(layout.vehicle_move_end_m - layout.vehicle_move_start_m,
+                               wheel_spacing, vehicle.lane_load_width_m)
+    except TransverseLaneGeometryError as exc:
+        return ["", *audit_subtitle("", title, 96), str(exc)]
+    if truck_count > lane_count or lane_width < 2 * TRANSVERSE_WHEEL_CLEARANCE_M + wheel_spacing:
         return [
             "",
             *audit_subtitle("", title, 96),
@@ -462,15 +472,16 @@ def _format_mobile_load_case(
         ]
 
     rows = []
-    wheel_markers = []
+    scheme_lines = []
     for lane_index in range(truck_count):
-        left_offset = lane_index * TRANSVERSE_DESIGN_LANE_SPACING_M
-        right_offset = left_offset + wheel_spacing
+        left_offset = lane_index * lane_width
+        first = path_start + left_offset
+        last = path_end + left_offset
         rows.append(
             (
                 f"W{2 * lane_index + 1}",
                 f"rueda izquierda carril {lane_index + 1}",
-                f"xb + {left_offset:.3f} m",
+                f"x{lane_index + 1}: {first:.3f} a {last:.3f} m",
                 f"{positive_wheel_load:.3f} / {negative_wheel_load:.3f} Tn",
             )
         )
@@ -478,21 +489,27 @@ def _format_mobile_load_case(
             (
                 f"W{2 * lane_index + 2}",
                 f"rueda derecha carril {lane_index + 1}",
-                f"xb + {right_offset:.3f} m",
+                f"x{lane_index + 1} + {wheel_spacing:.3f} m",
                 f"{positive_wheel_load:.3f} / {negative_wheel_load:.3f} Tn",
             )
         )
-        wheel_markers.append((left_offset, f"W{2 * lane_index + 1}"))
-        wheel_markers.append((right_offset, f"W{2 * lane_index + 2}"))
+        for offset, label in ((0.0, f"W{2 * lane_index + 1}"),
+                              (wheel_spacing, f"W{2 * lane_index + 2}")):
+            for x, bound in ((first, "min"), (last, "max")):
+                row = _blank_load_scheme_row()
+                _put_point_load_marker(row, _load_scheme_index(x + offset, width), label)
+                scheme_lines.append(_load_scheme_line(f"{label} en x{lane_index + 1} {bound}", "".join(row)))
     return [
         "",
         *audit_subtitle("", title, 96),
         (
-            f"xb se desplaza de {path_start:.3f} a {path_end:.3f} m. "
             f"m={multiple_presence:.2f}; E(+M)={positive_strip:.3f} m; E(-M)={negative_strip:.3f} m; "
             "P rueda mostrado como +M / -M."
         ),
-        *_format_mobile_load_scheme(geometry, layout, path_start, path_end, wheel_markers),
+        "Posiciones xi independientes; carriles sin superposicion dentro de la calzada.",
+        "Los extremos de cada rueda son limites individuales, no un grupo rigido simultaneo.",
+        *scheme_lines,
+        _format_mobile_reference_scheme(geometry, layout),
         *boxed_table(
             ("Cod.", "Rueda", "Posicion movil", "P rueda +M / -M"),
             rows,
@@ -1038,8 +1055,8 @@ def format_transverse_analysis_result(
         "",
         *audit_block_title("1", "DISENO DE LOSA ENTRE VIGAS", 104),
         "Convencion: momento positivo = sagante; momento negativo = sobre apoyos/voladizos.",
-        "LL+IM: se mueve solo el eje pesado HL-93; se evalua 1 y 2 carriles.",
-        "Recorrido vehicular: se ingresa entre caras internas y se aplica 0.610 m a cada borde.",
+        "LL+IM: eje pesado HL-93; se evaluan todos los numeros admisibles de carriles cargados.",
+        "Carriles y ruedas con posiciones independientes; retiros desde el borde de cada carril.",
         (
             f"Factores MTC: IM={result.dynamic_load_allowance:.2f}; "
             f"E+={result.equivalent_strip_width_positive_m:.3f} m; "

@@ -1,21 +1,23 @@
 """Transverse slab structural model and matrix analysis."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Iterable, Literal
+from itertools import combinations
+from bridge_design.domain.transverse_patterns import TRANSVERSE_WHEEL_CLEARANCE_M, wheel_patterns
 
 from bridge_design.codes.mtc_2018 import (
     mtc_cast_in_place_slab_equivalent_strip_widths_m,
     mtc_dynamic_load_allowance_for_slab,
     mtc_multiple_presence_factor,
+    mtc_design_lanes,
 )
 from bridge_design.domain.loads import LiveLoads, VehicleLoadModel
 from bridge_design.domain.materials import MaterialProperties
-from bridge_design.domain.sampling import interpolate_sorted_samples
+from bridge_design.domain.sampling import interpolate_sorted_samples, envelope_sorted_samples
 from bridge_design.validation.input_validators import require_non_negative, require_positive
 
 
 NODE_TOLERANCE = 1e-8
-TRANSVERSE_WHEEL_CLEARANCE_M = 0.610
 TRANSVERSE_DESIGN_LANE_SPACING_M = 3.60
 
 
@@ -234,6 +236,12 @@ def solve_transverse_slab_design(
         _pl_segments(live_loads, layout, geometry.total_width_m),
         (),
     )
+    pedestrian_segments = _pl_segments(live_loads, layout, geometry.total_width_m)
+    for count in range(len(pedestrian_segments)):
+        for pattern in combinations(pedestrian_segments, count):
+            pl = replace(_combine_vehicle_envelopes(pl, solve_load_case(
+                geometry, materials, "PL - patron peatonal", pattern, ()
+            )), name="PL - envolvente de zonas peatonales")
     ll_one = solve_moving_vehicle_envelope(
         geometry=geometry,
         materials=materials,
@@ -249,6 +257,11 @@ def solve_transverse_slab_design(
         truck_count=2,
     )
     ll_envelope = _combine_vehicle_envelopes(ll_one, ll_two)
+    lane_count, _ = mtc_design_lanes(layout.vehicle_move_end_m - layout.vehicle_move_start_m)
+    for count in range(3, lane_count + 1):
+        ll_envelope = _combine_vehicle_envelopes(ll_envelope, solve_moving_vehicle_envelope(
+            geometry, materials, live_loads.vehicular, layout, count
+        ))
     strip_positive, strip_negative = mtc_cast_in_place_slab_equivalent_strip_widths_m(
         geometry.girder_spacing_m
     )
@@ -378,18 +391,15 @@ def solve_moving_vehicle_envelope(
     layout: TransverseLoadLayout,
     truck_count: int,
 ) -> LoadCaseAnalysis:
-    """Move one or two HL-93 heavy axles and return the critical envelope."""
-    if truck_count not in (1, 2):
-        raise ValueError("Solo se permite analizar 1 o 2 carriles.")
+    """Move independently positioned HL-93 heavy axles within design lanes."""
+    require_positive(truck_count, "numero de carriles")
 
     wheel_spacing = vehicle.wheel_transverse_spacing_m
     positive_strip_width, negative_strip_width = mtc_cast_in_place_slab_equivalent_strip_widths_m(
         geometry.girder_spacing_m
     )
-    group_width = (truck_count - 1) * TRANSVERSE_DESIGN_LANE_SPACING_M + wheel_spacing
-    path_start = layout.vehicle_move_start_m + TRANSVERSE_WHEEL_CLEARANCE_M
-    path_end = layout.vehicle_move_end_m - TRANSVERSE_WHEEL_CLEARANCE_M - group_width
-    if path_end + NODE_TOLERANCE < path_start:
+    lane_count, _ = mtc_design_lanes(layout.vehicle_move_end_m - layout.vehicle_move_start_m)
+    if truck_count > lane_count:
         return _empty_vehicle_case(
             truck_count=truck_count,
             multiple_presence=mtc_multiple_presence_factor(truck_count),
@@ -405,7 +415,11 @@ def solve_moving_vehicle_envelope(
     negative_cases: list[LoadCaseAnalysis] = []
     multiple_presence = mtc_multiple_presence_factor(truck_count)
     impact_factor = mtc_dynamic_load_allowance_for_slab()
-    for base_position in _moving_positions(path_start, path_end, layout.vehicle_step_m):
+    for wheel_positions in wheel_patterns(
+        layout.vehicle_move_start_m, layout.vehicle_move_end_m, truck_count,
+        layout.vehicle_step_m, wheel_spacing,
+    ):
+        base_position = wheel_positions[0]
         positive_segments, positive_points = _vehicle_loads_at_position(
             vehicle=vehicle,
             truck_count=truck_count,
@@ -413,6 +427,7 @@ def solve_moving_vehicle_envelope(
             impact_factor=impact_factor,
             multiple_presence_factor=multiple_presence,
             equivalent_strip_width_m=positive_strip_width,
+            wheel_positions_m=wheel_positions,
         )
         negative_segments, negative_points = _vehicle_loads_at_position(
             vehicle=vehicle,
@@ -421,6 +436,7 @@ def solve_moving_vehicle_envelope(
             impact_factor=impact_factor,
             multiple_presence_factor=multiple_presence,
             equivalent_strip_width_m=negative_strip_width,
+            wheel_positions_m=wheel_positions,
         )
         positive_case = solve_load_case(
             geometry=geometry,
@@ -429,7 +445,7 @@ def solve_moving_vehicle_envelope(
             segments=positive_segments,
             point_loads=positive_points,
             critical_vehicle_position_m=base_position,
-            vehicle_configuration=f"{truck_count} carril(es), eje pesado HL-93",
+            vehicle_configuration=f"{truck_count} carril(es), ruedas izquierdas {wheel_positions}",
         )
         negative_case = solve_load_case(
             geometry=geometry,
@@ -438,7 +454,7 @@ def solve_moving_vehicle_envelope(
             segments=negative_segments,
             point_loads=negative_points,
             critical_vehicle_position_m=base_position,
-            vehicle_configuration=f"{truck_count} carril(es), eje pesado HL-93",
+            vehicle_configuration=f"{truck_count} carril(es), ruedas izquierdas {wheel_positions}",
         )
         positive_cases.append(positive_case)
         negative_cases.append(negative_case)
@@ -455,7 +471,7 @@ def solve_moving_vehicle_envelope(
         max_negative_position_m=max_negative.max_negative_position_m,
         support_reactions_tn=max_positive.support_reactions_tn,
         critical_vehicle_position_m=max_positive.critical_vehicle_position_m,
-        vehicle_configuration=f"{truck_count} carril(es), eje pesado HL-93",
+        vehicle_configuration=(f"M+: {max_positive.vehicle_configuration}; M-: {max_negative.vehicle_configuration}"),
         multiple_presence_factor=multiple_presence,
         equivalent_strip_width_positive_m=positive_strip_width,
         equivalent_strip_width_negative_m=negative_strip_width,
@@ -565,6 +581,7 @@ def _vehicle_loads_at_position(
     impact_factor: float,
     multiple_presence_factor: float,
     equivalent_strip_width_m: float,
+    wheel_positions_m: tuple[float, ...] | None = None,
 ) -> tuple[tuple[LoadSegment, ...], tuple[PointLoad, ...]]:
     wheel_spacing = vehicle.wheel_transverse_spacing_m
     heavy_axle_load = max(vehicle.design_truck_axles_tn)
@@ -576,8 +593,9 @@ def _vehicle_loads_at_position(
         / equivalent_strip_width_m
     )
     points: list[PointLoad] = []
-    for truck_index in range(truck_count):
-        lane_start = base_position_m + truck_index * TRANSVERSE_DESIGN_LANE_SPACING_M
+    for lane_start in (wheel_positions_m or tuple(
+        base_position_m + index * TRANSVERSE_DESIGN_LANE_SPACING_M for index in range(truck_count)
+    )):
         points.append(PointLoad(lane_start, wheel_line_load, "rueda eje pesado HL-93 izquierda"))
         points.append(
             PointLoad(
@@ -659,15 +677,10 @@ def _envelope_moment_samples(
             for position, _ in case.moment_samples_tn_m
         }
     )
-    envelope = []
-    for position in positions:
-        values = [
-            _sampled_moment_at(case.moment_samples_tn_m, position)
-            for case in cases
-        ]
-        selected = max(values) if target == "max" else min(values)
-        envelope.append((position, selected))
-    return tuple(envelope)
+    return envelope_sorted_samples(
+        (case.moment_samples_tn_m for case in cases), positions, target,
+        tolerance=NODE_TOLERANCE,
+    )
 
 
 def _merge_moment_envelopes(

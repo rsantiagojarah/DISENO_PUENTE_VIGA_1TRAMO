@@ -158,7 +158,7 @@ def _combined_moment_at(
 ) -> CombinedMomentResult:
     dc = _moment_at(result.dc.moment_samples_tn_m, position)
     dw = _moment_at(result.dw.moment_samples_tn_m, position)
-    pl = _moment_at(result.pl.moment_samples_tn_m, position)
+    pl = _envelope_moment_at(result.pl, position, target)
     ll_im = _envelope_moment_at(result.ll_im_envelope, position, target)
 
     dc_factor = combination.dc.for_effect(dc, target)

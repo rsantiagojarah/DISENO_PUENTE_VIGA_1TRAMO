@@ -1,3 +1,5 @@
+import pytest
+
 from bridge_design.cli.ascii_output import (
     format_abutment_reaction_summary,
     format_transverse_load_location_schemes,
@@ -112,6 +114,53 @@ def _project_inputs() -> ProjectInputs:
     )
 
 
+def test_transverse_report_shows_all_admissible_lane_counts():
+    from dataclasses import replace
+    project = _project_inputs()
+    geometry = replace(project.transverse_slab.geometry, girder_spacing_m=2.7, girder_count=5)
+    layout = replace(project.transverse_slab.load_layout, vehicle_move_start_m=0.825,
+                     vehicle_move_end_m=11.625)
+    project = replace(project, transverse_slab=TransverseSlabDesignInputs(geometry, layout))
+    output = format_transverse_load_location_schemes(project)
+    assert "LL+IM - 3 carril(es) movil(es)" in output
+    assert "LL+IM - 4 carril(es) movil(es)" not in output
+    assert "W5 en x3 min" in output
+    assert "Posiciones xi independientes" in output
+    assert "separacion entre carriles=" not in output
+
+
+def test_six_metre_roadway_report_uses_metric_dimensions():
+    from dataclasses import replace
+    project = _project_inputs()
+    layout = replace(project.transverse_slab.load_layout, vehicle_move_start_m=0.975,
+                     vehicle_move_end_m=6.975)
+    project = replace(project, transverse_slab=replace(project.transverse_slab, load_layout=layout))
+    output = format_transverse_load_location_schemes(project)
+    assert "calzada de 6.00 m admite 2 carriles de 3.00 m" in output
+    assert "LL+IM - 2 carril(es) movil(es)" in output
+    assert "franja cargada=3.000 m" in output
+    assert "separacion transversal de ruedas=1.800 m" in output
+    assert "No aplicable" not in output
+    assert "requiere definir" not in output
+
+
+def test_incompatible_lane_geometry_stops_before_calculations(monkeypatch, capsys):
+    from dataclasses import replace
+    from bridge_design.main import run_bridge_design
+    project = _project_inputs()
+    layout = replace(project.transverse_slab.load_layout, vehicle_move_start_m=0.975,
+                     vehicle_move_end_m=6.975)
+    project = replace(project, transverse_slab=replace(project.transverse_slab, load_layout=layout))
+    project = replace(project, live_loads=replace(project.live_loads,
+                      vehicular=replace(project.live_loads.vehicular, lane_load_width_m=3.048)))
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("No debe solicitar armadura"))
+    run_bridge_design(project)
+    output = capsys.readouterr().out
+    assert "CALCULO NO INICIADO" in output
+    assert "convencion dimensional" in output
+    assert "DISENO DE LOSA" not in output
+
+
 def test_transverse_load_location_schemes_include_dc_dw_pl_data() -> None:
     output = format_transverse_load_location_schemes(_project_inputs())
 
@@ -129,11 +178,11 @@ def test_transverse_load_location_schemes_include_dc_dw_pl_data() -> None:
     assert "x=0.950 m" in output
     assert "LL+IM - cargas moviles vehiculares" in output
     assert "LL+IM - 1 carril(es) movil(es)" in output
-    assert "xb se desplaza de 1.685 a 4.436 m" in output
-    assert "W1 en xb inicial" in output
+    assert "x1: 1.675 a 4.475 m" in output
+    assert "W1 en x1 min" in output
     assert "rueda derecha carril 1" in output
-    assert "LL+IM - 2 carril(es) movil(es)" in output
-    assert "No aplicable" in output
+    assert "LL+IM - 2 carril(es) movil(es)" not in output
+    assert "Posiciones xi independientes" in output
     assert "LL+IM - esquema movil longitudinal en la luz del puente" in output
     assert "Eje longitudinal X desde apoyo fijo hasta apoyo movil" in output
     assert "LL+IM - camion de diseno longitudinal" in output

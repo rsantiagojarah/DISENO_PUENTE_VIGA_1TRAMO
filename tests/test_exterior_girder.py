@@ -109,11 +109,12 @@ def test_exterior_girder_solves_loads_strength_flexure_and_shear() -> None:
     assert analysis.ll_im_envelope.max_positive_moment_tn_m > 0.0
     assert analysis.distribution_factor_g > 0.0
     assert analysis.shear_distribution_factor_g > 0.0
-    assert round(analysis.fatigue_truck.distribution_factor_g, 3) == 0.447
+    # Metric wheels at x=0.85 and 2.65: rigid-section g = 1/4 + 3.15*1.40/22.05.
+    assert round(analysis.fatigue_truck.distribution_factor_g, 3) == 0.450
     assert analysis.fatigue_truck.distribution_factor_g < analysis.distribution_factor_g
     reactions = dict(analysis.truck_ll_im.support_reactions_tn)
-    assert round(reactions["Fijo"], 3) == 14.403
-    assert round(reactions["Movil"], 3) == 16.543
+    assert round(reactions["Fijo"], 3) == 14.513
+    assert round(reactions["Movil"], 3) == 16.670
 
     combined = combine_exterior_girder_moments(analysis)
     strength = next(row for row in combined if row.combination_name == "RESISTENCIA I")

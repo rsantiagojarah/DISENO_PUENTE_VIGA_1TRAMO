@@ -1,0 +1,36 @@
+version_esquema: 1
+comando: diseno-apoyos
+nota: Complete o modifique los valores. Las unidades estan indicadas en cada clave.
+cargas_servicio_por_apoyo:
+  dc_carga_muerta_tn: 48.0
+  dw_superficie_tn: 4.0
+  ll_carga_viva_sin_impacto_tn: 28.0
+movimientos:
+  luz_tramo_m: 25.0
+  zona_climatica_mtc: costa
+  temperatura_instalacion_c: 20.0
+  retraccion_concreto_cm: 0.8
+  acortamiento_pretensado_cm: 0.0
+  otros_movimientos_permanentes_cm: 0.0
+  gamma_tu: 1.2
+material_geometria:
+  dureza_shore_a: 60
+  ancho_viga_apoyo_cm: 40.0
+  fy_acero_zunchos_kg_cm2: 2530.0
+  adoptar_dimensiones_planta_manualmente: false
+  ancho_adoptado_w_cm: 40.0
+  largo_adoptado_l_cm: 30.0
+sismo:
+  as_sitio: 0.2
+  zona_sismica: 1
+  puente_un_solo_tramo: true
+  tipo_apoyo: expansion
+  restringido_longitudinalmente: false
+  restringido_transversalmente: true
+  carga_permanente_tributaria_longitudinal_tn: null
+  coeficiente_friccion_mu: 0.2
+aplastamiento_concreto:
+  verificar: true
+  fc_pedestal_estribo_kg_cm2: 210.0
+  indicar_area_a2_pedestal: false
+  area_a2_pedestal_cm2: null

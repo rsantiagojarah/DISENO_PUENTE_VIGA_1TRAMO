@@ -1,7 +1,13 @@
 """Transverse diaphragm beam analysis and reinforcement design."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
+from bridge_design.domain.sampling import envelope_sorted_samples
+from bridge_design.domain.moment_curve import MomentCurve, load_moment_curve, reduce_moment_curves
+from itertools import combinations, product
+from bridge_design.domain.transverse_patterns import (
+    TRANSVERSE_WHEEL_CLEARANCE_M, lane_positions, positions, validate_lane_geometry,
+)
 
 from bridge_design.codes.mtc_2018 import (
     DEFAULT_FLEXURAL_RESISTANCE_FACTOR,
@@ -9,6 +15,7 @@ from bridge_design.codes.mtc_2018 import (
     mtc_cast_in_place_slab_equivalent_strip_widths_m,
     mtc_dynamic_load_allowance_for_slab,
     mtc_multiple_presence_factor,
+    mtc_design_lanes,
 )
 from bridge_design.domain.interior_girder import (
     DEFAULT_SHEAR_BETA,
@@ -134,6 +141,8 @@ class DiaphragmLoadCaseAnalysis:
     critical_vehicle_position_m: float | None = None
     vehicle_configuration: str | None = None
     multiple_presence_factor: float | None = None
+    upper_moment_curve: MomentCurve | None = None
+    lower_moment_curve: MomentCurve | None = None
 
 
 @dataclass(frozen=True)
@@ -274,13 +283,27 @@ def solve_diaphragm_design(
         layout=layout,
         truck_count=2,
     )
+    ll_envelope = _combine_vehicle_cases(ll_one, ll_two)
+    lane_count, _ = mtc_design_lanes(layout.vehicle_move_end_m - layout.vehicle_move_start_m)
+    for count in range(3, lane_count + 1):
+        ll_envelope = _combine_vehicle_cases(ll_envelope, _solve_moving_vehicle_case(
+            geometry, materials, live_loads.vehicular, layout, count
+        ))
+    pedestrian_segments = _pl_segments(geometry, live_loads, layout)
+    pedestrian_cases = [pl]
+    for count in range(len(pedestrian_segments)):
+        for pattern in combinations(pedestrian_segments, count):
+            pedestrian_cases.append(_solve_diaphragm_case(
+                geometry, materials, "PL - patron peatonal", pattern, ()
+            ))
+    pl = _envelope_vehicle_cases("PL - envolvente de zonas peatonales", pedestrian_cases, 1.0)
     return DiaphragmAnalysisResult(
         dc=dc,
         dw=dw,
         pl=pl,
         ll_im_one_truck=ll_one,
         ll_im_two_trucks=ll_two,
-        ll_im_envelope=_combine_vehicle_cases(ll_one, ll_two),
+        ll_im_envelope=ll_envelope,
         dynamic_load_allowance=mtc_dynamic_load_allowance_for_slab(),
     )
 
@@ -300,9 +323,9 @@ def combine_diaphragm_moments(
         for target in ("max", "min"):
             candidates = []
             for position in positions:
-                dc = _sampled_moment_at(result.dc.moment_samples_tn_m, position)
-                dw = _sampled_moment_at(result.dw.moment_samples_tn_m, position)
-                pl = _sampled_moment_at(result.pl.moment_samples_tn_m, position)
+                dc = _moment_at_case(result.dc, position, target)
+                dw = _moment_at_case(result.dw, position, target)
+                pl = _moment_at_case(result.pl, position, target)
                 ll = _moment_at_case(result.ll_im_envelope, position, target)
                 g_dc = dc_factor.for_effect(dc, target)
                 g_dw = dw_factor.for_effect(dw, target)
@@ -452,18 +475,24 @@ def _solve_diaphragm_case(
     )
     shear_samples = _shear_samples(geometry, segments, point_loads, solved.support_reactions_tn)
     max_shear = max(shear_samples, key=lambda item: abs(item[1]))
+    curve = load_moment_curve(geometry.total_width_m, segments, point_loads, solved.support_reactions_tn)
+    moment_samples = curve.samples(x for x, _ in solved.moment_samples_tn_m)
+    positive = max(moment_samples, key=lambda item: item[1])
+    negative = min(moment_samples, key=lambda item: item[1])
     return DiaphragmLoadCaseAnalysis(
         name=name,
-        max_positive_moment_tn_m=solved.max_positive_moment_tn_m,
-        max_positive_position_m=solved.max_positive_position_m,
-        max_negative_moment_tn_m=solved.max_negative_moment_tn_m,
-        max_negative_position_m=solved.max_negative_position_m,
+        max_positive_moment_tn_m=positive[1],
+        max_positive_position_m=positive[0],
+        max_negative_moment_tn_m=negative[1],
+        max_negative_position_m=negative[0],
         max_abs_shear_tn=abs(max_shear[1]),
         max_abs_shear_position_m=max_shear[0],
         support_reactions_tn=solved.support_reactions_tn,
-        moment_samples_tn_m=solved.moment_samples_tn_m,
+        moment_samples_tn_m=moment_samples,
         shear_samples_tn=shear_samples,
-        min_moment_samples_tn_m=solved.moment_samples_tn_m,
+        min_moment_samples_tn_m=moment_samples,
+        upper_moment_curve=curve,
+        lower_moment_curve=curve,
         max_shear_samples_tn=shear_samples,
         min_shear_samples_tn=shear_samples,
         critical_vehicle_position_m=critical_vehicle_position_m,
@@ -479,12 +508,9 @@ def _solve_moving_vehicle_case(
     layout: TransverseLoadLayout,
     truck_count: int,
 ) -> DiaphragmLoadCaseAnalysis:
-    if truck_count not in (1, 2):
-        raise ValueError("Solo se permite analizar 1 o 2 camiones.")
-    lane_width = vehicle.design_lane_width_m
-    group_width = lane_width * truck_count
-    travel_length = layout.vehicle_move_end_m - layout.vehicle_move_start_m
-    if travel_length + NODE_TOLERANCE < group_width:
+    require_positive(truck_count, "numero de carriles")
+    lane_count, lane_width = mtc_design_lanes(layout.vehicle_move_end_m - layout.vehicle_move_start_m)
+    if truck_count > lane_count:
         return _empty_vehicle_case(
             name=f"LL+IM - {truck_count} camion(es) sobre diafragma",
             truck_count=truck_count,
@@ -498,32 +524,29 @@ def _solve_moving_vehicle_case(
     cases: list[DiaphragmLoadCaseAnalysis] = []
     multiple_presence = mtc_multiple_presence_factor(truck_count)
     impact = mtc_dynamic_load_allowance_for_slab()
-    forward_positions = _moving_positions(
-        layout.vehicle_move_start_m,
-        layout.vehicle_move_end_m - group_width,
-        geometry.vehicle_step_m,
-    )
-    first_base = layout.vehicle_move_start_m
-    last_base = layout.vehicle_move_end_m - group_width
-    reverse_positions = tuple(
-        round(first_base + last_base - position, 10)
-        for position in forward_positions
-    )
-    for travel_direction, reverse_wheels, positions in (
-        ("izquierda a derecha", False, forward_positions),
-        ("derecha a izquierda", True, reverse_positions),
-    ):
-        for base_position in positions:
+    validate_lane_geometry(layout.vehicle_move_end_m - layout.vehicle_move_start_m,
+                           vehicle.wheel_transverse_spacing_m, vehicle.lane_load_width_m)
+    offsets = tuple(positions(TRANSVERSE_WHEEL_CLEARANCE_M,
+                             lane_width - TRANSVERSE_WHEEL_CLEARANCE_M - vehicle.wheel_transverse_spacing_m,
+                             geometry.vehicle_step_m))
+    load_offsets = tuple(positions(0.0, lane_width - vehicle.lane_load_width_m, geometry.vehicle_step_m))
+    if not offsets or not load_offsets:
+        raise ValueError("El carril no admite las ruedas o la franja cargada HL-93.")
+    @lru_cache(maxsize=None)
+    def lane_envelope(base_position):
+        local_cases = []
+        for shifts in product(offsets, load_offsets):
             segments, points = _vehicle_loads_at_position(
                 geometry=geometry,
                 vehicle=vehicle,
-                truck_count=truck_count,
+                truck_count=1,
                 base_position_m=base_position,
                 impact_factor=impact,
                 multiple_presence_factor=multiple_presence,
-                reverse_wheel_orientation=reverse_wheels,
+                lane_positions_m=(base_position,),
+                independent_offsets=(shifts,),
             )
-            cases.append(
+            local_cases.append(
                 _solve_diaphragm_case(
                     geometry=geometry,
                     materials=materials,
@@ -532,15 +555,47 @@ def _solve_moving_vehicle_case(
                     point_loads=points,
                     critical_vehicle_position_m=base_position,
                     vehicle_configuration=(
-                        f"{truck_count} camion(es) HL-93, {travel_direction}"
+                        f"HL-93, carril en {base_position}, desplazamientos {shifts}"
                     ),
                     multiple_presence_factor=multiple_presence,
                 )
             )
+        return _envelope_vehicle_cases("LL+IM - carril independiente", local_cases, multiple_presence)
+
+    for lanes in lane_positions(layout.vehicle_move_start_m, layout.vehicle_move_end_m, truck_count, geometry.vehicle_step_m):
+        cases.append(_sum_independent_lane_envelopes(tuple(lane_envelope(x) for x in lanes)))
     return _envelope_vehicle_cases(
         name=f"LL+IM - {truck_count} camion(es) sobre diafragma",
         cases=cases,
         multiple_presence_factor=multiple_presence,
+    )
+
+
+def _sum_independent_lane_envelopes(cases):
+    """Linear superposition of independently attainable lane extrema."""
+    xs = _combined_positions(*cases)
+    vs = _combined_shear_positions(*cases)
+    upper_curve = reduce_moment_curves((c.upper_moment_curve for c in cases), "sum")
+    lower_curve = reduce_moment_curves((c.lower_moment_curve for c in cases), "sum")
+    upper = upper_curve.samples(xs)
+    lower = lower_curve.samples(xs)
+    vmax = tuple((x, sum(_shear_at_case(c, x, "max") for c in cases)) for x in vs)
+    vmin = tuple((x, sum(_shear_at_case(c, x, "min") for c in cases)) for x in vs)
+    absolute = tuple((a[0], max(abs(a[1]), abs(b[1]))) for a, b in zip(vmax, vmin))
+    positive = max(upper, key=lambda p: p[1])
+    negative = min(lower, key=lambda p: p[1])
+    shear = max(absolute, key=lambda p: p[1])
+    return replace(
+        cases[0], name="LL+IM - carriles independientes",
+        moment_samples_tn_m=upper, min_moment_samples_tn_m=lower,
+        shear_samples_tn=absolute, max_shear_samples_tn=vmax, min_shear_samples_tn=vmin,
+        max_positive_moment_tn_m=positive[1], max_positive_position_m=positive[0],
+        max_negative_moment_tn_m=negative[1], max_negative_position_m=negative[0],
+        max_abs_shear_tn=shear[1], max_abs_shear_position_m=shear[0],
+        support_reactions_tn=(),
+        upper_moment_curve=upper_curve, lower_moment_curve=lower_curve,
+        critical_vehicle_position_m=None,
+        vehicle_configuration=f"{len(cases)} carril(es), envolvente por superposicion independiente",
     )
 
 
@@ -574,73 +629,10 @@ def _combine_vehicle_cases(
     one_truck: DiaphragmLoadCaseAnalysis,
     two_trucks: DiaphragmLoadCaseAnalysis,
 ) -> DiaphragmLoadCaseAnalysis:
-    positions = _combined_positions(one_truck, two_trucks)
-    shear_positions = _combined_shear_positions(one_truck, two_trucks)
-    moment_samples = tuple(
-        (
-            position,
-            max(
-                _sampled_moment_at(one_truck.moment_samples_tn_m, position),
-                _sampled_moment_at(two_trucks.moment_samples_tn_m, position),
-            ),
-        )
-        for position in positions
-    )
-    min_samples = tuple(
-        (
-            position,
-            min(
-                _moment_at_case(one_truck, position, "min"),
-                _moment_at_case(two_trucks, position, "min"),
-            ),
-        )
-        for position in positions
-    )
-    min_source = min(min_samples, key=lambda item: item[1])
-    positive = max(moment_samples, key=lambda item: item[1])
-    max_shear_samples = tuple(
-        (
-            position,
-            max(
-                _shear_at_case(one_truck, position, "max"),
-                _shear_at_case(two_trucks, position, "max"),
-            ),
-        )
-        for position in shear_positions
-    )
-    min_shear_samples = tuple(
-        (
-            position,
-            min(
-                _shear_at_case(one_truck, position, "min"),
-                _shear_at_case(two_trucks, position, "min"),
-            ),
-        )
-        for position in shear_positions
-    )
-    shear_samples = tuple(
-        (upper[0], max(abs(upper[1]), abs(lower[1])))
-        for upper, lower in zip(max_shear_samples, min_shear_samples)
-    )
-    max_shear = max(shear_samples, key=lambda item: abs(item[1]))
     source = max((one_truck, two_trucks), key=lambda item: item.max_positive_moment_tn_m)
-    return DiaphragmLoadCaseAnalysis(
-        name="LL+IM - envolvente vehicular diafragma",
-        max_positive_moment_tn_m=positive[1],
-        max_positive_position_m=positive[0],
-        max_negative_moment_tn_m=min_source[1],
-        max_negative_position_m=min_source[0],
-        max_abs_shear_tn=abs(max_shear[1]),
-        max_abs_shear_position_m=max_shear[0],
-        support_reactions_tn=source.support_reactions_tn,
-        moment_samples_tn_m=moment_samples,
-        shear_samples_tn=shear_samples,
-        min_moment_samples_tn_m=min_samples,
-        max_shear_samples_tn=max_shear_samples,
-        min_shear_samples_tn=min_shear_samples,
-        critical_vehicle_position_m=source.critical_vehicle_position_m,
-        vehicle_configuration=source.vehicle_configuration,
-        multiple_presence_factor=source.multiple_presence_factor,
+    return _envelope_vehicle_cases(
+        "LL+IM - envolvente vehicular diafragma", [one_truck, two_trucks],
+        source.multiple_presence_factor,
     )
 
 
@@ -651,35 +643,34 @@ def _envelope_vehicle_cases(
 ) -> DiaphragmLoadCaseAnalysis:
     positions = _combined_positions(*cases)
     shear_positions = _combined_shear_positions(*cases)
-    moment_samples = tuple(
-        (
-            position,
-            max(_sampled_moment_at(case.moment_samples_tn_m, position) for case in cases),
-        )
-        for position in positions
-    )
-    min_samples = tuple(
-        (
-            position,
-            min(_moment_at_case(case, position, "min") for case in cases),
-        )
-        for position in positions
-    )
+    upper_curve = lower_curve = None
     positive_source = max(cases, key=lambda item: item.max_positive_moment_tn_m)
+    exact_cases = [case for case in cases if case.upper_moment_curve is not None]
+    if exact_cases and all(case.upper_moment_curve is not None or
+                           all(y == 0.0 for _, y in case.moment_samples_tn_m) for case in cases):
+        width = exact_cases[0].upper_moment_curve.ends[-1]
+        zero = MomentCurve((width,), ((0.0, 0.0, 0.0),))
+        upper_curve = reduce_moment_curves((c.upper_moment_curve or zero for c in cases), "max")
+        lower_curve = reduce_moment_curves((c.lower_moment_curve or zero for c in cases), "min")
+        moment_samples = upper_curve.samples(positions)
+        min_samples = lower_curve.samples(positions)
+    else:
+        moment_samples = envelope_sorted_samples(
+            (case.moment_samples_tn_m for case in cases), positions, "max", tolerance=NODE_TOLERANCE,
+        )
+        min_samples = envelope_sorted_samples(
+            (case.min_moment_samples_tn_m if case.min_moment_samples_tn_m is not None
+             else case.moment_samples_tn_m for case in cases),
+            positions, "min", tolerance=NODE_TOLERANCE,
+        )
     negative = min(min_samples, key=lambda item: item[1])
-    max_shear_samples = tuple(
-        (
-            position,
-            max(_shear_at_case(case, position, "max") for case in cases),
-        )
-        for position in shear_positions
+    max_shear_samples = envelope_sorted_samples(
+        (case.max_shear_samples_tn or case.shear_samples_tn for case in cases),
+        shear_positions, "max", tolerance=NODE_TOLERANCE,
     )
-    min_shear_samples = tuple(
-        (
-            position,
-            min(_shear_at_case(case, position, "min") for case in cases),
-        )
-        for position in shear_positions
+    min_shear_samples = envelope_sorted_samples(
+        (case.min_shear_samples_tn or case.shear_samples_tn for case in cases),
+        shear_positions, "min", tolerance=NODE_TOLERANCE,
     )
     shear_samples = tuple(
         (upper[0], max(abs(upper[1]), abs(lower[1])))
@@ -696,6 +687,8 @@ def _envelope_vehicle_cases(
         max_abs_shear_tn=abs(max_shear[1]),
         max_abs_shear_position_m=max_shear[0],
         support_reactions_tn=positive_source.support_reactions_tn,
+        upper_moment_curve=upper_curve,
+        lower_moment_curve=lower_curve,
         moment_samples_tn_m=moment_samples,
         shear_samples_tn=shear_samples,
         min_moment_samples_tn_m=min_samples,
@@ -964,6 +957,8 @@ def _vehicle_loads_at_position(
     impact_factor: float,
     multiple_presence_factor: float,
     reverse_wheel_orientation: bool = False,
+    lane_positions_m: tuple[float, ...] | None = None,
+    independent_offsets: tuple[tuple[float, float], ...] | None = None,
 ) -> tuple[tuple[LoadSegment, ...], tuple[PointLoad, ...]]:
     lane_width = vehicle.design_lane_width_m
     wheel_spacing = vehicle.wheel_transverse_spacing_m
@@ -979,21 +974,29 @@ def _vehicle_loads_at_position(
         vehicle.lane_load_tn_m
         * multiple_presence_factor
         * float(geometry.load_tributary_length_m)
-        / lane_width
+        / vehicle.lane_load_width_m
     )
     points: list[PointLoad] = []
     segments: list[LoadSegment] = []
     for truck_index in range(truck_count):
         lane_start = base_position_m + truck_index * lane_width
+        if lane_positions_m is not None:
+            lane_start = lane_positions_m[truck_index]
         if reverse_wheel_orientation:
             first_wheel = lane_start + lane_width - wheel_spacing
             second_wheel = lane_start + lane_width
         else:
             first_wheel = lane_start
             second_wheel = lane_start + wheel_spacing
+        load_start = lane_start
+        if independent_offsets is not None:
+            wheel_offset, load_offset = independent_offsets[truck_index]
+            first_wheel = lane_start + wheel_offset
+            second_wheel = first_wheel + wheel_spacing
+            load_start = lane_start + load_offset
         points.append(PointLoad(first_wheel, wheel_line_load, "rueda HL-93 izquierda"))
         points.append(PointLoad(second_wheel, wheel_line_load, "rueda HL-93 derecha"))
-        segments.append(LoadSegment(lane_start, lane_start + lane_width, lane_q, "carga de carril HL-93"))
+        segments.append(LoadSegment(load_start, load_start + vehicle.lane_load_width_m, lane_q, "carga de carril HL-93"))
     return tuple(segments), tuple(points)
 
 
@@ -1058,6 +1061,9 @@ def _moment_at_case(
     position: float,
     target: str,
 ) -> float:
+    curve = case.lower_moment_curve if target == "min" else case.upper_moment_curve
+    if curve is not None:
+        return curve.value(position)
     if target == "min" and case.min_moment_samples_tn_m is not None:
         return _sampled_moment_at(case.min_moment_samples_tn_m, position)
     return _sampled_moment_at(case.moment_samples_tn_m, position)

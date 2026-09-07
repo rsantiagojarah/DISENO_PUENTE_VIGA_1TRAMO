@@ -124,7 +124,10 @@ MAX_DISTRIBUTION_LONGITUDINAL_STIFFNESS_IN4 = 7000000.0
 MIN_DISTRIBUTION_GIRDER_COUNT = 4
 MIN_EXTERIOR_DE_FT = -1.0
 MAX_EXTERIOR_DE_FT = 5.5
-DEFAULT_WHEEL_CLEARANCE_TO_TRAFFIC_BARRIER_M = ft_to_m(2.0)
+# Project-approved metric convention, compatible with two lanes in 6.00 m.
+DEFAULT_WHEEL_CLEARANCE_TO_TRAFFIC_BARRIER_M = 0.60
+DEFAULT_TRANSVERSE_WHEEL_SPACING_M = 1.80
+DEFAULT_LANE_LOAD_WIDTH_M = 3.00
 DEFAULT_DECK_OVERHANG_WHEEL_CLEARANCE_TO_RAIL_M = ft_to_m(1.0)
 MAX_DECK_OVERHANG_KNIFE_LOAD_APPLICABILITY_M = ft_to_m(6.0)
 
@@ -193,6 +196,14 @@ def mtc_deck_overhang_knife_load_tn_m() -> float:
     distributed line load of 1.0 kip/ft for qualifying concrete deck overhangs.
     """
     return kip_to_tn(1.0) / ft_to_m(1.0)
+
+
+def mtc_design_lanes(roadway_width_m: float) -> tuple[int, float]:
+    """MTC 2.4.3.2.1, general rule and the 6.00-7.20 m exception."""
+    require_positive(roadway_width_m, "ancho libre de calzada")
+    if 6.0 <= roadway_width_m <= 7.2:
+        return 2, roadway_width_m / 2.0
+    return max(1, int((roadway_width_m + 1e-9) / 3.6)), min(3.6, roadway_width_m)
 
 
 def mtc_multiple_presence_factor(loaded_lanes: int) -> float:
@@ -638,8 +649,7 @@ def mtc_exterior_rigid_cross_section_distribution_factor(
         raise ValueError("La seccion rigida requiere al menos dos vigas.")
 
     roadway_width_m = (girder_count - 1) * girder_spacing_m + 2.0 * exterior_web_to_traffic_barrier_m
-    loaded_lane_limit = max(1, int(roadway_width_m // design_lane_width_m))
-    loaded_lane_limit = min(loaded_lane_limit, girder_count)
+    loaded_lane_limit, design_lane_width_m = mtc_design_lanes(roadway_width_m)
     beam_positions = tuple(index * girder_spacing_m for index in range(girder_count))
     centroid = sum(beam_positions) / girder_count
     sum_x2 = sum((position - centroid) ** 2.0 for position in beam_positions)
@@ -890,8 +900,9 @@ def default_hl93_vehicle_load_data() -> dict[str, object]:
         "design_tandem_axles_tn": [kip_to_tn(25.0), kip_to_tn(25.0)],
         "design_tandem_spacing_m": ft_to_m(4.0),
         "lane_load_tn_m": 0.954,
-        "design_lane_width_m": ft_to_m(10.0),
-        "wheel_transverse_spacing_m": ft_to_m(6.0),
+        "design_lane_width_m": 3.60,
+        "lane_load_width_m": DEFAULT_LANE_LOAD_WIDTH_M,
+        "wheel_transverse_spacing_m": DEFAULT_TRANSVERSE_WHEEL_SPACING_M,
         "tire_contact_width_m": inch_to_m(20.0),
         "tire_contact_length_m": inch_to_m(10.0),
     }

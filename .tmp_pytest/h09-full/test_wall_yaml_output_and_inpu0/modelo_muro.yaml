@@ -1,0 +1,34 @@
+version_esquema: 1
+comando: diseno-muros
+nota: Complete o modifique los valores. Las unidades estan indicadas en cada clave.
+geometria:
+  altura_relleno_activo_m: 7.0
+  ancho_zapata_m: 4.7
+  espesor_zapata_m: 1.1
+  longitud_puntera_m: 1.1
+  espesor_inferior_pantalla_m: 0.9
+  espesor_superior_pantalla_m: 0.3
+  altura_suelo_frontal_m: 1.1
+materiales:
+  fc_concreto_kg_cm2: 210.0
+  fy_acero_kg_cm2: 4200.0
+  peso_unitario_concreto_tn_m3: 2.4
+  peso_unitario_relleno_tn_m3: 1.925
+suelo_sismo:
+  h_sobrecarga_vehicular_equivalente_m: 0.6
+  qadm_capacidad_portante_kg_cm2: 2.67
+  angulo_friccion_relleno_grados: 30.0
+  delta_muro_suelo_grados: 0.0
+  beta_pendiente_relleno_grados: 0.0
+  theta_cara_posterior_desde_horizontal_grados: 90.0
+  fs_capacidad_portante_nominal: 3.0
+  pga: 0.3
+  fpga: 1.2
+  gamma_eq: 0.5
+  sobrecarga_peatonal_relleno_tn_m2: 0.0
+cargas_tablero:
+  pdc_carga_muerta_tablero_tn_m: 99.0
+  pdw_superficie_tn_m: 99.0
+  ppl_peatonal_tablero_tn_m: 99.0
+  pll_im_vehicular_tn_m: 99.0
+  br_frenado_tn_m: 99.0

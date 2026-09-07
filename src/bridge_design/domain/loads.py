@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Tuple
 
 from bridge_design.codes.mtc_2018 import (
+    DEFAULT_LANE_LOAD_WIDTH_M,
     PEDESTRIAN_SIDEWALK_REFERENCE,
     default_hl93_vehicle_load_data,
     default_sidewalk_pedestrian_load_tn_m2,
@@ -27,6 +28,8 @@ class VehicleLoadModel:
     tire_contact_length_m: float
     reference: str
 
+    lane_load_width_m: float = DEFAULT_LANE_LOAD_WIDTH_M
+
     @classmethod
     def mtc_hl93_default(cls) -> "VehicleLoadModel":
         """Create the default HL-93 vehicular live load from MTC 2018."""
@@ -39,6 +42,7 @@ class VehicleLoadModel:
             design_tandem_spacing_m=float(data["design_tandem_spacing_m"]),
             lane_load_tn_m=float(data["lane_load_tn_m"]),
             design_lane_width_m=float(data["design_lane_width_m"]),
+            lane_load_width_m=float(data["lane_load_width_m"]),
             wheel_transverse_spacing_m=float(data["wheel_transverse_spacing_m"]),
             tire_contact_width_m=float(data["tire_contact_width_m"]),
             tire_contact_length_m=float(data["tire_contact_length_m"]),

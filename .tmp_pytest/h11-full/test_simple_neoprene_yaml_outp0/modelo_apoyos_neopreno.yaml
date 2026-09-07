@@ -1,0 +1,50 @@
+version_esquema: 1
+comando: diseno-apoyos-neopreno
+nota: Seleccione tipo_apoyo FIJO_BARRAS o MOVIL_PLACAS. La seccion no utilizada se
+  conserva como referencia y no interviene en el calculo.
+tipo_apoyo: MOVIL_PLACAS
+geometria_neopreno:
+  largo_l_cm: 60.0
+  ancho_w_cm: 40.0
+  espesor_h_cm: 5.0
+material_neopreno:
+  dureza_shore_a: 60
+  coeficiente_friccion_mu: 0.2
+reacciones_verticales_por_apoyo:
+  r_dc_tn: 20.0
+  r_dw_tn: 1.2
+  r_pl_peatonal_tn: 0.0
+  r_ll_mas_im_tn: 29.4
+acciones_horizontales:
+  br_frenado_nominal_tn: 0.0
+  pga: 0.0
+  fpga: 1.08
+movimiento_termico:
+  luz_tramo_m: 15.0
+  zona_climatica_mtc: costa
+  temperatura_instalacion_c: 20.0
+  gamma_tu: 1.2
+  coeficiente_dilatacion_por_c: 1.08e-05
+pasadores_apoyo_fijo:
+  numero_barras: 4
+  diametro_cm: 2.54
+  separacion_longitudinal_cm: 20.0
+  separacion_transversal_cm: 15.0
+  fy_kg_cm2: 2500.0
+  brazo_entre_contactos_cm: 5.0
+planchas_apoyo_movil:
+  espesor_superior_inferior_cm: 2.54
+  fy_a36_kg_cm2: 2530.0
+  fu_a36_kg_cm2: 4080.0
+concreto:
+  fc_pedestal_estribo_kg_cm2: 210.0
+esquema_referencia:
+  fijo_barras: "ELEVACION - APOYO FIJO\n          VIGA / SUPERESTRUCTURA\n     ===========================\n\
+    \          |    |    |    |       pasadores lisos\n          | [ NEOPRENO ] |\n\
+    \     ===========================\n             PEDESTAL\n\nPLANTA L x W: los\
+    \ pasadores forman una grilla rectangular\n     o-----------o\n     |        \
+    \   |\n     o-----------o\n"
+  movil_placas: "ELEVACION - APOYO MOVIL\n          VIGA / SUPERESTRUCTURA\n     ===========================\
+    \  plancha superior A36\n             [ NEOPRENO ]          <--> movimiento\n\
+    \     ===========================  plancha inferior A36\n             PEDESTAL\n"
+  nota: Esquema referencial no a escala. L es el largo longitudinal y W el ancho transversal.

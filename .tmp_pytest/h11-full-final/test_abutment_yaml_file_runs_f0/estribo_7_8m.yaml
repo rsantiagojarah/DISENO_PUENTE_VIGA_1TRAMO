@@ -1,0 +1,43 @@
+version_esquema: 1
+comando: diseno-estribos
+geometria:
+  altura_relleno_activo_m: 7.8
+  luz_puente_m: 15.0
+  ancho_zapata_m: 6.2
+  espesor_zapata_m: 0.95
+  longitud_puntera_m: 2.1
+  espesor_inferior_pantalla_m: 0.95
+  espesor_superior_pantalla_m: 0.95
+  altura_suelo_frontal_m: 2.5
+  transicion_frontal_superior_t1_m: 0.0
+  retiro_superior_relleno_t2_m: 0.2
+  longitud_cajuela_m: 0.8
+  espesor_parapeto_posterior_m: 0.35
+  altura_cajuela_m: 1.15
+  altura_bloque_cajuela_m: 0.4
+  altura_transicion_m: 0.95
+  altura_apoyo_a_cajuela_m: 1.8
+  franja_analisis_m: 1.0
+materiales:
+  fc_concreto_kg_cm2: 210.0
+  fy_acero_kg_cm2: 4200.0
+  peso_unitario_concreto_tn_m3: 2.4
+  peso_unitario_relleno_tn_m3: 1.925
+cargas_tablero:
+  pdc_carga_muerta_tablero_tn_m: 12.0
+  pdw_superficie_tn_m: 1.8
+  ppl_peatonal_tablero_tn_m: 0.0
+  pll_im_vehicular_tn_m: 9.494
+  br_frenado_tn_m: 1.99
+suelo_sismo:
+  h_sobrecarga_vehicular_equivalente_m: 0.6
+  qadm_capacidad_portante_kg_cm2: 2.67
+  angulo_friccion_relleno_grados: 30.0
+  delta_muro_suelo_grados: 0.0
+  beta_pendiente_relleno_grados: 0.0
+  theta_cara_posterior_desde_horizontal_grados: 90.0
+  fs_capacidad_portante_nominal: 3.0
+  pga: 0.3
+  fpga: 1.2
+  gamma_eq: 0.5
+  sobrecarga_peatonal_relleno_tn_m2: 0.0

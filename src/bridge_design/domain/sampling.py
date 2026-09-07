@@ -7,6 +7,37 @@ from collections.abc import Sequence
 Sample = tuple[float, float]
 
 
+def envelope_sorted_samples(curves, positions, target, *, tolerance=0.0):
+    """Interpolate each ordered curve in one pass, retaining every output station."""
+    xs = tuple(positions)
+    upper = target == "max"
+    result = [float('-inf') if upper else float('inf')] * len(xs)
+    for samples in curves:
+        if not samples:
+            raise ValueError("No hay muestras disponibles.")
+        right = 1
+        last = len(samples) - 1
+        first_x, first_y = samples[0]
+        last_x, last_y = samples[-1]
+        for index, x in enumerate(xs):
+            if x <= first_x:
+                value = first_y
+            elif x >= last_x:
+                value = last_y
+            else:
+                while right < last and samples[right][0] < x:
+                    right += 1
+                left_x, left_y = samples[right - 1]
+                right_x, right_y = samples[right]
+                delta = right_x - left_x
+                value = left_y if abs(delta) <= tolerance else (
+                    left_y + (x - left_x) / delta * (right_y - left_y)
+                )
+            if (value > result[index]) if upper else (value < result[index]):
+                result[index] = value
+    return tuple(zip(xs, result))
+
+
 def interpolate_sorted_samples(
     samples: Sequence[Sample],
     position: float,

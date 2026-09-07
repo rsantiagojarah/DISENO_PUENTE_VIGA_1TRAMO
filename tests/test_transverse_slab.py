@@ -48,6 +48,25 @@ def test_transverse_slab_rejects_nonunit_design_strip() -> None:
         )
 
 
+@pytest.mark.parametrize("roadway_width, lanes, factor", [(6.0, 2, 1.0), (10.8, 3, 0.85)])
+def test_transverse_solver_evaluates_all_loaded_lanes(roadway_width, lanes, factor):
+    geometry = TransverseSlabGeometry(
+        girder_spacing_m=2.7, overhang_m=0.5, girder_count=5,
+        slab_thickness_m=0.20, girder_total_height_m=1.2, girder_width_m=0.3,
+    )
+    layout = TransverseLoadLayout(
+        asphalt_start_m=0.5, asphalt_end_m=11.3, sidewalk_width_m=0.25,
+        railing_left_m=0.1, barrier_left_m=0.25, barrier_width_m=0.25,
+        vehicle_move_start_m=0.5, vehicle_move_end_m=0.5 + roadway_width, vehicle_step_m=1.0,
+    )
+    result = solve_moving_vehicle_envelope(
+        geometry, _materials(), VehicleLoadModel.mtc_hl93_default(), layout, lanes
+    )
+    assert result.multiple_presence_factor == factor
+    assert result.max_positive_moment_tn_m > 0.0
+    assert result.max_negative_moment_tn_m < 0.0
+
+
 def test_transverse_geometry_supports_and_width() -> None:
     geometry = TransverseSlabGeometry(
         girder_spacing_m=2.10,

@@ -1,4 +1,5 @@
 from dataclasses import replace
+from itertools import product
 
 import pytest
 
@@ -148,6 +149,66 @@ def test_diaphragm_ignores_two_truck_case_when_vehicle_path_is_too_narrow() -> N
     assert analysis.ll_im_two_trucks.critical_vehicle_position_m is None
     assert "no aplicable" in analysis.ll_im_two_trucks.vehicle_configuration
     assert analysis.ll_im_envelope.max_positive_moment_tn_m > 0.0
+
+
+@pytest.mark.parametrize("width", [6.0, 6.05, 6.096, 6.10, 6.3])
+def test_diaphragm_solves_two_lanes_at_narrow_compatible_widths(width):
+    from dataclasses import replace
+    from bridge_design.domain.diaphragm import _solve_moving_vehicle_case
+    layout = replace(_layout(), vehicle_move_start_m=0.825, vehicle_move_end_m=0.825 + width)
+    result = _solve_moving_vehicle_case(
+        _geometry(), _materials(), VehicleLoadModel.mtc_hl93_default(), layout, 2
+    )
+    assert result.max_positive_moment_tn_m > 0
+    assert result.max_negative_moment_tn_m < 0
+    assert result.multiple_presence_factor == 1.0
+
+
+@pytest.mark.parametrize("lane_count", [2, 3, 4])
+def test_independent_lane_superposition_matches_explicit_patterns(lane_count):
+    from dataclasses import replace
+    from bridge_design.domain.diaphragm import (
+        _envelope_vehicle_cases, _solve_diaphragm_case,
+        _sum_independent_lane_envelopes, _vehicle_loads_at_position,
+    )
+    geometry = _geometry()
+    materials = _materials()
+    vehicle = VehicleLoadModel.mtc_hl93_default()
+    lanes = (0.825, 3.975)
+    if lane_count > 2:
+        geometry = replace(geometry, girder_spacing_m=3.6, girder_count=lane_count + 1,
+                           deck_overhang_m=1.0)
+        lanes = tuple(1.0 + 3.6 * i for i in range(lane_count))
+    choices = ((0.610, 0.0), (0.7112, 0.102))
+
+    def solve(origins, shifts):
+        segments, points = _vehicle_loads_at_position(
+            geometry, vehicle, len(origins), origins[0], 0.33, 1.0,
+            lane_positions_m=origins, independent_offsets=shifts,
+        )
+        return _solve_diaphragm_case(geometry, materials, "patron", segments, points)
+
+    independent = _sum_independent_lane_envelopes(tuple(
+        _envelope_vehicle_cases("carril", [solve((x,), (shift,)) for shift in choices], 1.0)
+        for x in lanes
+    ))
+    explicit = _envelope_vehicle_cases(
+        "combinaciones", [solve(lanes, shifts) for shifts in product(choices, repeat=lane_count)], 1.0
+    )
+    from bridge_design.domain.diaphragm import _moment_at_case, _shear_at_case
+    xs = {i * geometry.total_width_m / 1000 for i in range(1001)}
+    xs.update(x for case in (independent, explicit) for x, _ in case.moment_samples_tn_m)
+    xs.update(geometry.support_positions_m)
+    for x in xs:
+        for target in ("min", "max"):
+            assert _moment_at_case(independent, x, target) == pytest.approx(
+                _moment_at_case(explicit, x, target), abs=1e-7
+            )
+            assert _shear_at_case(independent, x, target) == pytest.approx(
+                _shear_at_case(explicit, x, target), abs=1e-7
+            )
+    for field in ("max_positive_moment_tn_m", "max_negative_moment_tn_m", "max_abs_shear_tn"):
+        assert getattr(independent, field) == pytest.approx(getattr(explicit, field), abs=1e-7)
 
 
 def test_diaphragm_vehicle_envelopes_respect_symmetric_two_direction_travel() -> None:
