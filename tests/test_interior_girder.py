@@ -7,6 +7,7 @@ from bridge_design.domain.interior_girder import (
     InteriorGirderGeometry,
     _generate_shear_stirrup_options,
     _nominal_shear_upper_limit_tn,
+    _skin_reinforcement_requirements,
     design_interior_girder_reinforcement,
     solve_interior_girder_design,
     t_beam_flexural_steel_area_cm2,
@@ -121,6 +122,45 @@ def test_t_beam_rejects_incompatible_overreinforced_solution() -> None:
         )
 
 
+def test_skin_reinforcement_uses_mtc_metric_equation_and_spacing_limit() -> None:
+    (
+        required_rate,
+        uncapped_rate,
+        distribution_height,
+        required_total,
+        maximum_total,
+        maximum_spacing,
+    ) = _skin_reinforcement_requirements(
+        extreme_tension_depth_cm=140.0,
+        required_flexural_area_cm2=40.0,
+    )
+
+    assert uncapped_rate == pytest.approx(6.38)
+    assert distribution_height == pytest.approx(0.70)
+    assert maximum_total == pytest.approx(10.0)
+    assert required_total == pytest.approx(4.466)
+    assert required_rate == pytest.approx(6.38)
+    assert maximum_spacing == pytest.approx(1.40 / 6.0)
+
+
+def test_skin_reinforcement_applies_quarter_flexural_steel_cap() -> None:
+    (
+        required_rate,
+        _uncapped_rate,
+        distribution_height,
+        required_total,
+        maximum_total,
+        _maximum_spacing,
+    ) = _skin_reinforcement_requirements(
+        extreme_tension_depth_cm=140.0,
+        required_flexural_area_cm2=8.0,
+    )
+
+    assert maximum_total == pytest.approx(2.0)
+    assert required_total == pytest.approx(maximum_total)
+    assert required_rate == pytest.approx(maximum_total / distribution_height)
+
+
 def test_interior_girder_solves_loads_combinations_and_reinforcement() -> None:
     analysis = solve_interior_girder_design(
         geometry=_geometry(),
@@ -163,6 +203,15 @@ def test_interior_girder_solves_loads_combinations_and_reinforcement() -> None:
     assert reinforcement.main.placement_options.recommended is not None
     assert reinforcement.temperature.required_area_cm2_m_per_face > 0.0
     assert reinforcement.skin.required_area_cm2_m_per_face > 0.0
+    assert reinforcement.skin.uncapped_required_area_cm2_m_per_face == pytest.approx(
+        0.1 * (reinforcement.skin.effective_depth_cm - 76.2)
+    )
+    assert reinforcement.skin.required_total_area_cm2_per_face <= (
+        reinforcement.skin.maximum_total_area_cm2_per_face + 1e-9
+    )
+    assert reinforcement.skin.maximum_spacing_m == pytest.approx(
+        min(reinforcement.skin.effective_depth_cm / 600.0, 0.30)
+    )
 
     crack_review = review_interior_girder_crack_control(
         geometry=_geometry(),

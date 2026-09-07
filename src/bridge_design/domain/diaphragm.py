@@ -37,7 +37,11 @@ from bridge_design.domain.rebar_catalog import (
     SpacingGrid,
     generate_spacing_options,
 )
-from bridge_design.domain.reinforcement import flexural_steel_area_cm2
+from bridge_design.domain.reinforcement import (
+    flexural_steel_area_cm2,
+    mtc_cracking_moment_tn_m,
+    mtc_minimum_flexural_moment_tn_m,
+)
 from bridge_design.domain.transverse_slab import (
     LoadSegment,
     PointLoad,
@@ -714,8 +718,16 @@ def _design_flexural_steel(
     section_width_cm = geometry.thickness_m * 100.0
     effective_depth_cm = geometry.height_m * 100.0 - params.concrete_cover_cm - params.main_bar_diameter_cm / 2.0
     require_positive(effective_depth_cm, f"d {label}")
+    gross_depth_cm = geometry.height_m * 100.0
+    cracking_moment = mtc_cracking_moment_tn_m(
+        section_width_cm * gross_depth_cm**2.0 / 6.0,
+        materials.concrete.compressive_strength_kg_cm2,
+    )
+    minimum_moment = mtc_minimum_flexural_moment_tn_m(
+        abs(row.combined_moment_tn_m), cracking_moment
+    )
     strength_area = flexural_steel_area_cm2(
-        design_moment_tn_m=abs(row.combined_moment_tn_m),
+        design_moment_tn_m=minimum_moment,
         strip_width_cm=section_width_cm,
         effective_depth_cm=effective_depth_cm,
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
@@ -736,7 +748,7 @@ def _design_flexural_steel(
     if selected is not None:
         effective_depth_cm = selected.effective_depth_cm
         strength_area = flexural_steel_area_cm2(
-            design_moment_tn_m=abs(row.combined_moment_tn_m),
+            design_moment_tn_m=minimum_moment,
             strip_width_cm=section_width_cm,
             effective_depth_cm=effective_depth_cm,
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,

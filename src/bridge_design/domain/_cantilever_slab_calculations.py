@@ -25,7 +25,11 @@ from bridge_design.domain.rebar_catalog import (
     SpacingGrid,
     generate_spacing_options,
 )
-from bridge_design.domain.reinforcement import flexural_steel_area_cm2
+from bridge_design.domain.reinforcement import (
+    flexural_steel_area_cm2,
+    mtc_cracking_moment_tn_m,
+    mtc_minimum_flexural_moment_tn_m,
+)
 from bridge_design.domain.transverse_slab import TransverseSlabGeometry
 from bridge_design.validation.input_validators import require_positive
 
@@ -86,8 +90,13 @@ def design_flexural_steel(
     if collision is not None and collision.design_moment_tn_m > strength_moment:
         strength_moment = collision.design_moment_tn_m
         controlling_name = "EVENTO EXTREMO II - colision barrera"
+    cracking_moment = mtc_cracking_moment_tn_m(
+        geometry.strip_length_m * 100.0 * (geometry.slab_thickness_m * 100.0) ** 2.0 / 6.0,
+        materials.concrete.compressive_strength_kg_cm2,
+    )
+    minimum_moment = mtc_minimum_flexural_moment_tn_m(strength_moment, cracking_moment)
     strength_area = flexural_steel_area_cm2(
-        design_moment_tn_m=strength_moment,
+        design_moment_tn_m=minimum_moment,
         strip_width_cm=geometry.strip_length_m * 100.0,
         effective_depth_cm=effective_depth,
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
@@ -96,6 +105,29 @@ def design_flexural_steel(
     ) / geometry.strip_length_m
     minimum_area = minimum_temperature_area_cm2_m(geometry, params)
     required = max(strength_area, minimum_area)
+    spacing_options = generate_spacing_options(
+        "Acero superior voladizo", required, _spacing_grid(params)
+    )
+    selected = spacing_options.recommended
+    if selected is not None:
+        effective_depth = geometry.slab_thickness_m * 100.0 - params.concrete_cover_cm - selected.bar.diameter_cm / 2.0
+        require_positive(effective_depth, "peralte efectivo adoptado")
+        strength_area = flexural_steel_area_cm2(
+            design_moment_tn_m=minimum_moment,
+            strip_width_cm=geometry.strip_length_m * 100.0,
+            effective_depth_cm=effective_depth,
+            concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+            steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+            phi=params.flexural_resistance_factor,
+        ) / geometry.strip_length_m
+        required = max(strength_area, minimum_area)
+        if required > spacing_options.required_area_cm2_m + 1e-9:
+            spacing_options = generate_spacing_options(
+                "Acero superior voladizo", required, _spacing_grid(params)
+            )
+            selected = spacing_options.recommended
+            if selected is not None:
+                effective_depth = geometry.slab_thickness_m * 100.0 - params.concrete_cover_cm - selected.bar.diameter_cm / 2.0
     return CantileverFlexuralSteelDesign(
         controlling_combination_name=controlling_name,
         design_moment_tn_m=strength_moment,
@@ -103,11 +135,7 @@ def design_flexural_steel(
         strength_area_cm2_m=strength_area,
         minimum_area_cm2_m=minimum_area,
         required_area_cm2_m=required,
-        spacing_options=generate_spacing_options(
-            "Acero superior voladizo",
-            required,
-            _spacing_grid(params),
-        ),
+        spacing_options=spacing_options,
         reference=FLEXURAL_STRENGTH_REFERENCE,
     )
 

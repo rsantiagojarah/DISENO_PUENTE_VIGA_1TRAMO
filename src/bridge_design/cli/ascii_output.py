@@ -2209,7 +2209,7 @@ def _format_side_reinforcement_table(
     reinforcement: InteriorGirderReinforcementDesign,
 ) -> list[str]:
     return boxed_table(
-        ("Elemento", "Criterio", "d", "As base", "As req"),
+        ("Elemento", "Criterio", "dl", "As base", "As req"),
         (
             (
                 "Temp. caras laterales",

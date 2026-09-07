@@ -38,6 +38,7 @@ from bridge_design.domain.interior_girder import (
     _concrete_shear_resistance_tn,
     _effective_depth_cm_for_girder,
     _effective_shear_depth_cm,
+    _gross_t_section_properties,
     _generate_shear_stirrup_options,
     _minimum_flexural_area_cm2,
     _minimum_shear_reinforcement_cm2_m,
@@ -51,7 +52,7 @@ from bridge_design.domain.interior_girder import (
     _solve_static_longitudinal_case,
     _spacing_grid,
     _service_steel_stress_kg_cm2,
-    _skin_reinforcement_area_cm2_m_per_face,
+    _skin_reinforcement_requirements,
     _steel_depth_cm,
     _steel_stress_from_moment_kg_cm2,
     _truck_spacing_sets,
@@ -68,6 +69,10 @@ from bridge_design.domain.load_combinations import LoadFactor
 from bridge_design.domain.loads import LiveLoads, VehicleLoadModel
 from bridge_design.domain.materials import MaterialProperties
 from bridge_design.domain.rebar_catalog import SpacingGrid, generate_spacing_options
+from bridge_design.domain.reinforcement import (
+    mtc_cracking_moment_tn_m,
+    mtc_minimum_flexural_moment_tn_m,
+)
 from bridge_design.validation.input_validators import require_non_negative, require_positive
 
 
@@ -407,8 +412,17 @@ def design_exterior_girder_reinforcement(
     flange_width_cm = geometry.tributary_width_m * 100.0
     flange_thickness_cm = geometry.slab_thickness_m * 100.0
     web_width_cm = geometry.web_width_m * 100.0
+    gross_depth_cm = geometry.total_t_section_depth_m * 100.0
+    gross_centroid_cm, gross_inertia_cm4 = _gross_t_section_properties(geometry)
+    cracking_moment = mtc_cracking_moment_tn_m(
+        gross_inertia_cm4 / max(gross_depth_cm - gross_centroid_cm, 1e-9),
+        materials.concrete.compressive_strength_kg_cm2,
+    )
+    minimum_moment = mtc_minimum_flexural_moment_tn_m(
+        abs(strength_row.combined_moment_tn_m), cracking_moment
+    )
     strength_area, neutral_axis = t_beam_flexural_steel_area_cm2(
-        design_moment_tn_m=strength_row.combined_moment_tn_m,
+        design_moment_tn_m=minimum_moment,
         flange_width_cm=flange_width_cm,
         flange_thickness_cm=flange_thickness_cm,
         web_width_cm=web_width_cm,
@@ -435,7 +449,7 @@ def design_exterior_girder_reinforcement(
     adopted_depth_cm = selected.effective_depth_cm if selected is not None else effective_depth_cm
     if selected is not None:
         strength_area, neutral_axis = t_beam_flexural_steel_area_cm2(
-            design_moment_tn_m=strength_row.combined_moment_tn_m,
+            design_moment_tn_m=minimum_moment,
             flange_width_cm=flange_width_cm,
             flange_thickness_cm=flange_thickness_cm,
             web_width_cm=web_width_cm,
@@ -463,7 +477,7 @@ def design_exterior_girder_reinforcement(
             adopted_depth_cm = selected.effective_depth_cm if selected is not None else adopted_depth_cm
         if selected is not None:
             strength_area, neutral_axis = t_beam_flexural_steel_area_cm2(
-                design_moment_tn_m=strength_row.combined_moment_tn_m,
+                design_moment_tn_m=minimum_moment,
                 flange_width_cm=flange_width_cm,
                 flange_thickness_cm=flange_thickness_cm,
                 web_width_cm=web_width_cm,
@@ -482,9 +496,22 @@ def design_exterior_girder_reinforcement(
             required_area = max(strength_area, minimum_area)
     spacing_grid = _spacing_grid(params)
     temperature_required = params.shrinkage_temperature_ratio * 100.0 * web_width_cm / 2.0
-    skin_required = _skin_reinforcement_area_cm2_m_per_face(
-        effective_depth_cm=effective_depth_cm,
-        web_width_cm=web_width_cm,
+    extreme_tension_depth_cm = (
+        gross_depth_cm
+        - params.concrete_cover_cm
+        - (selected.bar_diameter_cm if selected is not None else params.main_bar_diameter_cm) / 2.0
+    )
+    (
+        skin_required,
+        skin_uncapped,
+        skin_distribution_height,
+        skin_required_total,
+        skin_maximum_total,
+        skin_maximum_spacing,
+    ) = _skin_reinforcement_requirements(
+        extreme_tension_depth_cm=extreme_tension_depth_cm,
+        required_flexural_area_cm2=required_area,
+        configured_maximum_spacing_m=params.maximum_skin_spacing_m,
     )
     return InteriorGirderReinforcementDesign(
         main=MainGirderSteelDesign(
@@ -512,16 +539,20 @@ def design_exterior_girder_reinforcement(
             ),
         ),
         skin=SkinLongitudinalSteelDesign(
-            effective_depth_cm=adopted_depth_cm,
+            effective_depth_cm=extreme_tension_depth_cm,
+            distribution_height_m=skin_distribution_height,
+            uncapped_required_area_cm2_m_per_face=skin_uncapped,
+            maximum_total_area_cm2_per_face=skin_maximum_total,
+            required_total_area_cm2_per_face=skin_required_total,
             required_area_cm2_m_per_face=skin_required,
-            maximum_spacing_m=params.maximum_skin_spacing_m,
+            maximum_spacing_m=skin_maximum_spacing,
             spacing_options=generate_spacing_options(
                 "Ask longitudinal exterior por cara",
                 skin_required,
                 SpacingGrid(
                     step_m=params.spacing_step_m,
                     minimum_m=params.minimum_spacing_m,
-                    maximum_m=params.maximum_skin_spacing_m,
+                    maximum_m=skin_maximum_spacing,
                 ),
             ),
         ),

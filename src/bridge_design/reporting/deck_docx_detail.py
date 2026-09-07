@@ -314,26 +314,37 @@ def ll_im_with_g_trace(
 
 
 def skin_steel_trace(skin_design, option_text: str, compliance: str) -> tuple[str, str, str, str, str]:
-    d = skin_design.effective_depth_cm
+    dl = skin_design.effective_depth_cm
     ask = skin_design.required_area_cm2_m_per_face
-    if d > 90.0 and ask > 0.0:
-        bw = ask / (0.0012 * (d - 90.0))
-        ask_check = 0.0012 * bw * (d - 90.0)
+    if dl > 90.0:
         sub_req = (
-            f"d = {d:.2f} cm > 90 cm\n"
-            f"bw = {bw:.2f} cm\n"
-            f"Ask,req = 0.0012·{bw:.2f}·({d:.2f} − 90) = {ask_check:.3f} cm²/m por cara"
+            f"dl = {dl:.2f} cm > 90 cm\n"
+            f"Ask,base = 0.1·({dl:.2f} − 76.2) = "
+            f"{skin_design.uncapped_required_area_cm2_m_per_face:.3f} cm²/m por cara\n"
+            f"hdistrib = dl/2 = {skin_design.distribution_height_m:.3f} m\n"
+            f"Ask,total = min(Ask,base·hdistrib, As/4) = "
+            f"min({skin_design.uncapped_required_area_cm2_m_per_face:.3f}·"
+            f"{skin_design.distribution_height_m:.3f}, "
+            f"{skin_design.maximum_total_area_cm2_per_face:.3f}) = "
+            f"{skin_design.required_total_area_cm2_per_face:.3f} cm² por cara\n"
+            f"Ask,req = Ask,total/hdistrib = {ask:.3f} cm²/m por cara"
         )
     else:
         sub_req = (
-            f"d = {d:.2f} cm ≤ 90 cm\n"
+            f"dl = {dl:.2f} cm ≤ 90 cm\n"
             f"Ask,req = 0 cm²/m\n"
             f"valor reportado Ask,req = {ask:.3f} cm²/m"
         )
-    formula = "Ask,req = 0.0012·bw·(d − 90) si d > 90 cm; 0 en caso contrario  ;  Ask,prov ≥ Ask,req  ;  s ≤ smax"
+    formula = (
+        "Ask,base = 0.1·(dl − 76.2) cm²/m si dl > 90 cm  ;  "
+        "hdistrib = dl/200 m  ;  "
+        "Ask,total = min(Ask,base·hdistrib, (As+Aps)/4)  ;  "
+        "Ask,req = Ask,total/hdistrib  ;  smax = min(dl/6, 300 mm)"
+    )
     legend = (
         "Ask: acero longitudinal por cara del alma (cm²/m de altura); "
-        "bw: ancho de alma (cm); d: peralte efectivo (cm); smax: separación vertical máxima."
+        "dl: distancia a la barra extrema de tracción; As y Aps: acero de tracción "
+        "no pretensado y pretensado; smax: separación vertical máxima."
     )
     substitution = (
         f"{sub_req}\n"

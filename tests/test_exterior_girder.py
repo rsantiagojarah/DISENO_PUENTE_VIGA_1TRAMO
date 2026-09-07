@@ -1,3 +1,5 @@
+import pytest
+
 from bridge_design.domain.exterior_girder import (
     ExteriorGirderGeometry,
     combine_exterior_girder_moments,
@@ -125,6 +127,12 @@ def test_exterior_girder_solves_loads_strength_flexure_and_shear() -> None:
     )
     assert reinforcement.main.required_area_cm2 > 0.0
     assert reinforcement.main.placement_options.recommended is not None
+    assert reinforcement.skin.required_total_area_cm2_per_face <= (
+        reinforcement.skin.maximum_total_area_cm2_per_face + 1e-9
+    )
+    assert reinforcement.skin.maximum_spacing_m == pytest.approx(
+        min(reinforcement.skin.effective_depth_cm / 600.0, 0.30)
+    )
 
     crack = review_exterior_girder_crack_control(
         geometry=_geometry(),

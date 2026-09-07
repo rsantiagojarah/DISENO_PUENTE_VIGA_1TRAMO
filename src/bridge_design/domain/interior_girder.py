@@ -37,6 +37,10 @@ from bridge_design.domain.rebar_catalog import (
     generate_spacing_options,
     reinforcing_bar_by_label,
 )
+from bridge_design.domain.reinforcement import (
+    mtc_cracking_moment_tn_m,
+    mtc_minimum_flexural_moment_tn_m,
+)
 from bridge_design.domain.sampling import interpolate_sorted_samples
 from bridge_design.units.converters import kg_cm2_to_ksi, ksi_to_kg_cm2, kip_to_tn
 from bridge_design.validation.input_validators import require_non_negative, require_positive
@@ -340,6 +344,10 @@ class SkinLongitudinalSteelDesign:
     """Longitudinal skin reinforcement Ask on each side face."""
 
     effective_depth_cm: float
+    distribution_height_m: float
+    uncapped_required_area_cm2_m_per_face: float
+    maximum_total_area_cm2_per_face: float
+    required_total_area_cm2_per_face: float
     required_area_cm2_m_per_face: float
     maximum_spacing_m: float
     spacing_options: ReinforcementCaseOptions
@@ -631,8 +639,16 @@ def design_interior_girder_reinforcement(
     flange_width_cm = geometry.tributary_width_m * 100.0
     flange_thickness_cm = geometry.slab_thickness_m * 100.0
     web_width_cm = geometry.web_width_m * 100.0
+    gross_centroid_cm, gross_inertia_cm4 = _gross_t_section_properties(geometry)
+    cracking_moment = mtc_cracking_moment_tn_m(
+        gross_inertia_cm4 / max(total_depth_cm - gross_centroid_cm, 1e-9),
+        materials.concrete.compressive_strength_kg_cm2,
+    )
+    minimum_moment = mtc_minimum_flexural_moment_tn_m(
+        abs(strength_row.combined_moment_tn_m), cracking_moment
+    )
     strength_area, neutral_axis = t_beam_flexural_steel_area_cm2(
-        design_moment_tn_m=strength_row.combined_moment_tn_m,
+        design_moment_tn_m=minimum_moment,
         flange_width_cm=flange_width_cm,
         flange_thickness_cm=flange_thickness_cm,
         web_width_cm=web_width_cm,
@@ -651,14 +667,14 @@ def design_interior_girder_reinforcement(
     required_area = max(strength_area, minimum_area)
     placement_options = _iterated_main_placement_options(
         "Acero principal longitudinal", required_area, geometry, params,
-        strength_row.combined_moment_tn_m, flange_width_cm, flange_thickness_cm,
+        minimum_moment, flange_width_cm, flange_thickness_cm,
         web_width_cm, materials,
     )
     selected = placement_options.recommended
     adopted_depth_cm = selected.effective_depth_cm if selected is not None else effective_depth_cm
     if selected is not None:
         strength_area, neutral_axis = t_beam_flexural_steel_area_cm2(
-            design_moment_tn_m=strength_row.combined_moment_tn_m,
+            design_moment_tn_m=minimum_moment,
             flange_width_cm=flange_width_cm, flange_thickness_cm=flange_thickness_cm,
             web_width_cm=web_width_cm, effective_depth_cm=adopted_depth_cm,
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
@@ -676,9 +692,22 @@ def design_interior_girder_reinforcement(
     temperature_required = (
         params.shrinkage_temperature_ratio * 100.0 * web_width_cm / 2.0
     )
-    skin_required = _skin_reinforcement_area_cm2_m_per_face(
-        effective_depth_cm=effective_depth_cm,
-        web_width_cm=web_width_cm,
+    extreme_tension_depth_cm = (
+        total_depth_cm
+        - params.concrete_cover_cm
+        - (selected.bar_diameter_cm if selected is not None else params.main_bar_diameter_cm) / 2.0
+    )
+    (
+        skin_required,
+        skin_uncapped,
+        skin_distribution_height,
+        skin_required_total,
+        skin_maximum_total,
+        skin_maximum_spacing,
+    ) = _skin_reinforcement_requirements(
+        extreme_tension_depth_cm=extreme_tension_depth_cm,
+        required_flexural_area_cm2=required_area,
+        configured_maximum_spacing_m=params.maximum_skin_spacing_m,
     )
     return InteriorGirderReinforcementDesign(
         main=MainGirderSteelDesign(
@@ -706,16 +735,20 @@ def design_interior_girder_reinforcement(
             ),
         ),
         skin=SkinLongitudinalSteelDesign(
-            effective_depth_cm=effective_depth_cm,
+            effective_depth_cm=extreme_tension_depth_cm,
+            distribution_height_m=skin_distribution_height,
+            uncapped_required_area_cm2_m_per_face=skin_uncapped,
+            maximum_total_area_cm2_per_face=skin_maximum_total,
+            required_total_area_cm2_per_face=skin_required_total,
             required_area_cm2_m_per_face=skin_required,
-            maximum_spacing_m=params.maximum_skin_spacing_m,
+            maximum_spacing_m=skin_maximum_spacing,
             spacing_options=generate_spacing_options(
                 "Ask longitudinal por cara",
                 skin_required,
                 SpacingGrid(
                     step_m=params.spacing_step_m,
                     minimum_m=params.minimum_spacing_m,
-                    maximum_m=params.maximum_skin_spacing_m,
+                    maximum_m=skin_maximum_spacing,
                 ),
             ),
         ),
@@ -2172,13 +2205,44 @@ def _spacing_grid(parameters: InteriorGirderReinforcementParameters) -> SpacingG
     )
 
 
-def _skin_reinforcement_area_cm2_m_per_face(
-    effective_depth_cm: float,
-    web_width_cm: float,
-) -> float:
-    if effective_depth_cm <= 90.0:
-        return 0.0
-    return 0.0012 * web_width_cm * (effective_depth_cm - 90.0)
+def _skin_reinforcement_requirements(
+    extreme_tension_depth_cm: float,
+    required_flexural_area_cm2: float,
+    configured_maximum_spacing_m: float = 0.30,
+) -> tuple[float, float, float, float, float, float]:
+    """Return MTC 2.9.1.4.4.3 skin steel and spacing requirements per face."""
+    require_positive(extreme_tension_depth_cm, "dl")
+    require_non_negative(required_flexural_area_cm2, "As flexion requerido")
+    require_positive(configured_maximum_spacing_m, "espaciamiento maximo Ask")
+    maximum_total = required_flexural_area_cm2 / 4.0
+    if extreme_tension_depth_cm <= 90.0:
+        return (
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            maximum_total,
+            min(configured_maximum_spacing_m, 0.30),
+        )
+
+    distribution_height_m = extreme_tension_depth_cm / 200.0
+    uncapped_rate = 0.1 * (extreme_tension_depth_cm - 76.2)
+    uncapped_total = uncapped_rate * distribution_height_m
+    required_total = min(uncapped_total, maximum_total)
+    required_rate = required_total / distribution_height_m
+    maximum_spacing = min(
+        configured_maximum_spacing_m,
+        0.30,
+        extreme_tension_depth_cm / 600.0,
+    )
+    return (
+        required_rate,
+        uncapped_rate,
+        distribution_height_m,
+        required_total,
+        maximum_total,
+        maximum_spacing,
+    )
 
 
 def _max_bars_per_layer(

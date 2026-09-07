@@ -33,6 +33,34 @@ from bridge_design.domain.transverse_slab import (
 )
 from bridge_design.validation.input_validators import require_non_negative, require_positive
 
+
+def mtc_cracking_moment_tn_m(
+    section_modulus_cm3: float,
+    concrete_strength_kg_cm2: float,
+    variability_factor: float = 1.10,
+) -> float:
+    """Return Mcr for a nonprestressed normal-weight concrete section.
+
+    This is the nonprestressed, monolithic form of MTC 2.9.1.4.4.2:
+    ``Mcr = gamma * fr * S``, with ``fr = 2.01*sqrt(fc')`` in kgf/cm2.
+    """
+    require_positive(section_modulus_cm3, "modulo resistente")
+    require_positive(concrete_strength_kg_cm2, "f'c")
+    require_positive(variability_factor, "factor de fisuracion")
+    return variability_factor * 2.01 * concrete_strength_kg_cm2**0.5 * section_modulus_cm3 / 100000.0
+
+
+def mtc_minimum_flexural_moment_tn_m(
+    design_moment_tn_m: float,
+    cracking_moment_tn_m: float,
+    multiplier: float = 1.33,
+) -> float:
+    """Return the MTC minimum-strength target ``max(Mu, min(1.33Mu, Mcr))``."""
+    require_non_negative(design_moment_tn_m, "Mu")
+    require_non_negative(cracking_moment_tn_m, "Mcr")
+    require_positive(multiplier, "factor 1.33Mu")
+    return max(design_moment_tn_m, min(multiplier * design_moment_tn_m, cracking_moment_tn_m))
+
 @dataclass(frozen=True)
 class SlabReinforcementParameters:
     """Detailing assumptions used by the slab reinforcement design.
@@ -77,6 +105,9 @@ class FlexuralSteelDesign:
     minimum_area_cm2_m: float
     required_area_cm2_m: float
     spacing_options: ReinforcementCaseOptions | None = None
+    cracking_moment_tn_m: float = 0.0
+    minimum_capacity_moment_tn_m: float = 0.0
+    capacity_minimum_area_cm2_m: float = 0.0
     reference: str = FLEXURAL_STRENGTH_REFERENCE
 
 
@@ -235,14 +266,21 @@ def _design_flexural_steel(
     phi: float,
     params: SlabReinforcementParameters,
 ) -> FlexuralSteelDesign:
+    gross_depth_cm = effective_depth_cm + params.concrete_cover_cm + params.main_bar_diameter_cm / 2.0
+    cracking_moment = mtc_cracking_moment_tn_m(
+        strip_width_cm * gross_depth_cm**2.0 / 6.0,
+        materials.concrete.compressive_strength_kg_cm2,
+    )
+    minimum_moment = mtc_minimum_flexural_moment_tn_m(
+        abs(row.combined_moment_tn_m), cracking_moment
+    )
     strength_area = flexural_steel_area_cm2(
-        design_moment_tn_m=abs(row.combined_moment_tn_m),
+        design_moment_tn_m=minimum_moment,
         strip_width_cm=strip_width_cm,
         effective_depth_cm=effective_depth_cm,
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
         steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=phi,
-        steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
     ) / strip_length_m
     required_area = max(strength_area, minimum_area_cm2_m)
     spacing_options = generate_spacing_options(label, required_area, _spacing_grid(params))
@@ -252,13 +290,12 @@ def _design_flexural_steel(
         adopted_depth_cm = effective_depth_cm + params.main_bar_diameter_cm / 2.0 - selected.bar.diameter_cm / 2.0
         require_positive(adopted_depth_cm, "peralte efectivo adoptado")
         strength_area = flexural_steel_area_cm2(
-            design_moment_tn_m=abs(row.combined_moment_tn_m),
+            design_moment_tn_m=minimum_moment,
             strip_width_cm=strip_width_cm,
             effective_depth_cm=adopted_depth_cm,
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
             steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
             phi=phi,
-            steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
         ) / strip_length_m
         required_area = max(strength_area, minimum_area_cm2_m)
         if required_area > spacing_options.required_area_cm2_m + 1e-9:
@@ -274,6 +311,9 @@ def _design_flexural_steel(
         minimum_area_cm2_m=minimum_area_cm2_m,
         required_area_cm2_m=required_area,
         spacing_options=spacing_options,
+        cracking_moment_tn_m=cracking_moment,
+        minimum_capacity_moment_tn_m=minimum_moment,
+        capacity_minimum_area_cm2_m=strength_area,
     )
 
 

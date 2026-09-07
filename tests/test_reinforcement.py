@@ -26,6 +26,8 @@ from bridge_design.domain.reinforcement import (
     SlabReinforcementParameters,
     design_transverse_slab_reinforcement,
     flexural_steel_area_cm2,
+    mtc_cracking_moment_tn_m,
+    mtc_minimum_flexural_moment_tn_m,
 )
 from bridge_design.domain.transverse_slab import (
     TransverseLoadLayout,
@@ -58,6 +60,17 @@ def test_flexural_steel_area_solves_rectangular_section() -> None:
     )
 
     assert round(steel_area, 3) == 19.986
+
+
+def test_mtc_minimum_flexural_capacity_uses_cracking_moment() -> None:
+    cracking = mtc_cracking_moment_tn_m(
+        section_modulus_cm3=100.0 * 20.0**2 / 6.0,
+        concrete_strength_kg_cm2=280.0,
+    )
+
+    assert cracking == pytest.approx(2.466, abs=0.002)
+    assert mtc_minimum_flexural_moment_tn_m(2.0, cracking) == pytest.approx(cracking)
+    assert mtc_minimum_flexural_moment_tn_m(2.0, 4.0) == pytest.approx(2.66)
 
 
 def test_reinforcing_bar_catalog_contains_project_bars() -> None:
