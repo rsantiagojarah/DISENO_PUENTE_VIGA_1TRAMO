@@ -1,6 +1,6 @@
 """Transverse slab structural model and matrix analysis."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Literal
 
 from bridge_design.codes.mtc_2018 import (
@@ -30,6 +30,7 @@ class TransverseSlabGeometry:
     girder_total_height_m: float
     girder_width_m: float
     strip_length_m: float = 1.0
+    _allow_nonunit_strip: bool = field(default=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         require_positive(self.girder_spacing_m, "S")
@@ -38,6 +39,11 @@ class TransverseSlabGeometry:
         require_positive(self.girder_total_height_m, "altura total de viga")
         require_positive(self.girder_width_m, "ancho de viga")
         require_positive(self.strip_length_m, "ancho longitudinal de analisis")
+        if not self._allow_nonunit_strip and abs(self.strip_length_m - 1.0) > 1e-9:
+            raise ValueError(
+                "La franja longitudinal del tablero debe ser unitaria: "
+                "strip_length_m = 1.00 m."
+            )
         if self.girder_count < 2:
             raise ValueError("El numero de vigas debe ser al menos 2.")
 

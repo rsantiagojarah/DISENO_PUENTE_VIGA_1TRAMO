@@ -109,6 +109,11 @@ class AbutmentGeometryInputs:
                 require_non_negative(value, field_name)
                 continue
             require_positive(value, field_name)
+        if abs(self.strip_width_m - 1.0) > 1e-9:
+            raise ValueError(
+                "La franja longitudinal del estribo debe ser unitaria: "
+                "strip_width_m = 1.00 m."
+            )
         if self.footing_width_m <= self.toe_length_m + self.lower_stem_thickness_m:
             raise ValueError("B debe ser mayor que puntera + espesor inferior del muro.")
         if self.retained_height_m <= self.footing_thickness_m:

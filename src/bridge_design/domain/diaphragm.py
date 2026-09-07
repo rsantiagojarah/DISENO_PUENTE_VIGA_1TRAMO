@@ -879,6 +879,7 @@ def _as_transverse_geometry(geometry: DiaphragmBeamGeometry) -> TransverseSlabGe
         girder_total_height_m=geometry.height_m,
         girder_width_m=geometry.thickness_m,
         strip_length_m=geometry.thickness_m,
+        _allow_nonunit_strip=True,
     )
 
 

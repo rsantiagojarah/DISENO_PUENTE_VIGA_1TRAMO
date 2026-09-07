@@ -16,6 +16,11 @@ from bridge_design.domain.abutment import (
 )
 
 
+def test_abutment_rejects_nonunit_design_strip() -> None:
+    with pytest.raises(ValueError, match="franja longitudinal del estribo debe ser unitaria"):
+        AbutmentGeometryInputs(strip_width_m=2.0)
+
+
 def test_default_abutment_loads_match_reference_workbook() -> None:
     result = solve_abutment_design()
 

@@ -35,6 +35,19 @@ def _materials() -> MaterialProperties:
     )
 
 
+def test_transverse_slab_rejects_nonunit_design_strip() -> None:
+    with pytest.raises(ValueError, match="franja longitudinal del tablero debe ser unitaria"):
+        TransverseSlabGeometry(
+            girder_spacing_m=2.10,
+            overhang_m=0.825,
+            girder_count=4,
+            slab_thickness_m=0.20,
+            girder_total_height_m=1.20,
+            girder_width_m=0.30,
+            strip_length_m=2.0,
+        )
+
+
 def test_transverse_geometry_supports_and_width() -> None:
     geometry = TransverseSlabGeometry(
         girder_spacing_m=2.10,
