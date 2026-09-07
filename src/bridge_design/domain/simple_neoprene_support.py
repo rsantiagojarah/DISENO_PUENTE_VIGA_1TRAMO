@@ -11,17 +11,19 @@ from dataclasses import dataclass
 from math import pi, sqrt
 from typing import Literal
 
-from bridge_design.domain.pep_bearing import (
+from bridge_design.domain.elastomeric_bearing import (
     ALPHA_CONCRETE_PER_C,
     GAMMA_TU_DEFAULT,
     MU_FRICTION_DEFAULT,
-    SIGMA_S_MAX_PEP_KG_CM2,
-    ClimateZone,
-    PepTemperature,
-    pep_grade,
+    ElastomerGrade,
+    TemperatureRange,
 )
 from bridge_design.domain.pep_strain_curves import compressive_strain_from_curve
+from bridge_design.units.converters import ksi_to_kg_cm2
 from bridge_design.validation.input_validators import require_non_negative, require_positive
+
+# AASHTO 14.7.6.3.2 para neopreno simple sin zunchos (0.80 ksi, no 1.25 ksi).
+SIGMA_S_MAX_PEP_KG_CM2 = ksi_to_kg_cm2(0.80)
 
 SimpleSupportType = Literal["FIJO_BARRAS", "MOVIL_PLACAS"]
 
@@ -65,7 +67,7 @@ class SimpleSupportDemands:
     pga: float = 0.0
     fpga: float = 1.0
     span_length_m: float = 15.0
-    temperature: PepTemperature | None = None
+    temperature: TemperatureRange | None = None
     gamma_tu: float = GAMMA_TU_DEFAULT
     alpha_per_c: float = ALPHA_CONCRETE_PER_C
 
@@ -101,7 +103,7 @@ class SimpleSupportDemands:
         return BRAKING_FACTOR_STRENGTH_I * self.h_long_tn
 
     def thermal_delta_cm(self) -> float:
-        temp = self.temperature or PepTemperature.mtc_default("costa")
+        temp = self.temperature or TemperatureRange.mtc_default("costa")
         return (
             self.gamma_tu
             * self.alpha_per_c
@@ -226,7 +228,7 @@ class SimpleSupportResult:
 def design_simple_neoprene_support(inputs: SimpleSupportInputs) -> SimpleSupportResult:
     geom = inputs.geometry
     demands = inputs.demands
-    grade = pep_grade(inputs.hardness)
+    grade = ElastomerGrade.from_hardness(inputs.hardness)
     delta_thermal = demands.thermal_delta_cm()
     checks: list[SupportCheck] = []
 
@@ -514,5 +516,5 @@ def _check(
     )
 
 
-def climate_temperature(zone: str, t_install_c: float) -> PepTemperature:
-    return PepTemperature.mtc_default(zone.lower(), t_install_c)  # type: ignore[arg-type]
+def climate_temperature(zone: str, t_install_c: float) -> TemperatureRange:
+    return TemperatureRange.mtc_default(zone.lower(), t_install_c)  # type: ignore[arg-type]

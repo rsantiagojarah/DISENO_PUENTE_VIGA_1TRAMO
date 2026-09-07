@@ -18,7 +18,7 @@ def format_simple_neoprene_result(result: SimpleSupportResult) -> str:
             f"APOYO {'FIJO PASADORES' if inp.support_type == 'FIJO_BARRAS' else 'MOVIL PLACAS'} - NEOPRENO SIMPLE",
             _W,
         ),
-        "Detalle especifico independiente de diseno-apoyos-PEP.",
+        "Detalle especifico de neopreno simple sin zunchos internos.",
         f"Estado global: {'CONFORME' if result.overall_ok else 'NO CONFORME'}",
         "",
         *audit_subtitle("1", "GEOMETRIA Y DEMANDAS", _W),

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from bridge_design.domain.pep_bearing import SIGMA_S_MAX_PEP_KG_CM2
 from bridge_design.domain.simple_neoprene_support import (
+    SIGMA_S_MAX_PEP_KG_CM2,
     BRAKING_FACTOR_STRENGTH_I,
     PIN_PHI_FLEXURE,
     PIN_PHI_SHEAR,

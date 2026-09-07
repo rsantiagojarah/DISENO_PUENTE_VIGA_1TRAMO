@@ -217,7 +217,7 @@ def _design_basis(document: Document, result: SimpleSupportResult) -> None:
         document,
         "El apoyo consiste en una sola capa de neopreno simple sin zunchos internos de acero. "
         "Las placas o pasadores son elementos externos al espesor h del elastómero. "
-        "El módulo diseno-apoyos-neopreno es independiente de diseno-apoyos-PEP y de "
+        "El módulo diseno-apoyos-neopreno es independiente de "
         "diseno-apoyos (apoyos elastoméricos con zunchos).",
     )
     document.add_heading("1.1 Materiales y parámetros", level=2)
