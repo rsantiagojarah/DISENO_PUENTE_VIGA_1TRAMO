@@ -886,6 +886,7 @@ def design_interior_girder_shear(
         required_av_cm2_m=required_av,
         max_spacing_m=max_spacing,
         legs=params.stirrup_legs,
+        vu_tn=controlling.combined_shear_tn,
         vc_tn=vc,
         nominal_limit_tn=nominal_limit,
         materials=materials,
@@ -1922,6 +1923,7 @@ def _generate_shear_stirrup_options(
     required_av_cm2_m: float,
     max_spacing_m: float,
     legs: int,
+    vu_tn: float,
     vc_tn: float,
     nominal_limit_tn: float,
     materials: MaterialProperties,
@@ -1956,7 +1958,11 @@ def _generate_shear_stirrup_options(
                 required_av_cm2_m=required_av_cm2_m,
                 provided_av_cm2_m=provided,
                 phi_vn_tn=phi_vn,
-                is_compliant=provided + 1e-9 >= required_av_cm2_m and spacing <= max_spacing_m + 1e-9,
+                is_compliant=(
+                    provided + 1e-9 >= required_av_cm2_m
+                    and spacing <= max_spacing_m + 1e-9
+                    and phi_vn + 1e-9 >= vu_tn
+                ),
             )
         )
     recommended = _recommended_shear_option(options)

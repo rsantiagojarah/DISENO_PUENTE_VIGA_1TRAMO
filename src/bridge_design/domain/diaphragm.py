@@ -799,6 +799,7 @@ def _design_diaphragm_shear(
         required_av_cm2_m=required_av,
         max_spacing_m=max_spacing,
         legs=params.stirrup_legs,
+        vu_tn=controlling.combined_shear_tn,
         vc_tn=vc,
         nominal_limit_tn=nominal_limit,
         materials=materials,

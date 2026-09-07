@@ -67,7 +67,7 @@ REF_DISTRIBUTION = (
     "Manual de Puentes MTC 2018, Art. 2.9.1.4.6.3.2."
 )
 REF_SHEAR = (
-    "Manual de Puentes MTC 2018, Art. 2.9.1.5.6."
+    "Manual de Puentes MTC 2018, Art. 2.9.1.5.6.3."
 )
 REF_DEVELOPMENT = (
     "Manual de Puentes MTC 2018, Art. 2.6.5.6.2.1."
@@ -847,20 +847,10 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
     )
     document.add_heading(f"{number}.4 Diseño por cortante", level=2)
     stirrup = selected_option(selected, "D.")
-    phi_vc = shear.phi * shear.vc_tn
     _calc(
         document,
         "Resistencia seccional a cortante",
-        "Vu ≤ φ(Vc + Vs)  ;  Vs,req = max[0; Vu/φ − Vc]",
-        "Vu: cortante factorizado; Vc: aporte del concreto; Vs: aporte de estribos; φ: factor de resistencia.",
-        f"Vu = {shear.controlling_shear.combined_shear_tn:.3f} Tn\n"
-        f"Vc = {shear.vc_tn:.3f} Tn\n"
-        f"φ = {shear.phi:.3f}\n"
-        f"φVc = {phi_vc:.3f} Tn\n"
-        f"Vs,req = {shear.required_vs_tn:.3f} Tn",
-        f"Av,req = {shear.required_av_cm2_m:.3f} cm²/m; Av,min = {shear.minimum_av_cm2_m:.3f} cm²/m; "
-        f"smax = {shear.maximum_spacing_m:.3f} m; se adopta {_option_text(stirrup)}.",
-        _compliance_comment(stirrup, "La sección crítica se toma a una distancia dv desde el apoyo; la disposición adoptada se verifica también contra la resistencia nominal máxima."),
+        *_sectional_shear_calc_fields(shear, stirrup),
         REF_SHEAR,
     )
     document.add_heading(f"{number}.5 Servicio, fisuración y fatiga", level=2)
@@ -1172,14 +1162,7 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
     _calc(
         document,
         "Estribos del diafragma",
-        "Vu ≤ φ(Vc + Vs)  ;  Av,prov ≥ max(Av,req; Av,min)",
-        "Vu: demanda; Vc y Vs: aportes; Av: acero transversal por unidad de longitud.",
-        f"Vu = {reinforcement.shear.controlling_shear.combined_shear_tn:.3f} Tn\n"
-        f"Vc = {reinforcement.shear.vc_tn:.3f} Tn\n"
-        f"Av,req = {reinforcement.shear.required_av_cm2_m:.3f} cm²/m\n"
-        f"Av,min = {reinforcement.shear.minimum_av_cm2_m:.3f} cm²/m",
-        f"Se adopta {_option_text(stirrup)}.",
-        _compliance_comment(stirrup, "El estribado satisface demanda, mínimo y separación máxima."),
+        *_sectional_shear_calc_fields(reinforcement.shear, stirrup),
         REF_SHEAR,
     )
     document.add_heading("7.3 Diagramas de diseño", level=2)
@@ -1766,6 +1749,50 @@ def _moment_row_values(row, *, include_pl: bool):
     values.append(f"{getattr(row, 'pl_moment_tn_m', 0.0):.3f}" if include_pl else "—")
     values.extend((f"{row.ll_im_moment_tn_m:.3f}", f"{row.combined_moment_tn_m:.3f}"))
     return tuple(values)
+
+
+def _sectional_shear_calc_fields(shear, stirrup) -> tuple[str, str, str, str, str]:
+    vu = shear.controlling_shear.combined_shear_tn
+    vn_max = shear.nominal_shear_limit_tn
+    phi_vn_max = shear.phi * vn_max
+    phi_vc = shear.phi * shear.vc_tn
+    limit_ok = phi_vn_max + 1e-9 >= vu
+    limit_status = "CUMPLE" if limit_ok else "NO CUMPLE"
+    comment = (
+        "La sección crítica se toma a una distancia dv desde el apoyo. "
+        "Vu no supera φVn,max, por lo que el alma puede resistir el cortante con la armadura transversal adoptada."
+        if limit_ok
+        else (
+            "Vu supera φVn,max. Aumentar estribos no incrementa la resistencia de la sección; "
+            "debe revisarse el ancho de alma, el peralte o f'c."
+        )
+    )
+    if not limit_ok:
+        option_comment = comment
+    else:
+        option_comment = _compliance_comment(stirrup, comment)
+    return (
+        "Vu ≤ φVn  ;  Vn = min(Vc + Vs; Vn,max)  ;  Vn,max = 0.25 f'c bv dv  ;  Vs,req = max[0; Vu/φ − Vc]",
+        (
+            "Vu: cortante factorizado; Vn: resistencia nominal; Vc: aporte del concreto; "
+            "Vs: aporte de estribos; Vn,max: límite superior del modelo seccional; φ: factor de resistencia."
+        ),
+        (
+            f"Vu = {vu:.3f} Tn\n"
+            f"Vc = {shear.vc_tn:.3f} Tn\n"
+            f"φ = {shear.phi:.3f}\n"
+            f"φVc = {phi_vc:.3f} Tn\n"
+            f"Vs,req = {shear.required_vs_tn:.3f} Tn\n"
+            f"Vn,max = 0.25 f'c bv dv = {vn_max:.3f} Tn\n"
+            f"φVn,max = {shear.phi:.3f}·{vn_max:.3f} = {phi_vn_max:.3f} Tn"
+        ),
+        (
+            f"Vu = {vu:.3f} Tn ≤ φVn,max = {phi_vn_max:.3f} Tn: {limit_status}. "
+            f"Av,req = {shear.required_av_cm2_m:.3f} cm²/m; Av,min = {shear.minimum_av_cm2_m:.3f} cm²/m; "
+            f"smax = {shear.maximum_spacing_m:.3f} m; se adopta {_option_text(stirrup)}."
+        ),
+        option_comment,
+    )
 
 
 def _option_text(option) -> str:

@@ -49,6 +49,9 @@ def test_deck_command_generates_detailed_word_memory_automatically(tmp_path) -> 
     assert "m:oMath" in xml
     assert "m:f" in xml
     assert "Cargas permanentes distribuidas sobre la viga" in xml
+    assert "Vn,max" in xml
+    assert "φVn,max" in xml
+    assert "0.25 f'c bv dv" in xml
     assert "Arial Narrow" in styles
     assert 'w:sz w:val="22"' in styles
     assert 'w:sz w:val="44"' in xml

@@ -597,8 +597,8 @@ def collect_interior_girder_reinforcement_selection(
         ("B. Temperatura caras laterales", reinforcement.temperature.spacing_options),
         ("C. Ask longitudinal por cara", reinforcement.skin.spacing_options),
     )
-    recommended_shear = shear.recommended or shear.options[-1]
     if answer not in ("s", "si", "y", "yes"):
+        recommended_shear = _recommended_shear_option_or_raise(shear)
         selected = []
         for label, case_options in cases:
             recommended = case_options.recommended or case_options.options[-1]
@@ -672,7 +672,11 @@ def _prompt_shear_stirrup_option(
             f"Estribos por corte - elija item [{default_item}] (P=personalizado): "
         ).strip()
         if not raw_value:
-            return valid_items[default_item]
+            option = valid_items[default_item]
+            if option.is_compliant:
+                return option
+            print("La opcion no cumple phiVn >= Vu; seleccione una opcion conforme o personalizada.")
+            continue
         if raw_value.lower() in ("p", "personalizado", "personalizada"):
             return _prompt_custom_shear_stirrup(design)
         try:
@@ -683,7 +687,24 @@ def _prompt_shear_stirrup_option(
         if item not in valid_items:
             print("El item no existe para esta tabla.")
             continue
-        return valid_items[item]
+        option = valid_items[item]
+        if not option.is_compliant:
+            print("La opcion no cumple los requisitos de area, separacion y resistencia al corte.")
+            continue
+        return option
+
+
+def _recommended_shear_option_or_raise(design) -> ShearStirrupOption:
+    recommended = design.recommended
+    if recommended is not None:
+        return recommended
+    demand = design.controlling_shear.combined_shear_tn
+    maximum_resistance = design.phi * design.nominal_shear_limit_tn
+    raise ValueError(
+        "Ninguna opcion de estribos cumple: "
+        f"Vu = {demand:.3f} Tn y resistencia maxima phiVn = {maximum_resistance:.3f} Tn. "
+        "Revise la seccion de concreto."
+    )
 
 
 def _prompt_custom_shear_stirrup(design) -> ShearStirrupOption:
@@ -837,8 +858,8 @@ def collect_diaphragm_reinforcement_selection(
         reinforcement.temperature.spacing_options.recommended
         or reinforcement.temperature.spacing_options.options[-1]
     )
-    recommended_shear = reinforcement.shear.recommended or reinforcement.shear.options[-1]
     if answer not in ("s", "si", "y", "yes"):
+        recommended_shear = _recommended_shear_option_or_raise(reinforcement.shear)
         return (
             ("A. Acero principal negativo diafragma", recommended_negative),
             ("B. Acero principal positivo diafragma", recommended_positive),
@@ -993,8 +1014,8 @@ def collect_exterior_girder_reinforcement_selection(
         reinforcement.skin.spacing_options.recommended
         or reinforcement.skin.spacing_options.options[-1]
     )
-    recommended_shear = shear.recommended or shear.options[-1]
     if answer not in ("s", "si", "y", "yes"):
+        recommended_shear = _recommended_shear_option_or_raise(shear)
         return (
             ("A. Acero principal longitudinal exterior", recommended_main),
             ("B. Temperatura caras laterales exterior", recommended_temperature),

@@ -1,6 +1,12 @@
+import pytest
+
+from bridge_design.cli.ascii_output import _format_shear_section_limit
+from bridge_design.reporting.deck_docx import _sectional_shear_calc_fields
 from bridge_design.domain.interior_girder import (
     DiaphragmGeometry,
     InteriorGirderGeometry,
+    _generate_shear_stirrup_options,
+    _nominal_shear_upper_limit_tn,
     design_interior_girder_reinforcement,
     solve_interior_girder_design,
     t_beam_flexural_steel_area_cm2,
@@ -161,6 +167,69 @@ def test_interior_girder_solves_loads_combinations_and_reinforcement() -> None:
     assert shear.vc_tn > 0.0
     assert shear.required_av_cm2_m >= shear.minimum_av_cm2_m
     assert shear.recommended is not None
+    section_limit = _format_shear_section_limit(shear)
+    assert f"Vn,max={shear.nominal_shear_limit_tn:.3f} Tn" in section_limit
+    assert f"phiVn,max={shear.phi * shear.nominal_shear_limit_tn:.3f} Tn" in section_limit
+    assert "Estado=OK" in section_limit
+    formula, _legend, substitution, result, comment = _sectional_shear_calc_fields(
+        shear,
+        shear.recommended,
+    )
+    assert "Vn,max = 0.25 f'c bv dv" in formula
+    assert f"Vn,max = 0.25 f'c bv dv = {shear.nominal_shear_limit_tn:.3f} Tn" in substitution
+    assert f"φVn,max = {shear.phi:.3f}·{shear.nominal_shear_limit_tn:.3f}" in substitution
+    assert "CUMPLE" in result
+    assert "φVn,max" in comment or "alma" in comment
+
+
+def test_shear_options_reject_demand_above_nominal_section_limit() -> None:
+    materials = _materials()
+    nominal_limit = _nominal_shear_upper_limit_tn(
+        concrete_strength_kg_cm2=280.0,
+        web_width_cm=30.0,
+        effective_shear_depth_cm=120.0,
+    )
+    options = _generate_shear_stirrup_options(
+        required_av_cm2_m=46.17,
+        max_spacing_m=0.30,
+        legs=2,
+        vu_tn=238.14,
+        vc_tn=31.91,
+        nominal_limit_tn=nominal_limit,
+        materials=materials,
+        effective_shear_depth_cm=120.0,
+        phi=0.90,
+    )
+
+    assert nominal_limit == pytest.approx(252.0)
+    assert 0.90 * nominal_limit == pytest.approx(226.8)
+    assert any(option.provided_av_cm2_m >= 46.17 for option in options)
+    assert all(option.phi_vn_tn < 238.14 for option in options)
+    assert not any(option.is_compliant for option in options)
+    assert not any(option.is_recommended for option in options)
+
+
+def test_shear_options_accept_capacity_equal_to_demand() -> None:
+    materials = _materials()
+    nominal_limit = _nominal_shear_upper_limit_tn(
+        concrete_strength_kg_cm2=280.0,
+        web_width_cm=30.0,
+        effective_shear_depth_cm=120.0,
+    )
+    options = _generate_shear_stirrup_options(
+        required_av_cm2_m=46.17,
+        max_spacing_m=0.30,
+        legs=2,
+        vu_tn=0.90 * nominal_limit,
+        vc_tn=31.91,
+        nominal_limit_tn=nominal_limit,
+        materials=materials,
+        effective_shear_depth_cm=120.0,
+        phi=0.90,
+    )
+
+    assert any(option.is_compliant for option in options)
+    assert sum(option.is_recommended for option in options) == 1
 
 
 def test_interior_girder_live_load_envelope_is_symmetric_for_both_vehicle_directions() -> None:

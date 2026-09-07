@@ -910,6 +910,7 @@ def _format_diaphragm_shear_design_lines(shear: InteriorGirderShearDesign) -> li
     )
     lines.extend(
         [
+        _format_shear_section_limit(shear),
         (
             f"Armadura transversal requerida: {'SI' if shear.transverse_required else 'NO'}. "
             f"Av/s minimo={shear.minimum_av_cm2_m:.3f} cm2/m; phi={shear.phi:.2f}."
@@ -2364,6 +2365,7 @@ def _format_shear_design_lines(shear: InteriorGirderShearDesign) -> list[str]:
     )
     lines.extend(
         [
+        _format_shear_section_limit(shear),
         (
             f"Armadura transversal requerida: {'SI' if shear.transverse_required else 'NO'}. "
             f"Av/s minimo={shear.minimum_av_cm2_m:.3f} cm2/m; phi={shear.phi:.2f}."
@@ -2406,6 +2408,7 @@ def _format_exterior_shear_design_lines(
     )
     lines.extend(
         [
+        _format_shear_section_limit(shear),
         (
             f"Factores Resistencia I: DC={row.dc_factor:.2f}, DW={row.dw_factor:.2f}, "
             f"PL={row.pl_factor:.2f}, LL+IM={row.ll_im_factor:.2f}. "
@@ -2415,6 +2418,17 @@ def _format_exterior_shear_design_lines(
     )
     lines.extend(_format_shear_option_table(shear.options))
     return lines
+
+
+def _format_shear_section_limit(shear: InteriorGirderShearDesign) -> str:
+    vu = shear.controlling_shear.combined_shear_tn
+    nominal_limit = shear.nominal_shear_limit_tn
+    factored_limit = shear.phi * nominal_limit
+    status = "OK" if factored_limit + 1e-9 >= vu else "NO CUMPLE"
+    return (
+        f"Limite de la seccion: Vn,max={nominal_limit:.3f} Tn; "
+        f"phiVn,max={factored_limit:.3f} Tn; Vu={vu:.3f} Tn; Estado={status}."
+    )
 
 
 def _format_shear_option_table(options) -> list[str]:
