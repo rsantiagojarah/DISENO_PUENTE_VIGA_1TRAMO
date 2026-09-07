@@ -659,10 +659,10 @@ def test_default_structural_design_matches_reference_workbook() -> None:
 
     assert result.stem_design.strength_limit_mu_tn_m_m == pytest.approx(71.488083, abs=1e-6)
     assert result.stem_design.extreme_limit_mu_tn_m_m == pytest.approx(72.436292, abs=1e-6)
-    assert result.stem_design.strength_limit_as_cm2_m == pytest.approx(23.261471, abs=1e-6)
-    assert result.stem_design.extreme_limit_as_cm2_m == pytest.approx(21.148141, abs=1e-6)
-    assert result.stem_design.controlling_moment_tn_m_m == pytest.approx(71.488083, abs=1e-6)
-    assert result.stem_design.strength_as_cm2_m == pytest.approx(23.261471, abs=1e-6)
+    assert result.stem_design.strength_limit_as_cm2_m == pytest.approx(23.259040, abs=1e-6)
+    assert result.stem_design.extreme_limit_as_cm2_m == pytest.approx(23.578441, abs=1e-6)
+    assert result.stem_design.controlling_moment_tn_m_m == pytest.approx(72.436292, abs=1e-6)
+    assert result.stem_design.strength_as_cm2_m == pytest.approx(23.578441, abs=1e-6)
     assert result.stem_design.selected_bar_label == '3/4"'
     assert result.stem_design.selected_spacing_m == pytest.approx(0.100)
     assert result.stem_design.moment_status == "OK"
@@ -678,18 +678,18 @@ def test_default_structural_design_matches_reference_workbook() -> None:
     assert result.heel_design.shear_beta == pytest.approx(2.0, abs=1e-9)
 
     assert result.heel_design.controlling_moment_tn_m_m == pytest.approx(73.350916, abs=1e-6)
-    assert result.heel_design.strength_as_cm2_m == pytest.approx(19.553577, abs=1e-6)
-    assert result.heel_design.minimum_as_cm2_m == pytest.approx(17.176207, abs=1e-6)
-    assert result.heel_design.required_as_cm2_m == pytest.approx(19.553577, abs=1e-6)
+    assert result.heel_design.strength_as_cm2_m == pytest.approx(19.552185, abs=1e-6)
+    assert result.heel_design.minimum_as_cm2_m == pytest.approx(17.175139, abs=1e-6)
+    assert result.heel_design.required_as_cm2_m == pytest.approx(19.552185, abs=1e-6)
     assert result.heel_design.selected_spacing_m == pytest.approx(0.125)
     assert result.heel_design.shear_demand_tn_m == pytest.approx(47.619108, abs=1e-6)
     assert "Envolvente Resistencia/Evento Extremo" in result.heel_design.notes
     assert "presion triangular/trapezoidal" in result.heel_design.notes
 
     assert result.toe_design.controlling_moment_tn_m_m == pytest.approx(26.422087, abs=1e-6)
-    assert result.toe_design.strength_as_cm2_m == pytest.approx(6.917424, abs=1e-6)
-    assert result.toe_design.minimum_as_cm2_m == pytest.approx(9.225033, abs=1e-6)
-    assert result.toe_design.required_as_cm2_m == pytest.approx(9.225033, abs=1e-6)
+    assert result.toe_design.strength_as_cm2_m == pytest.approx(6.917255, abs=1e-6)
+    assert result.toe_design.minimum_as_cm2_m == pytest.approx(9.224731, abs=1e-6)
+    assert result.toe_design.required_as_cm2_m == pytest.approx(9.224731, abs=1e-6)
     assert result.toe_design.selected_bar_label == '1/2"'
     assert result.toe_design.selected_spacing_m == pytest.approx(0.125)
     assert result.toe_design.shear_demand_tn_m == pytest.approx(4.032242, abs=1e-6)
@@ -702,20 +702,20 @@ def test_default_structural_design_matches_reference_workbook() -> None:
     assert result.key_design.shear_status == "OK"
 
 
-def test_default_stem_rejects_phi_1_capacity_against_strength_i() -> None:
+def test_default_stem_rejects_insufficient_strain_compatible_capacity() -> None:
     from bridge_design.domain.abutment import _moment_resistance_tn_m
 
     result = solve_abutment_design()
     stem = result.stem_design
-    nominal = _moment_resistance_tn_m(
+    resistance = _moment_resistance_tn_m(
         22.72,
         100.0,
         stem.effective_depth_cm,
         result.inputs.materials.concrete_strength_kg_cm2,
         result.inputs.materials.steel_yield_kg_cm2,
-        1.0,
+        0.90,
     )
-    assert 0.90 * nominal < stem.strength_limit_mu_tn_m_m
+    assert resistance < stem.strength_limit_mu_tn_m_m
     assert stem.provided_as_cm2_m > 22.72
 
 

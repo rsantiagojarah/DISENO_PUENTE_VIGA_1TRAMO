@@ -1,5 +1,9 @@
 import pytest
 
+from bridge_design.domain.concrete_flexure import (
+    mtc_flexural_resistance_factor,
+    rectangular_flexural_response,
+)
 from bridge_design.domain.loads import LiveLoads, PedestrianLoad, VehicleLoadModel
 from bridge_design.domain.materials import (
     ConcreteProperties,
@@ -150,6 +154,38 @@ def test_flexural_steel_area_rejects_unreachable_moment() -> None:
             concrete_strength_kg_cm2=280.0,
             steel_yield_kg_cm2=4200.0,
         )
+
+
+def test_flexural_steel_area_rejects_algebraic_but_incompatible_solution() -> None:
+    with pytest.raises(ValueError, match="capacidad compatible"):
+        flexural_steel_area_cm2(
+            design_moment_tn_m=40.0,
+            strip_width_cm=100.0,
+            effective_depth_cm=20.0,
+            concrete_strength_kg_cm2=280.0,
+            steel_yield_kg_cm2=4200.0,
+            phi=0.90,
+        )
+
+
+def test_rectangular_response_does_not_assume_yield_for_deep_neutral_axis() -> None:
+    response = rectangular_flexural_response(
+        steel_area_cm2=84.152876,
+        concrete_width_cm=100.0,
+        effective_depth_cm=20.0,
+        concrete_strength_kg_cm2=280.0,
+        steel_yield_kg_cm2=4200.0,
+    )
+
+    assert response.steel_stress_kg_cm2 < 4200.0
+    assert response.extreme_tensile_strain < 0.002
+    assert response.resistance_factor == pytest.approx(0.75)
+
+
+def test_mtc_phi_interpolates_from_compression_to_tension_control() -> None:
+    assert mtc_flexural_resistance_factor(0.002) == pytest.approx(0.75)
+    assert mtc_flexural_resistance_factor(0.0035) == pytest.approx(0.825)
+    assert mtc_flexural_resistance_factor(0.005) == pytest.approx(0.90)
 
 
 def test_transverse_slab_reinforcement_returns_requested_steel_groups() -> None:

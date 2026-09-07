@@ -107,6 +107,20 @@ def test_t_beam_flexural_area_returns_positive_area() -> None:
     assert neutral_axis > 0.0
 
 
+def test_t_beam_rejects_incompatible_overreinforced_solution() -> None:
+    with pytest.raises(ValueError, match="capacidad compatible"):
+        t_beam_flexural_steel_area_cm2(
+            design_moment_tn_m=40.0,
+            flange_width_cm=100.0,
+            flange_thickness_cm=10.0,
+            web_width_cm=100.0,
+            effective_depth_cm=20.0,
+            concrete_strength_kg_cm2=280.0,
+            steel_yield_kg_cm2=4200.0,
+            phi=0.90,
+        )
+
+
 def test_interior_girder_solves_loads_combinations_and_reinforcement() -> None:
     analysis = solve_interior_girder_design(
         geometry=_geometry(),

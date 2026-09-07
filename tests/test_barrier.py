@@ -44,6 +44,27 @@ def test_rectangular_nominal_moment_returns_barrier_component_strength() -> None
     assert round(moment, 3) == 0.764
 
 
+def test_rectangular_nominal_moment_uses_compatible_steel_stress() -> None:
+    steel_area = 84.152876
+    moment, compression_depth = rectangular_nominal_moment_tn_m(
+        steel_area_cm2=steel_area,
+        effective_depth_cm=20.0,
+        concrete_width_cm=100.0,
+        concrete_strength_kg_cm2=280.0,
+        steel_yield_kg_cm2=4200.0,
+    )
+    yield_assumption_depth = steel_area * 4200.0 / (0.85 * 280.0 * 100.0)
+    yield_assumption_moment = (
+        steel_area
+        * 4200.0
+        * (20.0 - yield_assumption_depth / 2.0)
+        / 100000.0
+    )
+
+    assert compression_depth < yield_assumption_depth
+    assert moment < yield_assumption_moment
+
+
 def test_yield_line_helpers_match_aashto_segment_pattern() -> None:
     lc = critical_yield_line_length_m(
         height_m=0.85,

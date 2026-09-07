@@ -416,6 +416,7 @@ def design_exterior_girder_reinforcement(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
         steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=params.flexural_resistance_factor,
+        steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
     )
     minimum_area = _minimum_flexural_area_cm2(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
@@ -442,6 +443,7 @@ def design_exterior_girder_reinforcement(
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
             steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
             phi=params.flexural_resistance_factor,
+            steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
         )
         minimum_area = _minimum_flexural_area_cm2(
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
@@ -469,6 +471,7 @@ def design_exterior_girder_reinforcement(
                 concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
                 steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
                 phi=params.flexural_resistance_factor,
+                steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
             )
             minimum_area = _minimum_flexural_area_cm2(
                 concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,

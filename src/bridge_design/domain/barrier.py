@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from math import sqrt
 from typing import Literal
 
+from bridge_design.domain.concrete_flexure import (
+    DEFAULT_STEEL_ELASTIC_MODULUS_KG_CM2,
+    rectangular_flexural_response,
+)
 from bridge_design.domain.materials import MaterialProperties
 from bridge_design.validation.input_validators import require_non_negative, require_positive
 
@@ -327,29 +331,32 @@ def rectangular_nominal_moment_tn_m(
     concrete_strength_kg_cm2: float,
     steel_yield_kg_cm2: float,
     phi: float = 1.0,
+    steel_elastic_modulus_kg_cm2: float = DEFAULT_STEEL_ELASTIC_MODULUS_KG_CM2,
+    extreme_tension_depth_cm: float | None = None,
 ) -> tuple[float, float]:
-    """Return (phi*Mn, a) for a singly reinforced rectangular section."""
+    """Return compatible (phi*Mn, a) for a singly reinforced section."""
     require_positive(steel_area_cm2, "As")
     require_positive(effective_depth_cm, "d")
     require_positive(concrete_width_cm, "b")
     require_positive(concrete_strength_kg_cm2, "f'c")
     require_positive(steel_yield_kg_cm2, "fy")
     require_positive(phi, "phi")
+    require_positive(steel_elastic_modulus_kg_cm2, "Es")
     if phi > 1.0:
         raise ValueError("phi no debe exceder 1.0.")
-    compression_block_depth = steel_area_cm2 * steel_yield_kg_cm2 / (
-        0.85 * concrete_strength_kg_cm2 * concrete_width_cm
+    response = rectangular_flexural_response(
+        steel_area_cm2=steel_area_cm2,
+        concrete_width_cm=concrete_width_cm,
+        effective_depth_cm=effective_depth_cm,
+        concrete_strength_kg_cm2=concrete_strength_kg_cm2,
+        steel_yield_kg_cm2=steel_yield_kg_cm2,
+        steel_elastic_modulus_kg_cm2=steel_elastic_modulus_kg_cm2,
+        extreme_tension_depth_cm=extreme_tension_depth_cm,
     )
-    if compression_block_depth / 2.0 >= effective_depth_cm:
-        raise ValueError("El bloque de compresion excede el peralte efectivo disponible.")
-    moment_tn_m = (
-        phi
-        * steel_area_cm2
-        * steel_yield_kg_cm2
-        * (effective_depth_cm - compression_block_depth / 2.0)
-        / 100000.0
+    return (
+        phi * response.nominal_moment_tn_m,
+        response.compression_block_depth_cm,
     )
-    return moment_tn_m, compression_block_depth
 
 
 def critical_yield_line_length_m(
@@ -406,6 +413,7 @@ def _barrier_flexural_resistance(
 ) -> BarrierFlexuralResistance:
     fc = materials.concrete.compressive_strength_kg_cm2
     fy = materials.steel.yield_strength_kg_cm2
+    es = materials.steel.elastic_modulus_kg_cm2
     mw_components = tuple(
         _component_moment(
             segment.label,
@@ -414,6 +422,7 @@ def _barrier_flexural_resistance(
             segment.average_effective_depth_cm,
             fc,
             fy,
+            es,
         )
         for segment in inputs.section_model.mw_segments
     )
@@ -426,6 +435,7 @@ def _barrier_flexural_resistance(
             segment.effective_depth_cm,
             fc,
             fy,
+            es,
         )
         for segment in inputs.section_model.mc_segments
     )
@@ -450,6 +460,7 @@ def _component_moment(
     effective_depth_cm: float,
     fc_kg_cm2: float,
     fy_kg_cm2: float,
+    es_kg_cm2: float,
 ) -> BarrierFlexuralComponent:
     moment, compression_depth = rectangular_nominal_moment_tn_m(
         steel_area_cm2=steel_area_cm2,
@@ -458,6 +469,7 @@ def _component_moment(
         concrete_strength_kg_cm2=fc_kg_cm2,
         steel_yield_kg_cm2=fy_kg_cm2,
         phi=1.0,
+        steel_elastic_modulus_kg_cm2=es_kg_cm2,
     )
     return BarrierFlexuralComponent(
         label=label,

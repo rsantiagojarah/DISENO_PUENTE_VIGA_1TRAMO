@@ -14,6 +14,10 @@ from bridge_design.domain.load_combinations import (
     CombinedMomentResult,
     combine_transverse_slab_moments,
 )
+from bridge_design.domain.concrete_flexure import (
+    DEFAULT_STEEL_ELASTIC_MODULUS_KG_CM2,
+    required_rectangular_steel_area_cm2,
+)
 from bridge_design.domain.materials import MaterialProperties
 from bridge_design.domain.rebar_catalog import (
     DEFAULT_MAX_SPACING_M,
@@ -191,8 +195,10 @@ def flexural_steel_area_cm2(
     concrete_strength_kg_cm2: float,
     steel_yield_kg_cm2: float,
     phi: float = DEFAULT_FLEXURAL_RESISTANCE_FACTOR,
+    steel_elastic_modulus_kg_cm2: float = DEFAULT_STEEL_ELASTIC_MODULUS_KG_CM2,
+    extreme_tension_depth_cm: float | None = None,
 ) -> float:
-    """Return required singly reinforced rectangular steel area.
+    """Return strain-compatible singly reinforced rectangular steel area.
 
     Units:
         design_moment_tn_m: factored moment in Tn*m.
@@ -202,31 +208,19 @@ def flexural_steel_area_cm2(
 
     Reference:
         Manual de Puentes MTC 2018, Seccion 2.9.4.2 (5.7.3 AASHTO):
-        phi*Mn >= Mu, with Mn = As*fy*(d - a/2).
+        MTC 2.7.1.1.4.2a and 2.7.2.4.2.1:
+        equilibrium, strain compatibility and strain-dependent phi.
     """
-    require_non_negative(design_moment_tn_m, "Mu")
-    require_positive(strip_width_cm, "b")
-    require_positive(effective_depth_cm, "d")
-    require_positive(concrete_strength_kg_cm2, "f'c")
-    require_positive(steel_yield_kg_cm2, "fy")
-    require_positive(phi, "phi")
-    if phi > 1.0:
-        raise ValueError("phi no debe exceder 1.0.")
-    if design_moment_tn_m == 0.0:
-        return 0.0
-
-    mu_kg_cm = design_moment_tn_m * 100000.0
-    quadratic_a = steel_yield_kg_cm2**2.0 / (
-        2.0 * 0.85 * concrete_strength_kg_cm2 * strip_width_cm
+    return required_rectangular_steel_area_cm2(
+        design_moment_tn_m=design_moment_tn_m,
+        concrete_width_cm=strip_width_cm,
+        effective_depth_cm=effective_depth_cm,
+        concrete_strength_kg_cm2=concrete_strength_kg_cm2,
+        steel_yield_kg_cm2=steel_yield_kg_cm2,
+        phi_limit=phi,
+        steel_elastic_modulus_kg_cm2=steel_elastic_modulus_kg_cm2,
+        extreme_tension_depth_cm=extreme_tension_depth_cm,
     )
-    quadratic_b = steel_yield_kg_cm2 * effective_depth_cm
-    discriminant = quadratic_b**2.0 - 4.0 * quadratic_a * mu_kg_cm / phi
-    if discriminant < 0.0:
-        raise ValueError(
-            "El momento ultimo excede la capacidad de una seccion rectangular "
-            "simplemente reforzada con la profundidad efectiva disponible."
-        )
-    return (quadratic_b - discriminant**0.5) / (2.0 * quadratic_a)
 
 
 def _design_flexural_steel(
@@ -248,6 +242,7 @@ def _design_flexural_steel(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
         steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=phi,
+        steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
     ) / strip_length_m
     required_area = max(strength_area, minimum_area_cm2_m)
     spacing_options = generate_spacing_options(label, required_area, _spacing_grid(params))
@@ -263,6 +258,7 @@ def _design_flexural_steel(
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
             steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
             phi=phi,
+            steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
         ) / strip_length_m
         required_area = max(strength_area, minimum_area_cm2_m)
         if required_area > spacing_options.required_area_cm2_m + 1e-9:

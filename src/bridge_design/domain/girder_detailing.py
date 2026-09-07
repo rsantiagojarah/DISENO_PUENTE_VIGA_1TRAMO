@@ -234,6 +234,7 @@ def _girder_envelope(
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
             steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
             phi=reinforcement.parameters.flexural_resistance_factor,
+            steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
         )
         required_area = max(flexural_area, minimum_area)
         required_count = ceil(required_area / main_bar.bar_area_cm2)

@@ -32,7 +32,7 @@ def test_abutment_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "Límite de excentricidad" in xml
     assert "Origen de Mu y Vu" in xml
     assert "As,R" in xml
-    assert "φ=0.90" in xml
+    assert "φ(εt)" in xml
     assert "2.7.1.1.4.2a" in xml
     assert "Resultantes factorizadas" in xml
     assert "Verificación al deslizamiento" in xml

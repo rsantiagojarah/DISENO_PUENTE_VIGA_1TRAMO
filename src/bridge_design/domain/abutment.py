@@ -12,6 +12,10 @@ from bridge_design.codes.mtc_2018 import (
     THICK_MEMBER_SPACING_THRESHOLD_CM,
     mtc_tension_development_length_cm,
 )
+from bridge_design.domain.concrete_flexure import (
+    rectangular_flexural_response,
+    required_rectangular_steel_area_cm2,
+)
 from bridge_design.domain.crack_control import maximum_crack_control_spacing_m
 from bridge_design.domain.rebar_catalog import (
     ReinforcementCaseOptions,
@@ -1742,8 +1746,8 @@ def _structural_design(
             stem_temperature_as,
             selected_reinforcement.get("Pantalla"),
             notes=(
-                "As = max(As Resistencia I con φ=0.90, As Evento Extremo con φ=1.00); "
-                "cada estado se verifica con su propio factor de resistencia."
+                "As = max(As Resistencia I, As Evento Extremo); cada estado se "
+                "verifica con φ limitado por la deformación neta de tracción."
             ),
             shear_method="general",
             limit_states=stem_limit_states,
@@ -1896,15 +1900,14 @@ def _reinforced_case(
         selected_bar = selected_option.bar
         selected_spacing = selected_option.spacing_m
         provided_as = selected_option.provided_area_cm2_m
-    nominal_resistance = _moment_resistance_tn_m(
+    moment_resistance = _moment_resistance_tn_m(
         provided_as,
         100.0,
         effective_depth_cm,
         inputs.materials.concrete_strength_kg_cm2,
         inputs.materials.steel_yield_kg_cm2,
-        1.0,
+        governing_phi,
     )
-    moment_resistance = governing_phi * nominal_resistance
     required_moment = max(governing_mu, minimum_moment)
     if moment_capacity_multiplier > 1.0:
         required_moment = max(required_moment, moment_capacity_multiplier * abs(mu_tn_m))
@@ -1914,15 +1917,14 @@ def _reinforced_case(
         ):
             selected_spacing = round(selected_spacing - grid.step_m, 3)
             provided_as = selected_bar.area_cm2 / selected_spacing
-            nominal_resistance = _moment_resistance_tn_m(
+            moment_resistance = _moment_resistance_tn_m(
                 provided_as,
                 100.0,
                 effective_depth_cm,
                 inputs.materials.concrete_strength_kg_cm2,
                 inputs.materials.steel_yield_kg_cm2,
-                1.0,
+                governing_phi,
             )
-            moment_resistance = governing_phi * nominal_resistance
     state_status: dict[str, tuple[str, float, float]] = {}
     all_states_ok = True
     for label, state_mu, state_phi, _as_state in flexural_as_by_state:
@@ -1937,7 +1939,14 @@ def _reinforced_case(
         state_required = max(state_mu, state_minimum_moment)
         if moment_capacity_multiplier > 1.0 and abs(state_mu - abs(mu_tn_m)) <= 1e-12:
             state_required = max(state_required, moment_capacity_multiplier * abs(mu_tn_m))
-        state_resistance = state_phi * nominal_resistance
+        state_resistance = _moment_resistance_tn_m(
+            provided_as,
+            100.0,
+            effective_depth_cm,
+            inputs.materials.concrete_strength_kg_cm2,
+            inputs.materials.steel_yield_kg_cm2,
+            state_phi,
+        )
         ok = state_resistance + 1e-9 >= state_required
         state_status[label] = ("OK" if ok else "NO", state_resistance, state_mu)
         all_states_ok = all_states_ok and ok
@@ -2537,14 +2546,6 @@ def _stem_provided_steel_satisfies_limit_states(
         # Compatibilidad: un solo momento se verifica con ambos φ.
         strength_mu = abs(moments)
         extreme_mu = abs(moments)
-    nominal = _moment_resistance_tn_m(
-        provided_as_cm2_m,
-        100.0,
-        effective_depth_cm,
-        inputs.materials.concrete_strength_kg_cm2,
-        inputs.materials.steel_yield_kg_cm2,
-        1.0,
-    )
     thickness_cm = (
         effective_depth_cm
         + inputs.reinforcement.stem_cover_cm
@@ -2559,8 +2560,26 @@ def _stem_provided_steel_satisfies_limit_states(
         _minimum_flexural_capacity_moment_tn_m(extreme_mu, thickness_cm, inputs),
     )
     return (
-        inputs.reinforcement.flexural_phi * nominal + 1e-9 >= strength_required
-        and inputs.reinforcement.stem_design_phi_for_as * nominal + 1e-9 >= extreme_required
+        _moment_resistance_tn_m(
+            provided_as_cm2_m,
+            100.0,
+            effective_depth_cm,
+            inputs.materials.concrete_strength_kg_cm2,
+            inputs.materials.steel_yield_kg_cm2,
+            inputs.reinforcement.flexural_phi,
+        )
+        + 1e-9
+        >= strength_required
+        and _moment_resistance_tn_m(
+            provided_as_cm2_m,
+            100.0,
+            effective_depth_cm,
+            inputs.materials.concrete_strength_kg_cm2,
+            inputs.materials.steel_yield_kg_cm2,
+            inputs.reinforcement.stem_design_phi_for_as,
+        )
+        + 1e-9
+        >= extreme_required
     )
 
 
@@ -3228,16 +3247,15 @@ def _flexural_steel_area_workbook_cm2_m(
     steel_yield_kg_cm2: float,
     phi: float,
 ) -> float:
-    if mu_tn_m == 0.0:
-        return 0.0
-    term = 1.0 - 4.0 * 0.59 * mu_tn_m * 100000.0 / (
-        phi * concrete_strength_kg_cm2 * width_cm * effective_depth_cm**2.0
+    return required_rectangular_steel_area_cm2(
+        design_moment_tn_m=mu_tn_m,
+        concrete_width_cm=width_cm,
+        effective_depth_cm=effective_depth_cm,
+        concrete_strength_kg_cm2=concrete_strength_kg_cm2,
+        steel_yield_kg_cm2=steel_yield_kg_cm2,
+        phi_limit=phi,
+        steel_elastic_modulus_kg_cm2=STEEL_ELASTIC_MODULUS_KG_CM2,
     )
-    if term < 0.0:
-        raise ValueError("El momento excede la capacidad de la seccion con el peralte disponible.")
-    omega = (1.0 - sqrt(term)) / (2.0 * 0.59)
-    rho = omega * concrete_strength_kg_cm2 / steel_yield_kg_cm2
-    return width_cm * effective_depth_cm * rho
 
 
 def _moment_resistance_tn_m(
@@ -3248,8 +3266,15 @@ def _moment_resistance_tn_m(
     steel_yield_kg_cm2: float,
     phi: float,
 ) -> float:
-    a_cm = provided_as_cm2_m * steel_yield_kg_cm2 / (0.85 * concrete_strength_kg_cm2 * width_cm)
-    return phi * steel_yield_kg_cm2 * provided_as_cm2_m * (effective_depth_cm - a_cm / 2.0) / 100000.0
+    response = rectangular_flexural_response(
+        steel_area_cm2=provided_as_cm2_m,
+        concrete_width_cm=width_cm,
+        effective_depth_cm=effective_depth_cm,
+        concrete_strength_kg_cm2=concrete_strength_kg_cm2,
+        steel_yield_kg_cm2=steel_yield_kg_cm2,
+        steel_elastic_modulus_kg_cm2=STEEL_ELASTIC_MODULUS_KG_CM2,
+    )
+    return min(phi, response.resistance_factor) * response.nominal_moment_tn_m
 
 
 def _bar_by_label(label: str):

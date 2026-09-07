@@ -16,6 +16,12 @@ from bridge_design.codes.mtc_2018 import (
     mtc_interior_concrete_t_girder_live_load_distribution_factor,
     mtc_interior_concrete_t_girder_live_load_shear_distribution_factor,
 )
+from bridge_design.domain.concrete_flexure import (
+    CONCRETE_ULTIMATE_STRAIN,
+    DEFAULT_STEEL_ELASTIC_MODULUS_KG_CM2,
+    mtc_beta1,
+    mtc_flexural_resistance_factor,
+)
 from bridge_design.domain.crack_control import CrackControlCheck, maximum_crack_control_spacing_m
 from bridge_design.domain.load_combinations import LoadFactor
 from bridge_design.domain.loads import LiveLoads, VehicleLoadModel
@@ -634,6 +640,7 @@ def design_interior_girder_reinforcement(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
         steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=params.flexural_resistance_factor,
+        steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
     )
     minimum_area = _minimum_flexural_area_cm2(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
@@ -657,6 +664,7 @@ def design_interior_girder_reinforcement(
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
             steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
             phi=params.flexural_resistance_factor,
+            steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
         )
         minimum_area = _minimum_flexural_area_cm2(
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
@@ -1014,8 +1022,10 @@ def t_beam_flexural_steel_area_cm2(
     concrete_strength_kg_cm2: float,
     steel_yield_kg_cm2: float,
     phi: float = DEFAULT_FLEXURAL_RESISTANCE_FACTOR,
+    steel_elastic_modulus_kg_cm2: float = DEFAULT_STEEL_ELASTIC_MODULUS_KG_CM2,
+    extreme_tension_depth_cm: float | None = None,
 ) -> tuple[float, float]:
-    """Return required steel area and compression block depth for a T beam."""
+    """Return strain-compatible required As and block depth for a T beam."""
     require_non_negative(design_moment_tn_m, "Mu")
     require_positive(flange_width_cm, "bf")
     require_positive(flange_thickness_cm, "hf")
@@ -1024,39 +1034,82 @@ def t_beam_flexural_steel_area_cm2(
     require_positive(concrete_strength_kg_cm2, "f'c")
     require_positive(steel_yield_kg_cm2, "fy")
     require_positive(phi, "phi")
+    require_positive(steel_elastic_modulus_kg_cm2, "Es")
+    if phi > 1.0:
+        raise ValueError("phi no debe exceder 1.0.")
     if design_moment_tn_m == 0.0:
         return 0.0, 0.0
-    target_moment_kg_cm = design_moment_tn_m * 100000.0 / phi
+    tension_depth = (
+        effective_depth_cm
+        if extreme_tension_depth_cm is None
+        else extreme_tension_depth_cm
+    )
+    require_positive(tension_depth, "dt")
+    if tension_depth < effective_depth_cm:
+        raise ValueError("dt no debe ser menor que ds.")
+    beta1 = mtc_beta1(concrete_strength_kg_cm2)
 
-    def nominal_moment_for_a(a_cm: float) -> float:
+    def state_at_c(c_cm: float) -> tuple[float, float, float]:
+        a_cm = beta1 * c_cm
         flange_depth = min(a_cm, flange_thickness_cm)
         flange_width_extra = max(flange_width_cm - web_width_cm, 0.0)
         c_web = 0.85 * concrete_strength_kg_cm2 * web_width_cm * a_cm
         c_flange = 0.85 * concrete_strength_kg_cm2 * flange_width_extra * flange_depth
-        return (
+        compression = c_web + c_flange
+        steel_strain = CONCRETE_ULTIMATE_STRAIN * (
+            effective_depth_cm - c_cm
+        ) / c_cm
+        steel_stress = min(
+            steel_yield_kg_cm2,
+            max(steel_elastic_modulus_kg_cm2 * steel_strain, 0.0),
+        )
+        steel_area = compression / steel_stress if steel_stress > 0.0 else float("inf")
+        nominal_moment_kg_cm = (
             c_web * (effective_depth_cm - a_cm / 2.0)
             + c_flange * (effective_depth_cm - flange_depth / 2.0)
         )
-
-    upper = min(effective_depth_cm, 3.0 * flange_thickness_cm + effective_depth_cm)
-    if nominal_moment_for_a(upper) < target_moment_kg_cm:
-        raise ValueError(
-            "El momento ultimo excede la capacidad de la seccion T simplemente reforzada."
+        extreme_strain = max(
+            CONCRETE_ULTIMATE_STRAIN * (tension_depth - c_cm) / c_cm,
+            0.0,
         )
-    lower = 0.0
+        effective_phi = min(
+            phi,
+            mtc_flexural_resistance_factor(extreme_strain),
+        )
+        return steel_area, effective_phi * nominal_moment_kg_cm / 100000.0, a_cm
+
+    previous_c = 0.0
+    previous_resistance = 0.0
+    bracket: tuple[float, float] | None = None
+    maximum_resistance = previous_resistance
+    for index in range(1, 2001):
+        current_c = effective_depth_cm * index / 2001.0
+        _area, current_resistance, _a = state_at_c(current_c)
+        maximum_resistance = max(maximum_resistance, current_resistance)
+        if (
+            previous_resistance < design_moment_tn_m
+            <= current_resistance
+        ):
+            bracket = (previous_c, current_c)
+            break
+        previous_c = current_c
+        previous_resistance = current_resistance
+    if bracket is None:
+        raise ValueError(
+            "El momento ultimo excede la capacidad compatible de la seccion T "
+            f"simplemente reforzada (maximo aproximado {maximum_resistance:.3f} Tn.m)."
+        )
+
+    lower, upper = bracket
     for _ in range(80):
         mid = (lower + upper) / 2.0
-        if nominal_moment_for_a(mid) < target_moment_kg_cm:
+        _area, resistance, _a = state_at_c(mid)
+        if resistance < design_moment_tn_m:
             lower = mid
         else:
             upper = mid
-    a_cm = (lower + upper) / 2.0
-    flange_depth = min(a_cm, flange_thickness_cm)
-    compression = (
-        0.85 * concrete_strength_kg_cm2 * web_width_cm * a_cm
-        + 0.85 * concrete_strength_kg_cm2 * max(flange_width_cm - web_width_cm, 0.0) * flange_depth
-    )
-    return compression / steel_yield_kg_cm2, a_cm
+    steel_area, _resistance, a_cm = state_at_c((lower + upper) / 2.0)
+    return steel_area, a_cm
 
 
 def generate_main_bar_placement_options(
@@ -1782,6 +1835,7 @@ def _iterated_main_placement_options(
             moment_tn_m, flange_width_cm, flange_thickness_cm, web_width_cm, d,
             materials.concrete.compressive_strength_kg_cm2,
             materials.steel.yield_strength_kg_cm2, parameters.flexural_resistance_factor,
+            materials.steel.elastic_modulus_kg_cm2,
         )
         minimum = _minimum_flexural_area_cm2(
             materials.concrete.compressive_strength_kg_cm2,

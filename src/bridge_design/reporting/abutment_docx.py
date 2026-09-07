@@ -803,7 +803,7 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
         _calc(
             document,
             "Acero por resistencia a flexión",
-            "As,R = As(Mu,R; φ=0.90) ; As,E = As(Mu,E; φ=1.00) ; As,flex = max(As,R, As,E)",
+            "As,R = As(Mu,R; φ(εt)) ; As,E = As(Mu,E; φ(εt)) ; As,flex = max(As,R, As,E)",
             "Mu,R: momento de Resistencia I; Mu,E: momento de Evento Extremo; φ: factor de resistencia del estado; As,flex: acero gobernante.",
             f"Mu,R = {case.strength_limit_mu_tn_m_m:.3f} Tn·m/m; φ,R = {data.reinforcement.flexural_phi:.2f}; As,R = {case.strength_limit_as_cm2_m:.3f} cm²/m\n"
             f"Mu,E = {case.extreme_limit_mu_tn_m_m:.3f} Tn·m/m; φ,E = {data.reinforcement.stem_design_phi_for_as:.2f}; As,E = {case.extreme_limit_as_cm2_m:.3f} cm²/m\n"

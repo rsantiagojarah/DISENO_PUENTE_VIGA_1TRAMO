@@ -530,7 +530,7 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
         legend = (
             "MLS, MEH, MEQ, MPIR: momentos en la base de pantalla; "
             "Mu,E-A y Mu,E-B: combinaciones MTC Art. 2.8.1.1.14.1; "
-            "As = max(As,R con φ=0.90, As,E con φ=1.00). "
+            "As = max(As,R, As,E), ambas con φ(εt). "
             "El muro no incorpora acciones del tablero."
         )
         substitution = (
@@ -548,7 +548,7 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
         comment = (
             "El Evento Extremo de pantalla envuelve las dos combinaciones MTC PAE/PIR "
             "sin acciones de superestructura; el PIR usa la masa de concreto sobre zapata. "
-            "Resistencia I se dimensiona con φ=0.90 y Evento Extremo con φ=1.00."
+            "Resistencia I y Evento Extremo se dimensionan con φ(εt), entre 0.75 y 0.90."
         )
     else:
         formula = (
@@ -560,7 +560,7 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
         legend = (
             "MLS, MEH, MEQ, MPIR, MPEQ, MBR: momentos en la base de pantalla; "
             "Mu,E-A y Mu,E-B: combinaciones MTC Art. 2.8.1.1.14.1; "
-            "As = max(As,R con φ=0.90, As,E con φ=1.00)."
+            "As = max(As,R, As,E), ambas con φ(εt)."
         )
         substitution = (
             f"Hp = {height:.3f} m; Ka = {ka:.5f}; kAE = {k_ae:.5f}\n"
@@ -577,7 +577,7 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
         comment = (
             "El Evento Extremo de pantalla envuelve las dos combinaciones MTC PAE/PIR; "
             "el PIR de pantalla usa la masa de concreto sobre zapata. "
-            "Resistencia I se dimensiona con φ=0.90 y Evento Extremo con φ=1.00."
+            "Resistencia I y Evento Extremo se dimensionan con φ(εt), entre 0.75 y 0.90."
         )
     result_text = (
         f"Para pantalla gobierna {controlling} por acero requerido, con Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m "
@@ -906,9 +906,9 @@ def stem_cut_theoretical_height_trace(
     bar = _bar_by_label(cut.lower_bar_label)
     cover = result.inputs.reinforcement.stem_cover_cm
     formula = (
-        "As,req(h) = max(As,R(h; φ=0.90), As,E(h; φ=1.00), As,min) ; "
+        "As,req(h) = max(As,R(h; φ(εt)), As,E(h; φ(εt)), As,min) ; "
         "d(h) = t(h) − rec − db/2 ; "
-        "Mr,R(h) = 0.90·Mn ; Mr,E(h) = 1.00·Mn ; "
+        "Mr,R(h) = φ(εt)·Mn ; Mr,E(h) = φ(εt)·Mn ; "
         "ht = min{h | Mr,R ≥ Mu,R, Mr,E ≥ Mu,E y As,sup ≥ As,req(h)}"
     )
     legend = (

@@ -744,8 +744,8 @@ def _format_structural_procedure(result: AbutmentDesignResult) -> list[str]:
                     (
                         (case.name, "Mu R-I", "Resistencia I, phi=0.90", f"{case.strength_limit_mu_tn_m_m:.3f} Tn*m/m"),
                         (case.name, "As R-I", "acero con phi=0.90", f"{case.strength_limit_as_cm2_m:.3f} cm2/m"),
-                        (case.name, "Mu EE", "Evento Extremo, phi=1.00", f"{case.extreme_limit_mu_tn_m_m:.3f} Tn*m/m"),
-                        (case.name, "As EE", "acero con phi=1.00", f"{case.extreme_limit_as_cm2_m:.3f} cm2/m"),
+                        (case.name, "Mu EE", "Evento Extremo, phi(epsilon_t)", f"{case.extreme_limit_mu_tn_m_m:.3f} Tn*m/m"),
+                        (case.name, "As EE", "acero con phi(epsilon_t)", f"{case.extreme_limit_as_cm2_m:.3f} cm2/m"),
                     )
                     if case.strength_limit_mu_tn_m_m
                     else ()
@@ -1081,7 +1081,7 @@ def _format_structural_design(
                             ("Mr Resistencia I", f"{case.strength_moment_resistance_tn_m_m:.3f} Tn*m/m"),
                             ("Estado Resistencia I", case.strength_moment_status),
                             ("Mu Evento Extremo", f"{case.extreme_limit_mu_tn_m_m:.3f} Tn*m/m"),
-                            ("As Evento Extremo (phi=1.00)", f"{case.extreme_limit_as_cm2_m:.3f} cm2/m"),
+                            ("As Evento Extremo (phi(epsilon_t))", f"{case.extreme_limit_as_cm2_m:.3f} cm2/m"),
                             ("Mr Evento Extremo", f"{case.extreme_moment_resistance_tn_m_m:.3f} Tn*m/m"),
                             ("Estado Evento Extremo", case.extreme_moment_status),
                         )),
