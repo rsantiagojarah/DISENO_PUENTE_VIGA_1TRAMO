@@ -459,9 +459,16 @@ def _movable_plate_checks(
             "H_pad <= mu*R_DC",
             f"{h_pad:.3f} <= {friction:.3f}",
             h_pad,
-            max(friction, h_pad),
+            friction,
             "Tn",
-            notes="Si H_pad supera friccion, se requiere detalle de guia/anclaje no incluido en MOVIL_PLACAS.",
+            notes=(
+                "H_pad queda cubierta por friccion mu*R_DC."
+                if h_pad <= friction + 1e-9
+                else (
+                    "H_pad supera la friccion. MOVIL_PLACAS no disena guia/anclaje; "
+                    "la verificacion falla hasta existir un mecanismo de transferencia."
+                )
+            ),
         ),
         _check(
             "Espesor planchas superior/inferior",

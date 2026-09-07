@@ -45,8 +45,11 @@ def test_movable_plate_support_matches_steel_plate_detail():
 
     result = design_simple_neoprene_support(inputs)
     report = format_simple_neoprene_result(result)
+    friction_check = next(check for check in result.checks if check.name == "Friccion disponible")
 
     assert result.overall_ok
+    assert friction_check.limit == result.friction_capacity_tn
+    assert friction_check.status == "OK"
     assert result.delta_thermal_cm > 0.0
     assert "MOVIL PLACAS" in report
     assert "Plancha superior" in report
@@ -57,6 +60,26 @@ def test_movable_plate_support_matches_steel_plate_detail():
     assert "14.06" in report
     assert "PROCEDIMIENTO PASO A PASO" in report
     assert "H_pad movil" in report
+
+
+def test_movable_plate_support_fails_when_friction_cannot_hold_h_pad():
+    inputs = SimpleSupportInputs(
+        support_type="MOVIL_PLACAS",
+        geometry=SimpleNeopreneGeometry(60.0, 40.0, 5.0),
+        demands=SimpleSupportDemands(20.0, 0.0, 0.0, 0.0, span_length_m=30.0),
+        plates=ExternalSteelPlatePair(),
+    )
+
+    result = design_simple_neoprene_support(inputs)
+    friction_check = next(check for check in result.checks if check.name == "Friccion disponible")
+
+    assert abs(result.h_pad_tn - 5.24786688) < 1e-6
+    assert result.friction_capacity_tn == 4.0
+    assert friction_check.demand == result.h_pad_tn
+    assert friction_check.limit == result.friction_capacity_tn
+    assert friction_check.status == "NO"
+    assert not result.overall_ok
+    assert "mecanismo de transferencia" in friction_check.notes
 
 
 def test_fixed_pin_support_uses_pin_interaction_only():
