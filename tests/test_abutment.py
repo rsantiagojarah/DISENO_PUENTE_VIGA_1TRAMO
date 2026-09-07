@@ -216,6 +216,66 @@ def test_gamma_eq_zero_uses_central_third_and_drops_live_seismic_factors() -> No
     assert extreme.eccentricity_limit_m == pytest.approx(b / 6.0)
 
 
+@pytest.mark.parametrize(
+    "pll,ppl,br,h_ls,q_ped,is_wall,expected_with,expected_without",
+    [
+        (9.494, 0.0, 0.0, 0.0, 0.0, False, 0.5, 0.0),
+        (0.0, 0.0, 0.0, 0.6, 0.0, False, 0.5, 0.5),
+        (0.0, 0.0, 0.0, 0.0, 0.0, False, 0.0, 0.0),
+        (0.0, 1.0, 0.0, 0.0, 0.0, False, 0.5, 0.0),
+        (0.0, 0.0, 1.0, 0.0, 0.0, False, 0.5, 0.0),
+        (0.0, 0.0, 0.0, 0.0, 0.2, False, 0.5, 0.5),
+        (9.494, 1.0, 1.0, 0.0, 0.0, True, 0.0, 0.0),
+        (0.0, 0.0, 0.0, 0.6, 0.0, True, 0.5, 0.5),
+    ],
+)
+def test_seismic_gamma_eq_uses_concurrent_loads_by_scenario(
+    pll, ppl, br, h_ls, q_ped, is_wall, expected_with, expected_without,
+) -> None:
+    from bridge_design.domain.abutment import _stability_states_for_width_recommendation
+    from bridge_design.reporting.abutment_docx_detail import factors_for_state
+
+    inputs = AbutmentInputs(
+        loads=AbutmentLoadInputs(pll_im_tn_m=pll, ppl_tn_m=ppl, braking_tn_m=br),
+        soil=AbutmentSoilInputs(vehicular_surcharge_height_m=h_ls, pedestrian_surcharge_tn_m2=q_ped),
+        is_pure_wall=is_wall,
+    )
+    result = solve_abutment_design(inputs)
+    b = inputs.geometry.footing_width_m
+    for states, expected in (
+        (result.extreme_seismic_with_bridge, expected_with),
+        (result.extreme_seismic_without_bridge, expected_without),
+    ):
+        for state in states:
+            assert state.effective_gamma_eq == expected
+            assert state.eccentricity_limit_m == pytest.approx(b * (1 / 6 + expected * (0.4 - 1 / 6)))
+            factors = factors_for_state(result, state)
+            assert (factors.ll, factors.ls_vertical, factors.ls_horizontal, factors.br) == (expected,) * 4
+            assert factors.eq == 1.0
+    for label, state in _stability_states_for_width_recommendation(inputs):
+        if state.effective_gamma_eq is not None:
+            expected = expected_with if label.startswith("CON PUENTE") else expected_without
+            assert state.effective_gamma_eq == expected
+
+
+def test_seismic_report_distinguishes_configured_and_effective_gamma_eq() -> None:
+    from bridge_design.cli.abutment_ascii_output import format_abutment_design_result
+    from bridge_design.reporting.abutment_docx_detail import eccentricity_limit_trace
+
+    result = solve_abutment_design(AbutmentInputs(
+        gamma_eq=0.75,
+        soil=AbutmentSoilInputs(vehicular_surcharge_height_m=0.0),
+    ))
+    assert result.with_bridge[2].effective_gamma_eq == 0.75
+    assert result.without_bridge[2].effective_gamma_eq == 0.0
+    report = format_abutment_design_result(result)
+    assert "gamma_EQ=0.75" in report
+    assert "gamma_EQ=0.00" in report
+    substitution = eccentricity_limit_trace(result, result.without_bridge[2])[2]
+    assert "0.00" in substitution
+    assert "0.75" not in substitution
+
+
 def test_abutment_stability_report_includes_qmin_and_central_third_limit() -> None:
     from bridge_design.cli.abutment_ascii_output import format_abutment_design_result
 

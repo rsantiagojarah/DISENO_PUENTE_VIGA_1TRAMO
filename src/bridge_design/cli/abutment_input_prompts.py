@@ -223,7 +223,7 @@ def _collect_soil(
 def _prompt_gamma_eq(default: float) -> float:
     while True:
         value = prompt_non_negative_float(
-            "gamma_EQ factor de carga viva con sismo (0 a 1; 0=sin viva, 1=viva completa)",
+            "gamma_EQ con carga viva concurrente (0 a 1; sin carga viva se aplica 0 automaticamente)",
             "-",
             default,
         )

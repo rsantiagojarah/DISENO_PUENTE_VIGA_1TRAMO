@@ -390,6 +390,7 @@ class StabilityStateResult:
     key_resistance_tn_m: float | None = None
     sliding_with_key_status: str | None = None
     seismic_papir_combination: str | None = None
+    effective_gamma_eq: float | None = None
 
 
 @dataclass(frozen=True)
@@ -1576,6 +1577,14 @@ def _stability_state(
     seismic_papir_combination: str | None = None,
     state_name: str | None = None,
 ) -> StabilityStateResult:
+    if factors.limit_state == "extreme":
+        # MTC 2.4.5.3.1-1 / 2.8.1.1.14.1: use the live loads of this scenario.
+        has_live_load = any(
+            component.load_type in {"LL", "LS", "BR"} and component.value_tn_m > 0.0
+            for component in vertical + horizontal
+        )
+        if not has_live_load:
+            factors = replace(factors, ll=0.0, ls_vertical=0.0, ls_horizontal=0.0, br=0.0)
     factor_map = {
         "DC": factors.dc,
         "DW": factors.dw,
@@ -1645,6 +1654,7 @@ def _stability_state(
         key_resistance_tn_m=key_resistance if key is not None else None,
         sliding_with_key_status=("OK" if key_resistance >= hu else "NO") if key is not None else None,
         seismic_papir_combination=seismic_papir_combination,
+        effective_gamma_eq=factors.ll if factors.limit_state == "extreme" else None,
     )
 
 

@@ -10,6 +10,7 @@ from bridge_design.domain.abutment import (
     LoadComponent,
     StabilityStateResult,
     StructuralDesignCase,
+    abutment_load_factors,
 )
 from bridge_design.domain.rebar_catalog import ReinforcementCaseOptions, ReinforcementSpacingOption
 
@@ -48,7 +49,7 @@ def format_abutment_design_result(
 
     if not result.inputs.is_pure_wall:
         lines.extend(_format_section_title("ESTRIBO SIN PUENTE"))
-        lines.extend(_format_factors("ESTADOS LIMITES APLICABLES Y COMBINACIONES DE CARGA - ESTRIBO SIN PUENTE", result))
+        lines.extend(_format_factors("ESTADOS LIMITES APLICABLES Y COMBINACIONES DE CARGA - ESTRIBO SIN PUENTE", result, with_bridge=False))
         lines.extend(_format_contact_criteria())
         lines.extend(_format_stability(
             "CHEQUEO DE ESTABILIDAD Y ESFUERZOS - " + secondary_stability_title,
@@ -614,7 +615,7 @@ def _format_soil_pressure_procedure(result: AbutmentDesignResult) -> list[str]:
         ("LS peatonal horizontal", "Ka * qpeat * H", f"{p.ka:.4f}*{soil.pedestrian_surcharge_tn_m2:.3f}*{g.retained_height_m:.3f}", f"{p.pedestrian_lsx_tn_m:.3f} Tn/m"),
         ("EH terreno", "0.5 * Ka * gamma * H^2", f"0.5*{p.ka:.4f}*{gamma:.3f}*{g.retained_height_m:.3f}^2", f"{p.eh_tn_m:.3f} Tn/m"),
         ("As", "Fpga * PGA", f"{soil.fpga:.3f}*{soil.pga:.3f}", f"{as_coeff:.4f}"),
-        ("gamma_EQ", "factor de carga viva con sismo", f"{data.gamma_eq:.2f}", f"{data.gamma_eq:.2f}"),
+        ("gamma_EQ", "valor de proyecto si hay carga viva concurrente", f"{data.gamma_eq:.2f}", f"{data.gamma_eq:.2f}"),
         ("kh", "0.5 * As", f"0.5*{as_coeff:.4f}", f"{kh:.4f}"),
         ("kAE", "Mononobe-Okabe", f"angulo sismico={p.seismic_angle_deg:.3f} grados", f"{p.k_ae:.4f}"),
         ("PAE", "0.5 * kAE * gamma * H^2", f"0.5*{p.k_ae:.4f}*{gamma:.3f}*{g.retained_height_m:.3f}^2", f"{p.pae_tn_m:.3f} Tn/m"),
@@ -802,7 +803,10 @@ def _format_pressures(result: AbutmentDesignResult) -> list[str]:
     ]
 
 
-def _format_factors(title: str, result: AbutmentDesignResult) -> list[str]:
+def _format_factors(title: str, result: AbutmentDesignResult, *, with_bridge: bool = True) -> list[str]:
+    states = result.with_bridge if with_bridge else result.without_bridge
+    gamma_eq = states[2].effective_gamma_eq
+    factors = abutment_load_factors(gamma_eq if gamma_eq is not None else result.inputs.gamma_eq)
     return [
         "",
         *boxed_table(
@@ -820,7 +824,7 @@ def _format_factors(title: str, result: AbutmentDesignResult) -> list[str]:
                     f"{factor.eq:.2f}",
                     f"{factor.br:.2f}",
                 )
-                for factor in result.load_factors
+                for factor in factors
             ),
             aligns=("left", "right", "right", "right", "right", "right", "right", "right", "right", "right"),
             title=title,
@@ -869,7 +873,7 @@ def _eccentricity_limit_formula(
 ) -> str:
     if "Extremo" in state.name:
         return (
-            f"B*[1/6+gamma_EQ*(0.4-1/6)]; gamma_EQ={result.inputs.gamma_eq:.2f}; "
+            f"B*[1/6+gamma_EQ*(0.4-1/6)]; gamma_EQ={state.effective_gamma_eq:.2f}; "
             f"B={footing_width_m:.3f}"
         )
     if "Servicio" in state.name:

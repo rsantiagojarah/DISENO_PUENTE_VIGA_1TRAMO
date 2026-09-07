@@ -30,6 +30,7 @@ from bridge_design.domain.abutment import (
     _stem_design_demands,
     _stem_temperature_result,
     _upper_concrete_weight_and_arm,
+    abutment_load_factors,
     equivalent_vehicular_surcharge_height_m,
 )
 from bridge_design.domain.rebar_catalog import REINFORCING_BAR_CATALOG
@@ -52,6 +53,8 @@ def _factor_for_type(factors: LoadFactors, load_type: str, *, horizontal: bool) 
 
 
 def factors_for_state(result: AbutmentDesignResult, state: StabilityStateResult) -> LoadFactors:
+    if state.effective_gamma_eq is not None:
+        return abutment_load_factors(state.effective_gamma_eq)[2]
     for factors in result.load_factors:
         if factors.name == state.name:
             return factors
@@ -405,7 +408,7 @@ def eccentricity_limit_trace(
         )
         comment = "MTC 2.8.1.1.12 / AASHTO 11.6.3: contacto completo de servicio."
     elif factors.limit_state == "extreme":
-        gamma_eq = result.inputs.gamma_eq
+        gamma_eq = factors.ll
         formula = "e_lím = B·[1/6 + γEQ·(0.40 − 1/6)]"
         legend = (
             "e_lím: excentricidad máxima sísmica; B: ancho de zapata; "

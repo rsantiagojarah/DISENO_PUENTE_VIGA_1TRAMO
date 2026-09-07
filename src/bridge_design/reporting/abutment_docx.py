@@ -335,7 +335,7 @@ def _design_basis(
             ("Ángulo de la cara posterior", "θ", f"{data.soil.wall_backface_angle_deg:.2f}°"),
             ("Presión admisible", "qadm", f"{data.soil.allowable_bearing_kg_cm2:.3f} kg/cm²"),
             ("PGA y factor Fpga", "PGA; Fpga", f"{data.soil.pga:.3f}; {data.soil.fpga:.3f}"),
-            ("γEQ carga viva con sismo", "γEQ", f"{data.gamma_eq:.2f}"),
+            ("γEQ de proyecto con carga viva", "γEQ", f"{data.gamma_eq:.2f}"),
         ),
         widths=(78, 30, 59),
     )
@@ -562,6 +562,7 @@ def _stability(
     document.add_heading("4. Combinaciones y estabilidad", level=1)
     _body(document, labels.stability_intro)
     document.add_heading("4.1 Factores LRFD", level=2)
+    _body(document, "Factores de proyecto. En Evento Extremo I se aplica γEQ = 0 cuando el escenario no tiene carga viva concurrente.")
     _table(
         document,
         ("Estado", "DC", "DW", "EV", "LL", "LSv", "LSh", "EH", "EQ", "BR"),
@@ -577,6 +578,13 @@ def _stability(
         widths=(44, 13.6, 13.6, 13.6, 13.6, 13.6, 13.6, 13.6, 13.6, 13.6),
     )
     _comment(document, "Los factores se aplican a cada componente antes de sumar fuerzas y momentos. No se combinan máximos provenientes de estados incompatibles.")
+    seismic_groups = (
+        (("Muro puro", result.without_bridge),)
+        if result.inputs.is_pure_wall
+        else (("Con puente", result.with_bridge), ("Sin puente", result.without_bridge))
+    )
+    for label, states in seismic_groups:
+        _body(document, f"{label}: γEQ efectivo = {states[2].effective_gamma_eq:.2f}.")
     if result.inputs.is_pure_wall:
         document.add_heading("4.2 Estabilidad del muro", level=2)
         for state in result.without_bridge + result.service_without_bridge:
