@@ -729,6 +729,34 @@ def _design_flexural_steel(
         effective_depth_cm=effective_depth_cm,
     )
     required_area = max(strength_area, minimum_area)
+    placement_options = generate_main_bar_placement_options(
+        label, required_area, geometry, params, maximum_bar_count=16
+    )
+    selected = placement_options.recommended
+    if selected is not None:
+        effective_depth_cm = selected.effective_depth_cm
+        strength_area = flexural_steel_area_cm2(
+            design_moment_tn_m=abs(row.combined_moment_tn_m),
+            strip_width_cm=section_width_cm,
+            effective_depth_cm=effective_depth_cm,
+            concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+            steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+            phi=params.flexural_resistance_factor,
+        )
+        minimum_area = _minimum_flexural_area_cm2(
+            materials.concrete.compressive_strength_kg_cm2,
+            materials.steel.yield_strength_kg_cm2,
+            section_width_cm,
+            effective_depth_cm,
+        )
+        required_area = max(strength_area, minimum_area)
+        if required_area > placement_options.required_area_cm2 + 1e-9:
+            placement_options = generate_main_bar_placement_options(
+                label, required_area, geometry, params, maximum_bar_count=16
+            )
+            selected = placement_options.recommended
+            if selected is not None:
+                effective_depth_cm = selected.effective_depth_cm
     return DiaphragmFlexuralSteelDesign(
         label=label,
         direction=direction,
@@ -740,13 +768,7 @@ def _design_flexural_steel(
         strength_area_cm2=strength_area,
         minimum_area_cm2=minimum_area,
         required_area_cm2=required_area,
-        placement_options=generate_main_bar_placement_options(
-            label,
-            required_area,
-            geometry,
-            params,
-            maximum_bar_count=16,
-        ),
+        placement_options=placement_options,
     )
 
 

@@ -31,7 +31,11 @@ from bridge_design.validation.input_validators import require_non_negative, requ
 
 @dataclass(frozen=True)
 class SlabReinforcementParameters:
-    """Detailing assumptions used by the slab reinforcement design."""
+    """Detailing assumptions used by the slab reinforcement design.
+
+    The cover is measured to the outside of the single modeled main-bar layer;
+    the adopted bar diameter is included in the centroid used for ``d``.
+    """
 
     concrete_cover_cm: float = 5.0
     main_bar_diameter_cm: float = 1.59
@@ -245,21 +249,35 @@ def _design_flexural_steel(
         steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=phi,
     ) / strip_length_m
+    required_area = max(strength_area, minimum_area_cm2_m)
+    spacing_options = generate_spacing_options(label, required_area, _spacing_grid(params))
+    selected = spacing_options.recommended
+    adopted_depth_cm = effective_depth_cm
+    if selected is not None:
+        adopted_depth_cm = effective_depth_cm + params.main_bar_diameter_cm / 2.0 - selected.bar.diameter_cm / 2.0
+        require_positive(adopted_depth_cm, "peralte efectivo adoptado")
+        strength_area = flexural_steel_area_cm2(
+            design_moment_tn_m=abs(row.combined_moment_tn_m),
+            strip_width_cm=strip_width_cm,
+            effective_depth_cm=adopted_depth_cm,
+            concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+            steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+            phi=phi,
+        ) / strip_length_m
+        required_area = max(strength_area, minimum_area_cm2_m)
+        if required_area > spacing_options.required_area_cm2_m + 1e-9:
+            spacing_options = generate_spacing_options(label, required_area, _spacing_grid(params))
     return FlexuralSteelDesign(
         label=label,
         direction=direction,
         controlling_combination_name=row.combination_name,
         position_m=row.position_m,
         design_moment_tn_m=abs(row.combined_moment_tn_m),
-        effective_depth_cm=effective_depth_cm,
+        effective_depth_cm=adopted_depth_cm,
         strength_area_cm2_m=strength_area,
         minimum_area_cm2_m=minimum_area_cm2_m,
-        required_area_cm2_m=max(strength_area, minimum_area_cm2_m),
-        spacing_options=generate_spacing_options(
-            label,
-            max(strength_area, minimum_area_cm2_m),
-            _spacing_grid(params),
-        ),
+        required_area_cm2_m=required_area,
+        spacing_options=spacing_options,
     )
 
 

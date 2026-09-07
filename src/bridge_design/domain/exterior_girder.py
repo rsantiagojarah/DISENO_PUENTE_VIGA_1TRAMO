@@ -430,6 +430,53 @@ def design_exterior_girder_reinforcement(
         geometry=geometry,
         parameters=params,
     )
+    selected = placement_options.recommended
+    adopted_depth_cm = selected.effective_depth_cm if selected is not None else effective_depth_cm
+    if selected is not None:
+        strength_area, neutral_axis = t_beam_flexural_steel_area_cm2(
+            design_moment_tn_m=strength_row.combined_moment_tn_m,
+            flange_width_cm=flange_width_cm,
+            flange_thickness_cm=flange_thickness_cm,
+            web_width_cm=web_width_cm,
+            effective_depth_cm=adopted_depth_cm,
+            concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+            steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+            phi=params.flexural_resistance_factor,
+        )
+        minimum_area = _minimum_flexural_area_cm2(
+            concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+            steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+            web_width_cm=web_width_cm,
+            effective_depth_cm=adopted_depth_cm,
+        )
+        required_area = max(strength_area, minimum_area)
+        if required_area > placement_options.required_area_cm2 + 1e-9:
+            params, placement_options = _main_placement_options_with_required_layers(
+                label="Acero principal longitudinal exterior",
+                required_area_cm2=required_area,
+                geometry=geometry,
+                parameters=params,
+            )
+            selected = placement_options.recommended
+            adopted_depth_cm = selected.effective_depth_cm if selected is not None else adopted_depth_cm
+        if selected is not None:
+            strength_area, neutral_axis = t_beam_flexural_steel_area_cm2(
+                design_moment_tn_m=strength_row.combined_moment_tn_m,
+                flange_width_cm=flange_width_cm,
+                flange_thickness_cm=flange_thickness_cm,
+                web_width_cm=web_width_cm,
+                effective_depth_cm=adopted_depth_cm,
+                concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+                steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+                phi=params.flexural_resistance_factor,
+            )
+            minimum_area = _minimum_flexural_area_cm2(
+                concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+                steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+                web_width_cm=web_width_cm,
+                effective_depth_cm=adopted_depth_cm,
+            )
+            required_area = max(strength_area, minimum_area)
     spacing_grid = _spacing_grid(params)
     temperature_required = params.shrinkage_temperature_ratio * 100.0 * web_width_cm / 2.0
     skin_required = _skin_reinforcement_area_cm2_m_per_face(
@@ -441,7 +488,7 @@ def design_exterior_girder_reinforcement(
             controlling_combination_name=strength_row.combination_name,
             position_m=strength_row.position_m,
             design_moment_tn_m=strength_row.combined_moment_tn_m,
-            effective_depth_cm=effective_depth_cm,
+            effective_depth_cm=adopted_depth_cm,
             flange_width_cm=flange_width_cm,
             flange_thickness_cm=flange_thickness_cm,
             web_width_cm=web_width_cm,
@@ -462,7 +509,7 @@ def design_exterior_girder_reinforcement(
             ),
         ),
         skin=SkinLongitudinalSteelDesign(
-            effective_depth_cm=effective_depth_cm,
+            effective_depth_cm=adopted_depth_cm,
             required_area_cm2_m_per_face=skin_required,
             maximum_spacing_m=params.maximum_skin_spacing_m,
             spacing_options=generate_spacing_options(

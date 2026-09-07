@@ -15,6 +15,8 @@ from bridge_design.domain.interior_girder import (
     design_interior_girder_shear,
     review_interior_girder_fatigue,
     verify_interior_girder_service_stresses,
+    generate_main_bar_placement_options,
+    InteriorGirderReinforcementParameters,
 )
 from bridge_design.domain.loads import LiveLoads, PedestrianLoad, VehicleLoadModel
 from bridge_design.domain.materials import (
@@ -55,6 +57,23 @@ def _geometry() -> InteriorGirderGeometry:
         ),
         moving_load_step_m=0.50,
         moment_sample_step_m=0.50,
+    )
+
+
+def test_multilayer_main_bar_option_uses_actual_centroid_and_effective_depth() -> None:
+    geometry = _geometry()
+    params = InteriorGirderReinforcementParameters(maximum_main_bar_layers=4)
+    options = generate_main_bar_placement_options(
+        "Acero principal", 45.0, geometry, params, maximum_bar_count=16
+    )
+    one_layer = next(option for option in options.options if option.bar_count == 4 and option.layers == 1)
+    two_layers = next(option for option in options.options if option.bar_count == 8 and option.layers == 2)
+
+    assert two_layers.steel_centroid_from_tension_face_cm > one_layer.steel_centroid_from_tension_face_cm
+    assert two_layers.effective_depth_cm < one_layer.effective_depth_cm
+    assert two_layers.effective_depth_cm == pytest.approx(
+        geometry.total_t_section_depth_m * 100.0
+        - two_layers.steel_centroid_from_tension_face_cm
     )
 
 

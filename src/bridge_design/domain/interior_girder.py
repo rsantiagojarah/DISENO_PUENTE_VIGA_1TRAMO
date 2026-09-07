@@ -226,6 +226,8 @@ class LongitudinalBarPlacementOption:
     is_compliant: bool
     is_recommended: bool = False
     is_custom: bool = False
+    steel_centroid_from_tension_face_cm: float = 0.0
+    effective_depth_cm: float = 0.0
 
     @property
     def excess_percent(self) -> float:
@@ -254,7 +256,12 @@ class LongitudinalPlacementCaseOptions:
 
 @dataclass(frozen=True)
 class InteriorGirderReinforcementParameters:
-    """Detailing assumptions used for interior girder reinforcement."""
+    """Detailing assumptions used for interior girder reinforcement.
+
+    ``concrete_cover_cm`` is the clear distance from the tension face to the
+    outside of the modeled main-bar layer.  The calculated steel centroid then
+    adds half the bar diameter and the clear separation between layers.
+    """
 
     concrete_cover_cm: float = 5.0
     main_bar_diameter_cm: float = 2.54
@@ -635,12 +642,28 @@ def design_interior_girder_reinforcement(
         effective_depth_cm=effective_depth_cm,
     )
     required_area = max(strength_area, minimum_area)
-    placement_options = generate_main_bar_placement_options(
-        "Acero principal longitudinal",
-        required_area,
-        geometry,
-        params,
+    placement_options = _iterated_main_placement_options(
+        "Acero principal longitudinal", required_area, geometry, params,
+        strength_row.combined_moment_tn_m, flange_width_cm, flange_thickness_cm,
+        web_width_cm, materials,
     )
+    selected = placement_options.recommended
+    adopted_depth_cm = selected.effective_depth_cm if selected is not None else effective_depth_cm
+    if selected is not None:
+        strength_area, neutral_axis = t_beam_flexural_steel_area_cm2(
+            design_moment_tn_m=strength_row.combined_moment_tn_m,
+            flange_width_cm=flange_width_cm, flange_thickness_cm=flange_thickness_cm,
+            web_width_cm=web_width_cm, effective_depth_cm=adopted_depth_cm,
+            concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+            steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+            phi=params.flexural_resistance_factor,
+        )
+        minimum_area = _minimum_flexural_area_cm2(
+            concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
+            steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
+            web_width_cm=web_width_cm, effective_depth_cm=adopted_depth_cm,
+        )
+        required_area = max(strength_area, minimum_area)
     spacing_grid = _spacing_grid(params)
     temperature_required = (
         params.shrinkage_temperature_ratio * 100.0 * web_width_cm / 2.0
@@ -654,7 +677,7 @@ def design_interior_girder_reinforcement(
             controlling_combination_name=strength_row.combination_name,
             position_m=strength_row.position_m,
             design_moment_tn_m=strength_row.combined_moment_tn_m,
-            effective_depth_cm=effective_depth_cm,
+            effective_depth_cm=adopted_depth_cm,
             flange_width_cm=flange_width_cm,
             flange_thickness_cm=flange_thickness_cm,
             web_width_cm=web_width_cm,
@@ -763,6 +786,7 @@ def review_interior_girder_fatigue(
         steel_area_cm2=selected.provided_area_cm2,
         total_moment_tn_m=permanent_moment + FATIGUE_I_LOAD_FACTOR * fatigue_moment,
         parameters=reinforcement.parameters,
+        steel_depth_cm=_steel_depth_cm(geometry, selected, reinforcement.parameters),
     )
     minimum_stress = _steel_stress_from_moment_kg_cm2(
         moment_tn_m=permanent_moment,
@@ -811,6 +835,7 @@ def verify_interior_girder_service_stresses(
         steel_area_cm2=selected.provided_area_cm2,
         total_moment_tn_m=service_row.combined_moment_tn_m,
         parameters=reinforcement.parameters,
+        steel_depth_cm=_steel_depth_cm(geometry, selected, reinforcement.parameters),
     )
     concrete_compression = _concrete_top_stress_kg_cm2(service_row.combined_moment_tn_m, section)
     steel_tension = _steel_stress_from_moment_kg_cm2(
@@ -918,13 +943,17 @@ def cracked_section_properties(
     steel_area_cm2: float,
     total_moment_tn_m: float,
     parameters: InteriorGirderReinforcementParameters,
+    steel_depth_cm: float | None = None,
 ) -> CrackedSectionProperties:
     """Return transformed section properties, cracking state and cracking demand."""
     require_positive(steel_area_cm2, "As")
     modular_ratio = round(
         materials.steel.elastic_modulus_kg_cm2 / materials.concrete.elastic_modulus_kg_cm2
     )
-    d_cm = geometry.total_t_section_depth_m * 100.0 - parameters.concrete_cover_cm - parameters.main_bar_diameter_cm / 2.0
+    d_cm = steel_depth_cm or (
+        geometry.total_t_section_depth_m * 100.0
+        - parameters.concrete_cover_cm - parameters.main_bar_diameter_cm / 2.0
+    )
     threshold = _fatigue_cracking_threshold_kg_cm2(materials.concrete.compressive_strength_kg_cm2)
     gross = _gross_t_section_properties(geometry)
     bottom_stress = total_moment_tn_m * 100000.0 * (geometry.total_t_section_depth_m * 100.0 - gross[0]) / gross[1]
@@ -1052,6 +1081,9 @@ def generate_main_bar_placement_options(
             layers = ceil(count / max_per_layer)
             provided = count * bar.area_cm2
             clear_spacing = _clear_spacing_cm(geometry, parameters, bar.diameter_cm, min(count, max_per_layer))
+            centroid_cm, effective_depth_cm = _placement_effective_depth_cm(
+                geometry, parameters, bar.diameter_cm, count, max_per_layer, clear_spacing
+            )
             options.append(
                 LongitudinalBarPlacementOption(
                     item=item,
@@ -1069,6 +1101,8 @@ def generate_main_bar_placement_options(
                         and layers <= parameters.maximum_main_bar_layers
                         and clear_spacing + 1e-9 >= parameters.minimum_clear_bar_spacing_cm
                     ),
+                    steel_centroid_from_tension_face_cm=centroid_cm,
+                    effective_depth_cm=effective_depth_cm,
                 )
             )
             item += 1
@@ -1092,6 +1126,8 @@ def generate_main_bar_placement_options(
                 clear_spacing_cm=option.clear_spacing_cm,
                 is_compliant=option.is_compliant,
                 is_recommended=option.item == recommended.item,
+                steel_centroid_from_tension_face_cm=option.steel_centroid_from_tension_face_cm,
+                effective_depth_cm=option.effective_depth_cm,
             )
             for option in options
         ),
@@ -1699,7 +1735,64 @@ def _steel_depth_cm(
     selected: LongitudinalBarPlacementOption,
     parameters: InteriorGirderReinforcementParameters,
 ) -> float:
-    return geometry.total_t_section_depth_m * 100.0 - parameters.concrete_cover_cm - selected.bar_diameter_cm / 2.0
+    return selected.effective_depth_cm or (
+        geometry.total_t_section_depth_m * 100.0
+        - parameters.concrete_cover_cm - selected.bar_diameter_cm / 2.0
+    )
+
+
+def _placement_effective_depth_cm(
+    geometry: InteriorGirderGeometry,
+    parameters: InteriorGirderReinforcementParameters,
+    diameter_cm: float,
+    bar_count: int,
+    bars_per_layer: int,
+    clear_spacing_cm: float,
+) -> tuple[float, float]:
+    """Return the actual tension-steel centroid and d for a multilayer layout."""
+    layers = ceil(bar_count / bars_per_layer)
+    vertical_clear = max(parameters.minimum_clear_bar_spacing_cm, clear_spacing_cm)
+    first = parameters.concrete_cover_cm + diameter_cm / 2.0
+    last_layer = min(layers, 1 + (bar_count - 1) // bars_per_layer)
+    centroid = first + (last_layer - 1) * (diameter_cm + vertical_clear) / 2.0
+    depth = geometry.total_t_section_depth_m * 100.0 - centroid
+    require_positive(depth, "peralte efectivo multicapa")
+    return centroid, depth
+
+
+def _iterated_main_placement_options(
+    label: str,
+    required_area_cm2: float,
+    geometry: InteriorGirderGeometry,
+    parameters: InteriorGirderReinforcementParameters,
+    moment_tn_m: float,
+    flange_width_cm: float,
+    flange_thickness_cm: float,
+    web_width_cm: float,
+    materials: MaterialProperties,
+) -> LongitudinalPlacementCaseOptions:
+    """Select detail and repeat flexural demand with its actual centroid."""
+    options = generate_main_bar_placement_options(label, required_area_cm2, geometry, parameters)
+    for _ in range(3):
+        selected = options.recommended
+        if selected is None:
+            break
+        d = selected.effective_depth_cm
+        strength, _ = t_beam_flexural_steel_area_cm2(
+            moment_tn_m, flange_width_cm, flange_thickness_cm, web_width_cm, d,
+            materials.concrete.compressive_strength_kg_cm2,
+            materials.steel.yield_strength_kg_cm2, parameters.flexural_resistance_factor,
+        )
+        minimum = _minimum_flexural_area_cm2(
+            materials.concrete.compressive_strength_kg_cm2,
+            materials.steel.yield_strength_kg_cm2, web_width_cm, d,
+        )
+        updated = max(strength, minimum)
+        if updated <= required_area_cm2 + 1e-9:
+            break
+        required_area_cm2 = updated
+        options = generate_main_bar_placement_options(label, required_area_cm2, geometry, parameters)
+    return options
 
 
 def _gross_t_section_properties(
