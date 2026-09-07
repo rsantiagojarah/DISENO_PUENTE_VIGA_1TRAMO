@@ -8,6 +8,8 @@ from bridge_design.validation.input_validators import require_non_negative, requ
 DEFAULT_SPACING_STEP_M = 0.025
 DEFAULT_MIN_SPACING_M = 0.10
 DEFAULT_MAX_SPACING_M = 0.30
+DEFAULT_MAX_AGGREGATE_SIZE_M = 0.01905  # 3/4 in.
+DEFAULT_MIN_CLEAR_SPACING_M = max(0.025, 1.5 * DEFAULT_MAX_AGGREGATE_SIZE_M)
 
 
 @dataclass(frozen=True)
@@ -166,15 +168,19 @@ def custom_spacing_option(
 ) -> ReinforcementSpacingOption:
     """Build and validate an adopted spacing not limited to the option-table grid."""
     require_positive(spacing_m, "separacion personalizada")
-    if spacing_m < case_options.minimum_spacing_m - 1e-9:
+    bar = reinforcing_bar_by_label(bar_label)
+    minimum_spacing_m = max(
+        case_options.minimum_spacing_m,
+        _minimum_center_spacing_m(bar, case_options.minimum_spacing_m),
+    )
+    if spacing_m < minimum_spacing_m - 1e-9:
         raise ValueError(
-            f"La separacion no puede ser menor que {case_options.minimum_spacing_m:.3f} m."
+            f"La separacion no puede ser menor que {minimum_spacing_m:.3f} m."
         )
     if spacing_m > case_options.maximum_spacing_m + 1e-9:
         raise ValueError(
             f"La separacion no puede exceder {case_options.maximum_spacing_m:.3f} m."
         )
-    bar = reinforcing_bar_by_label(bar_label)
     provided = bar.area_cm2 / spacing_m
     if provided + 1e-9 < case_options.required_area_cm2_m:
         raise ValueError(
@@ -198,6 +204,7 @@ def _spacing_option_for_bar(
     required_area_cm2_m: float,
     grid: SpacingGrid,
 ) -> ReinforcementSpacingOption:
+    minimum_spacing_m = _minimum_center_spacing_m(bar, grid.minimum_m)
     if required_area_cm2_m == 0.0:
         spacing = grid.maximum_m
     else:
@@ -207,6 +214,9 @@ def _spacing_option_for_bar(
             spacing = grid.maximum_m
         if spacing <= 0.0:
             spacing = grid.step_m
+    spacing = max(spacing, minimum_spacing_m)
+    if spacing > grid.maximum_m:
+        spacing = grid.maximum_m
     provided = bar.area_cm2 / spacing
     return ReinforcementSpacingOption(
         item=item,
@@ -214,7 +224,12 @@ def _spacing_option_for_bar(
         spacing_m=spacing,
         required_area_cm2_m=required_area_cm2_m,
         provided_area_cm2_m=provided,
-        is_compliant=provided + 1e-9 >= required_area_cm2_m,
+        is_compliant=(
+            provided + 1e-9 >= required_area_cm2_m
+            and spacing + 1e-9 >= minimum_spacing_m
+            and spacing + 1e-9 >= grid.minimum_m
+            and spacing <= grid.maximum_m + 1e-9
+        ),
     )
 
 
@@ -229,8 +244,6 @@ def _recommended_option(
         and grid.minimum_m <= option.spacing_m <= grid.maximum_m
     )
     if not compliant:
-        compliant = tuple(option for option in options if option.is_compliant)
-    if not compliant:
         return None
     return min(
         compliant,
@@ -243,3 +256,11 @@ def _recommended_option(
 
 def _round_spacing_down(value_m: float, step_m: float) -> float:
     return round(floor(value_m / step_m + 1e-9) * step_m, 3)
+
+
+def _minimum_center_spacing_m(bar: ReinforcingBar, configured_minimum_m: float) -> float:
+    """Return the constructive center-to-center minimum for the fixed 3/4 in aggregate."""
+    return max(
+        configured_minimum_m,
+        DEFAULT_MIN_CLEAR_SPACING_M + bar.diameter_cm / 100.0,
+    )

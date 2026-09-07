@@ -286,6 +286,7 @@ def _format_spacing_option_table(case_options: ReinforcementCaseOptions) -> list
                 "RECOM." if option.is_recommended else "",
             )
             for option in case_options.options
+            if option.is_compliant
         ),
         aligns=("right", "center", "right", "right", "right", "right", "center", "center"),
         title=f"OPCIONES - {case_options.label}",
@@ -1222,22 +1223,31 @@ def _format_crack_checks(result: AbutmentDesignResult) -> list[str]:
     return [
         "",
         *boxed_table(
-            ("Elemento", "Ms serv", "fs", "fs usado", "dc", "beta_s", "s prov", "s max", "Estado"),
+            (
+                "Elemento", "Ms serv", "fs", "fs lim", "fs usado", "dc",
+                "beta_s", "s prov", "s max", "E-fs", "E-s", "Estado",
+            ),
             (
                 (
                     check.element,
                     f"{check.service_moment_tn_m_m:.3f}",
                     f"{check.steel_stress_kg_cm2:.0f}",
+                    f"{check.steel_stress_limit_kg_cm2:.0f}",
                     f"{check.steel_stress_used_kg_cm2:.0f}",
                     f"{check.dc_cm:.2f}",
                     f"{check.beta_s:.3f}",
                     f"{check.provided_spacing_m:.3f}",
                     f"{check.maximum_spacing_m:.3f}",
+                    check.stress_status,
+                    check.spacing_status,
                     check.status,
                 )
                 for check in result.crack_checks
             ),
-            aligns=("left", "right", "right", "right", "right", "right", "right", "right", "center"),
+            aligns=(
+                "left", "right", "right", "right", "right", "right",
+                "right", "right", "right", "center", "center", "center",
+            ),
             title="CONTROL DE FISURACION",
         ),
     ]

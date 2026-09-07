@@ -63,6 +63,7 @@ from bridge_design.domain.interior_girder import (
 )
 from bridge_design.domain.crack_control import (
     CrackControlCheck,
+    crack_control_compliance_statuses,
     maximum_crack_control_spacing_m,
 )
 from bridge_design.domain.load_combinations import LoadFactor
@@ -679,6 +680,12 @@ def review_exterior_girder_crack_control(
         exposure_factor=DEFAULT_CRACK_CONTROL_EXPOSURE_FACTOR,
     )
     provided_spacing_m = max(selected.clear_spacing_cm + selected.bar_diameter_cm, 0.0) / 100.0
+    stress_status, spacing_status, status = crack_control_compliance_statuses(
+        steel_stress,
+        stress_limit,
+        provided_spacing_m,
+        maximum_spacing,
+    )
     return InteriorGirderCrackControlReview(
         main=CrackControlCheck(
             label="Fisuracion acero principal viga exterior",
@@ -691,10 +698,13 @@ def review_exterior_girder_crack_control(
             provided_area_cm2_m=selected.provided_area_cm2,
             steel_stress_kg_cm2=steel_stress,
             steel_stress_used_kg_cm2=stress_used,
+            steel_stress_limit_kg_cm2=stress_limit,
             beta_s=beta_s,
             dc_cm=dc_cm,
             maximum_spacing_m=maximum_spacing,
-            status="CUMPLE" if provided_spacing_m <= maximum_spacing + 1e-9 else "NO CUMPLE",
+            stress_status=stress_status,
+            spacing_status=spacing_status,
+            status=status,
         )
     )
 

@@ -161,9 +161,18 @@ def _crack_cards(review, styles) -> list:
             f"Control de fisuracion - {check.direction}",
             "s_max = 123000 gamma_e/(beta_s f_ss) - 2 dc; beta_s = 1 + dc/[0.7(h-dc)]",
             "s_max y dc en mm; fss en MPa; gamma_e: exposicion; beta_s: relacion geometrica.",
-            f"fss={check.steel_stress_used_kg_cm2:.1f} kg/cm2; beta_s={check.beta_s:.3f}; dc={check.dc_cm:.2f} cm",
-            f"s prov={check.provided_spacing_m:.3f} m <= s max={check.maximum_spacing_m:.3f} m: {check.status}",
-            "El esfuerzo usado se limita a 0.60 fy y la verificacion corresponde a Servicio I.",
+            (
+                f"fs={check.steel_stress_kg_cm2:.1f} <= "
+                f"{check.steel_stress_limit_kg_cm2:.1f} kg/cm2: {check.stress_status}; "
+                f"fss={check.steel_stress_used_kg_cm2:.1f} kg/cm2; "
+                f"beta_s={check.beta_s:.3f}; dc={check.dc_cm:.2f} cm"
+            ),
+            (
+                f"s prov={check.provided_spacing_m:.3f} m <= "
+                f"s max={check.maximum_spacing_m:.3f} m: {check.spacing_status}; "
+                f"resultado: {check.status}"
+            ),
+            "El esfuerzo real y el espaciamiento se verifican por separado para Servicio I.",
             check.reference,
             styles,
         ))

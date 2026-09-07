@@ -181,9 +181,12 @@ class CantileverCrackControlDesign:
     provided_area_cm2_m: float
     steel_stress_kg_cm2: float
     steel_stress_used_kg_cm2: float
+    steel_stress_limit_kg_cm2: float
     beta_s: float
     dc_cm: float
     maximum_spacing_m: float
+    stress_status: str
+    spacing_status: str
     status: str
     reference: str = CRACK_CONTROL_REINFORCEMENT_REFERENCE
 

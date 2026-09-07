@@ -988,7 +988,7 @@ def crack_control_trace(result: AbutmentDesignResult, check) -> tuple[str, str, 
     gamma_e = 1.0
     fss_mpa = check.steel_stress_used_kg_cm2 * KG_CM2_TO_MPA
     formula = (
-        "fs = Ms/(As·0.90·d) ; βs = 1 + dc/(0.7·(h−dc)) ; "
+        "fs = Ms/(As·0.90·d) ≤ 0.60fy ; βs = 1 + dc/(0.7·(h−dc)) ; "
         "smax = 123000·γe/(βs·fss) − 2·dc  (MPa, mm)"
     )
     legend = (
@@ -997,7 +997,9 @@ def crack_control_trace(result: AbutmentDesignResult, check) -> tuple[str, str, 
     )
     substitution = (
         f"Ms = {check.service_moment_tn_m_m:.3f} Tn·m/m\n"
-        f"fs = {check.steel_stress_kg_cm2:.1f} kg/cm²; fss = {check.steel_stress_used_kg_cm2:.1f} kg/cm² "
+        f"fs = {check.steel_stress_kg_cm2:.1f} kg/cm² ≤ "
+        f"0.60fy = {check.steel_stress_limit_kg_cm2:.1f} kg/cm²: {check.stress_status}\n"
+        f"fss usada en espaciamiento = {check.steel_stress_used_kg_cm2:.1f} kg/cm² "
         f"= {fss_mpa:.3f} MPa\n"
         f"h = {section_depth:.2f} cm; dc = {check.dc_cm:.2f} cm\n"
         f"βs = 1 + {check.dc_cm:.2f}/(0.7·({section_depth:.2f}−{check.dc_cm:.2f})) = {check.beta_s:.4f}\n"
@@ -1005,10 +1007,13 @@ def crack_control_trace(result: AbutmentDesignResult, check) -> tuple[str, str, 
         f"= {check.maximum_spacing_m*1000:.1f} mm = {check.maximum_spacing_m:.3f} m"
     )
     result_text = (
-        f"sprov = {check.provided_spacing_m:.3f} m ≤ smax = {check.maximum_spacing_m:.3f} m: "
-        f"{check.status}."
+        f"Esfuerzo: {check.stress_status}; sprov = {check.provided_spacing_m:.3f} m ≤ "
+        f"smax = {check.maximum_spacing_m:.3f} m: {check.spacing_status}; "
+        f"resultado conjunto: {check.status}."
     )
-    comment = "El espaciamiento máximo controla el ancho de fisura en servicio según MTC/AASHTO."
+    comment = (
+        "El esfuerzo real y el espaciamiento se verifican independientemente según MTC/AASHTO."
+    )
     return formula, legend, substitution, result_text, comment
 
 

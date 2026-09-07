@@ -13,6 +13,7 @@ from bridge_design.domain.materials import (
     SurfaceLayerProperties,
 )
 from bridge_design.domain.crack_control import (
+    crack_control_compliance_statuses,
     maximum_crack_control_spacing_m,
     review_transverse_slab_crack_control,
 )
@@ -93,11 +94,22 @@ def test_spacing_options_round_down_to_025_m_grid() -> None:
     )
     by_bar = {option.bar.label: option for option in options.options}
 
-    assert by_bar["6 mm"].spacing_m == 0.05
-    assert by_bar["6 mm"].is_compliant is True
+    assert by_bar["6 mm"].spacing_m == 0.10
+    assert by_bar["6 mm"].is_compliant is False
     assert by_bar["8 mm"].spacing_m == 0.125
     assert by_bar["8 mm"].provided_area_cm2_m == 4.0
     assert options.recommended == by_bar["8 mm"]
+
+
+def test_spacing_catalog_has_no_recommendation_when_no_constructible_option_exists() -> None:
+    options = generate_spacing_options(
+        "Acero imposible",
+        required_area_cm2_m=200.0,
+        spacing_grid=SpacingGrid(step_m=0.025, minimum_m=0.10, maximum_m=0.30),
+    )
+
+    assert options.recommended is None
+    assert not any(option.is_compliant for option in options.options)
 
 
 def test_spacing_options_cap_low_required_steel_at_maximum_spacing() -> None:
@@ -156,6 +168,19 @@ def test_crack_control_spacing_limit_uses_aashto_expression() -> None:
 
     assert round(beta_s, 3) == 1.605
     assert round(maximum_spacing_m, 3) == 0.191
+
+
+def test_crack_control_rejects_excessive_stress_even_if_spacing_passes() -> None:
+    stress_status, spacing_status, status = crack_control_compliance_statuses(
+        steel_stress_kg_cm2=3500.0,
+        steel_stress_limit_kg_cm2=2520.0,
+        provided_spacing_m=0.10,
+        maximum_spacing_m=0.20,
+    )
+
+    assert stress_status == "NO CUMPLE"
+    assert spacing_status == "CUMPLE"
+    assert status == "NO CUMPLE"
 
 
 def test_flexural_steel_area_rejects_unreachable_moment() -> None:
@@ -257,3 +282,11 @@ def test_transverse_slab_reinforcement_returns_requested_steel_groups() -> None:
     assert crack_review.positive_main.label == "E.2 Acero principal positivo"
     assert crack_review.negative_main.maximum_spacing_m > 0.0
     assert crack_review.positive_main.maximum_spacing_m > 0.0
+    assert crack_review.negative_main.status == (
+        "CUMPLE"
+        if (
+            crack_review.negative_main.stress_status == "CUMPLE"
+            and crack_review.negative_main.spacing_status == "CUMPLE"
+        )
+        else "NO CUMPLE"
+    )

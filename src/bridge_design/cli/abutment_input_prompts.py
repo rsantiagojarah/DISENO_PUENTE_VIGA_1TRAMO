@@ -370,7 +370,9 @@ def _default_abutment_reinforcement_selection(
 ) -> tuple[tuple[str, ReinforcementSpacingOption], ...]:
     selected: list[tuple[str, ReinforcementSpacingOption]] = []
     for code, case_options in cases:
-        recommended = case_options.recommended or case_options.options[-1]
+        recommended = case_options.recommended
+        if recommended is None:
+            raise ValueError(f"Sin solucion para {case_options.label} con el catalogo y la geometria actuales.")
         selected.append((f"{code}. {case_options.label}", recommended))
     return tuple(selected)
 
@@ -379,8 +381,10 @@ def _prompt_spacing_option(
     case_options: ReinforcementCaseOptions,
 ) -> ReinforcementSpacingOption:
     recommended = case_options.recommended
-    default_item = recommended.item if recommended is not None else case_options.options[-1].item
-    valid_items = {option.item: option for option in case_options.options}
+    if recommended is None:
+        raise ValueError(f"Sin solucion para {case_options.label} con el catalogo y la geometria actuales.")
+    default_item = recommended.item
+    valid_items = {option.item: option for option in case_options.options if option.is_compliant}
     while True:
         raw_value = input(
             f"{case_options.label} - elija item [{default_item}] (P=personalizado): "
@@ -403,7 +407,9 @@ def _prompt_spacing_option(
 def _prompt_custom_spacing_option(
     case_options: ReinforcementCaseOptions,
 ) -> ReinforcementSpacingOption:
-    recommended = case_options.recommended or case_options.options[-1]
+    recommended = case_options.recommended
+    if recommended is None:
+        raise ValueError(f"Sin solucion para {case_options.label} con el catalogo y la geometria actuales.")
     labels = ", ".join(bar.label for bar in REINFORCING_BAR_CATALOG)
     print(f"Barras disponibles: {labels}")
     while True:

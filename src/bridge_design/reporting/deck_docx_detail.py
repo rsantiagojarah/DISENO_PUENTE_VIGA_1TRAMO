@@ -121,13 +121,16 @@ def crack_control_trace(crack, *, slab_thickness_cm: float | None = None) -> tup
     term2 = 2.0 * dc * 10.0
     smax_mm = term1 - term2
 
-    formula = "smax = 123000·γe/(βs·fs) − 2·dc  ;  sprov ≤ smax"
+    formula = (
+        "fs,real ≤ 0.60·fy  ;  "
+        "smax = 123000·γe/(βs·fss) − 2·dc  ;  sprov ≤ smax"
+    )
     legend = (
         f"Mserv: momento de {combo} (factores 1.0); "
         f"fs = Mserv/(As,prov·{jd:.2f}·d); "
         "βs = 1 + dc/[0.7(h − dc)]; dc = c + db/2; "
         "γe: factor de exposición (1.0 ambiente normal); "
-        "fs usada = min(fs; 0.60·fy)."
+        "fss = min(fs,real; 0.60·fy) para la ecuación de separación."
     )
     substitution = (
         f"Mserv = {mserv:.3f} Tn·m ({combo})\n"
@@ -137,18 +140,22 @@ def crack_control_trace(crack, *, slab_thickness_cm: float | None = None) -> tup
         f"h = {h:.2f} cm\n"
         f"d = h − dc = {d:.2f} cm\n"
         f"fs = ({mserv:.3f}·100000)/({as_prov:.3f}·{jd:.2f}·{d:.2f}) = {fs:.1f} kg/cm²\n"
-        f"fs usada = {fs_used:.1f} kg/cm²\n"
+        f"flím = 0.60·fy = {crack.steel_stress_limit_kg_cm2:.1f} kg/cm²: "
+        f"{crack.stress_status}\n"
+        f"fss usada en espaciamiento = {fs_used:.1f} kg/cm²\n"
         f"βs = 1 + {dc:.2f}/[0.7·({h:.2f} − {dc:.2f})] = {beta_s:.3f}\n"
         f"smax = 123000·{gamma_e:.2f}/({beta_s:.3f}·{fs_mpa:.1f}) − 2·{dc:.2f}·10 "
         f"= {term1:.1f} − {term2:.1f} = {smax_mm:.1f} mm = {crack.maximum_spacing_m:.3f} m"
     )
     result = (
-        f"smax = {crack.maximum_spacing_m:.3f} m; sprov = {crack.provided_spacing_m:.3f} m: {crack.status}."
+        f"Esfuerzo: {crack.stress_status}; separación "
+        f"({crack.provided_spacing_m:.3f} ≤ {crack.maximum_spacing_m:.3f} m): "
+        f"{crack.spacing_status}; resultado conjunto: {crack.status}."
     )
     comment = (
-        "El espaciamiento adoptado limita el ancho de fisura bajo la combinación de servicio."
+        "El esfuerzo real y el espaciamiento satisfacen conjuntamente el control de fisuración."
         if crack.status == "CUMPLE"
-        else "El espaciamiento adoptado no satisface el límite de control de fisuración."
+        else "El control de fisuración exige corregir el esfuerzo real, el espaciamiento, o ambos."
     )
     return formula, legend, substitution, result, comment
 

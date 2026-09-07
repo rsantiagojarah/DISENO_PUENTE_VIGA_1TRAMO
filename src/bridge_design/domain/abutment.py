@@ -16,7 +16,10 @@ from bridge_design.domain.concrete_flexure import (
     rectangular_flexural_response,
     required_rectangular_steel_area_cm2,
 )
-from bridge_design.domain.crack_control import maximum_crack_control_spacing_m
+from bridge_design.domain.crack_control import (
+    crack_control_compliance_statuses,
+    maximum_crack_control_spacing_m,
+)
 from bridge_design.domain.rebar_catalog import (
     ReinforcementCaseOptions,
     ReinforcementSpacingOption,
@@ -523,10 +526,13 @@ class AbutmentCrackCheck:
     service_moment_tn_m_m: float
     steel_stress_kg_cm2: float
     steel_stress_used_kg_cm2: float
+    steel_stress_limit_kg_cm2: float
     beta_s: float
     dc_cm: float
     provided_spacing_m: float
     maximum_spacing_m: float
+    stress_status: str
+    spacing_status: str
     status: str
 
 
@@ -2185,11 +2191,18 @@ def _crack_checks(
             case.provided_as_cm2_m,
             case.effective_depth_cm,
         )
-        stress_used = min(stress, 0.60 * inputs.materials.steel_yield_kg_cm2)
+        stress_limit = 0.60 * inputs.materials.steel_yield_kg_cm2
+        stress_used = min(stress, stress_limit)
         maximum_spacing, beta_s = maximum_crack_control_spacing_m(
             max(stress_used, 1e-9),
             dc_cm,
             section_depth_cm,
+        )
+        stress_status, spacing_status, status = crack_control_compliance_statuses(
+            stress,
+            stress_limit,
+            case.selected_spacing_m,
+            maximum_spacing,
         )
         checks.append(
             AbutmentCrackCheck(
@@ -2197,11 +2210,14 @@ def _crack_checks(
                 service_moment_tn_m_m=service_moment,
                 steel_stress_kg_cm2=stress,
                 steel_stress_used_kg_cm2=stress_used,
+                steel_stress_limit_kg_cm2=stress_limit,
                 beta_s=beta_s,
                 dc_cm=dc_cm,
                 provided_spacing_m=case.selected_spacing_m,
                 maximum_spacing_m=maximum_spacing,
-                status="CUMPLE" if case.selected_spacing_m <= maximum_spacing + 1e-9 else "NO CUMPLE",
+                stress_status=stress_status,
+                spacing_status=spacing_status,
+                status=status,
             )
         )
     return tuple(checks)

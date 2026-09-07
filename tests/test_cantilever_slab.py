@@ -90,6 +90,17 @@ def test_cantilever_slab_design_returns_loads_steel_and_development() -> None:
     assert result.shear.phi_vc_tn > result.shear.combined_shear_tn
     assert result.shear.status == "CUMPLE"
     assert result.crack_control.maximum_spacing_m > 0.0
+    assert result.crack_control.steel_stress_limit_kg_cm2 == pytest.approx(
+        0.60 * _materials().steel.yield_strength_kg_cm2
+    )
+    assert result.crack_control.status == (
+        "CUMPLE"
+        if (
+            result.crack_control.stress_status == "CUMPLE"
+            and result.crack_control.spacing_status == "CUMPLE"
+        )
+        else "NO CUMPLE"
+    )
     assert result.development.required_development_length_cm >= 30.48
     assert result.development.total_additional_bar_length_m > _geometry().overhang_m
     assert result.applicability_notes

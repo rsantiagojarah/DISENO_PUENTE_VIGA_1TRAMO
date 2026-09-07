@@ -1216,10 +1216,13 @@ def format_cantilever_slab_design_result(
             (
                 f"{crack.service_combination_name}: Ms={crack.service_moment_tn_m:.3f} Tn*m/m; "
                 f"barra={crack.bar_label}; s prov={crack.provided_spacing_m:.3f} m; "
-                f"s max={crack.maximum_spacing_m:.3f} m; Estado={crack.status}."
+                f"s max={crack.maximum_spacing_m:.3f} m; E-s={crack.spacing_status}; "
+                f"Estado={crack.status}."
             ),
             (
                 f"fs={crack.steel_stress_kg_cm2:.0f} kg/cm2; "
+                f"fs lim={crack.steel_stress_limit_kg_cm2:.0f} kg/cm2; "
+                f"E-fs={crack.stress_status}; "
                 f"fs usado={crack.steel_stress_used_kg_cm2:.0f} kg/cm2; "
                 f"beta_s={crack.beta_s:.3f}; dc={crack.dc_cm:.2f} cm."
             ),
@@ -1470,6 +1473,7 @@ def _format_spacing_case_table(case_options: ReinforcementCaseOptions) -> list[s
             "REC" if option.is_recommended else "",
         )
         for option in case_options.options
+        if option.is_compliant
     )
     return boxed_table(
         ("Item", "Diam", "Abar", "s (m)", "As prov", "Exceso", "Estado", "Uso"),
@@ -2496,7 +2500,7 @@ def _format_crack_control_review_lines(
 ) -> list[str]:
     lines = [
         *audit_subtitle("E", "REVISION DE FISURACION POR DISTRIBUCION DE ARMADURA", 104),
-        "Criterio: s prov <= s max, evaluado con Servicio I y la distribucion seleccionada.",
+        "Criterios: fs real <= 0.60fy y s prov <= s max, ambos evaluados con Servicio I.",
     ]
     lines.extend(_format_crack_control_table((crack_review.negative_main, crack_review.positive_main)))
     return lines
@@ -2506,7 +2510,7 @@ def _format_crack_control_row(row: CrackControlCheck) -> str:
     return _format_crack_control_cells(row)
 
 
-def _format_crack_control_cells(row: CrackControlCheck) -> tuple[str, str, str, str, str, str, str, str, str, str]:
+def _format_crack_control_cells(row: CrackControlCheck) -> tuple[str, ...]:
     return (
         row.label[:32],
         row.bar_label,
@@ -2514,18 +2518,27 @@ def _format_crack_control_cells(row: CrackControlCheck) -> tuple[str, str, str, 
         f"{row.maximum_spacing_m:.3f}",
         f"{row.service_moment_tn_m:.3f}",
         f"{row.steel_stress_kg_cm2:.0f}",
+        f"{row.steel_stress_limit_kg_cm2:.0f}",
         f"{row.steel_stress_used_kg_cm2:.0f}",
         f"{row.beta_s:.3f}",
         f"{row.dc_cm:.2f}",
+        row.stress_status,
+        row.spacing_status,
         row.status,
     )
 
 
 def _format_crack_control_table(rows: tuple[CrackControlCheck, ...]) -> list[str]:
     return boxed_table(
-        ("Item", "Diam", "s prov", "s max", "Ms", "fs", "fs uso", "beta", "dc", "Estado"),
+        (
+            "Item", "Diam", "s prov", "s max", "Ms", "fs", "fs lim",
+            "fs uso", "beta", "dc", "E-fs", "E-s", "Estado",
+        ),
         (_format_crack_control_cells(row) for row in rows),
-        aligns=("left", "right", "right", "right", "right", "right", "right", "right", "right", "center"),
+        aligns=(
+            "left", "right", "right", "right", "right", "right", "right",
+            "right", "right", "right", "center", "center", "center",
+        ),
         title="Tabla de control de fisuracion",
     )
 

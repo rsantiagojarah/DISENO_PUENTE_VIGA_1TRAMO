@@ -11,7 +11,10 @@ from bridge_design.domain.cantilever_slab import (
     CantileverSlabParameters,
     LoadGroup,
 )
-from bridge_design.domain.crack_control import maximum_crack_control_spacing_m
+from bridge_design.domain.crack_control import (
+    crack_control_compliance_statuses,
+    maximum_crack_control_spacing_m,
+)
 from bridge_design.domain.materials import MaterialProperties
 from bridge_design.domain.rebar_catalog import ReinforcementSpacingOption
 from bridge_design.domain.transverse_slab import TransverseSlabGeometry
@@ -121,6 +124,12 @@ def review_crack_control(
         geometry.slab_thickness_m * 100.0,
         params.crack_exposure_factor,
     )
+    stress_status, spacing_status, status = crack_control_compliance_statuses(
+        steel_stress,
+        stress_limit,
+        option.spacing_m,
+        maximum_spacing,
+    )
     return CantileverCrackControlDesign(
         service_combination_name=service.combination_name,
         service_moment_tn_m=abs(service.combined_moment_tn_m),
@@ -129,10 +138,13 @@ def review_crack_control(
         provided_area_cm2_m=option.provided_area_cm2_m,
         steel_stress_kg_cm2=steel_stress,
         steel_stress_used_kg_cm2=steel_stress_used,
+        steel_stress_limit_kg_cm2=stress_limit,
         beta_s=beta_s,
         dc_cm=dc_cm,
         maximum_spacing_m=maximum_spacing,
-        status="CUMPLE" if option.spacing_m <= maximum_spacing + 1e-9 else "NO CUMPLE",
+        stress_status=stress_status,
+        spacing_status=spacing_status,
+        status=status,
     )
 
 

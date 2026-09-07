@@ -41,9 +41,12 @@ class CrackControlCheck:
     provided_area_cm2_m: float
     steel_stress_kg_cm2: float
     steel_stress_used_kg_cm2: float
+    steel_stress_limit_kg_cm2: float
     beta_s: float
     dc_cm: float
     maximum_spacing_m: float
+    stress_status: str
+    spacing_status: str
     status: str
     reference: str = CRACK_CONTROL_REINFORCEMENT_REFERENCE
 
@@ -137,6 +140,31 @@ def maximum_crack_control_spacing_m(
     return max(maximum_spacing_mm / 1000.0, 0.0), beta_s
 
 
+def crack_control_compliance_statuses(
+    steel_stress_kg_cm2: float,
+    steel_stress_limit_kg_cm2: float,
+    provided_spacing_m: float,
+    maximum_spacing_m: float,
+) -> tuple[str, str, str]:
+    """Return independent stress, spacing and combined MTC crack statuses."""
+    stress_status = (
+        "CUMPLE"
+        if steel_stress_kg_cm2 <= steel_stress_limit_kg_cm2 + 1e-9
+        else "NO CUMPLE"
+    )
+    spacing_status = (
+        "CUMPLE"
+        if provided_spacing_m <= maximum_spacing_m + 1e-9
+        else "NO CUMPLE"
+    )
+    status = (
+        "CUMPLE"
+        if stress_status == "CUMPLE" and spacing_status == "CUMPLE"
+        else "NO CUMPLE"
+    )
+    return stress_status, spacing_status, status
+
+
 def _review_flexural_steel(
     label: str,
     steel: FlexuralSteelDesign,
@@ -165,6 +193,12 @@ def _review_flexural_steel(
         dc_cm,
         slab_thickness_cm,
     )
+    stress_status, spacing_status, status = crack_control_compliance_statuses(
+        steel_stress,
+        stress_limit,
+        selected.spacing_m,
+        maximum_spacing,
+    )
     return CrackControlCheck(
         label=label,
         direction=steel.direction,
@@ -176,10 +210,13 @@ def _review_flexural_steel(
         provided_area_cm2_m=selected.provided_area_cm2_m,
         steel_stress_kg_cm2=steel_stress,
         steel_stress_used_kg_cm2=steel_stress_used,
+        steel_stress_limit_kg_cm2=stress_limit,
         beta_s=beta_s,
         dc_cm=dc_cm,
         maximum_spacing_m=maximum_spacing,
-        status="CUMPLE" if selected.spacing_m <= maximum_spacing + 1e-9 else "NO CUMPLE",
+        stress_status=stress_status,
+        spacing_status=spacing_status,
+        status=status,
     )
 
 

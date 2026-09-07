@@ -796,6 +796,13 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
         "Diente de concreto",
     }
     assert all(check.status == "CUMPLE" for check in result.crack_checks)
+    assert all(check.stress_status == "CUMPLE" for check in result.crack_checks)
+    assert all(check.spacing_status == "CUMPLE" for check in result.crack_checks)
+    assert all(
+        check.steel_stress_limit_kg_cm2
+        == pytest.approx(0.60 * result.inputs.materials.steel_yield_kg_cm2)
+        for check in result.crack_checks
+    )
     assert all(check.status == "OK" for check in result.development_checks)
     assert result.development_checks[0].element == "Pantalla"
     assert result.development_checks[0].anchorage_type == "GANCHO"
