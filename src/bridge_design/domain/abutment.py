@@ -20,7 +20,11 @@ from bridge_design.domain.rebar_catalog import (
     SpacingGrid,
     generate_spacing_options,
 )
-from bridge_design.validation.input_validators import require_non_negative, require_positive
+from bridge_design.validation.input_validators import (
+    require_non_negative,
+    require_positive,
+    require_range,
+)
 
 ABUTMENT_STABILITY_REFERENCE = (
     "Manual de Puentes MTC 2018 / AASHTO LRFD: empujes de suelo, "
@@ -263,6 +267,9 @@ class AbutmentReinforcementInputs:
     development_confinement_factor: float = 1.0
 
 
+GAMMA_EQ_DEFAULT = 0.50
+
+
 @dataclass(frozen=True)
 class AbutmentInputs:
     """Complete abutment input set."""
@@ -274,6 +281,10 @@ class AbutmentInputs:
     key: AbutmentKeyInputs = AbutmentKeyInputs()
     reinforcement: AbutmentReinforcementInputs = AbutmentReinforcementInputs()
     is_pure_wall: bool = False
+    gamma_eq: float = GAMMA_EQ_DEFAULT
+
+    def __post_init__(self) -> None:
+        require_range(self.gamma_eq, "gamma_EQ", 0.0, 1.0)
 
 
 @dataclass(frozen=True)
@@ -610,12 +621,38 @@ class AbutmentDesignResult:
     reference: str = ABUTMENT_STABILITY_REFERENCE
 
 
-DEFAULT_LOAD_FACTORS: tuple[LoadFactors, ...] = (
-    LoadFactors("Resistencia Ia", 0.90, 0.65, 1.00, 0.00, 0.00, 1.75, 1.50, 0.00, 1.75, "strength"),
-    LoadFactors("Resistencia Ib", 1.25, 1.50, 1.35, 1.75, 1.75, 1.75, 1.50, 0.00, 1.75, "strength"),
-    LoadFactors("Evento Extremo I", 1.00, 1.00, 1.00, 0.50, 0.50, 0.50, 1.00, 1.00, 0.50, "extreme"),
-    LoadFactors("Servicio I", 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 0.00, 1.00, "service"),
-)
+def abutment_load_factors(gamma_eq: float = GAMMA_EQ_DEFAULT) -> tuple[LoadFactors, ...]:
+    """Return LRFD factors; Evento Extremo I uses γEQ on live, surcharge and braking."""
+    require_range(gamma_eq, "gamma_EQ", 0.0, 1.0)
+    return (
+        LoadFactors("Resistencia Ia", 0.90, 0.65, 1.00, 0.00, 0.00, 1.75, 1.50, 0.00, 1.75, "strength"),
+        LoadFactors("Resistencia Ib", 1.25, 1.50, 1.35, 1.75, 1.75, 1.75, 1.50, 0.00, 1.75, "strength"),
+        LoadFactors("Evento Extremo I", 1.00, 1.00, 1.00, gamma_eq, gamma_eq, gamma_eq, 1.00, 1.00, gamma_eq, "extreme"),
+        LoadFactors("Servicio I", 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 0.00, 1.00, "service"),
+    )
+
+
+DEFAULT_LOAD_FACTORS: tuple[LoadFactors, ...] = abutment_load_factors()
+
+
+def eccentricity_limit_m(footing_width_m: float, factors: LoadFactors) -> float:
+    """Resultant kern limit: service B/6, strength B/3, seismic MTC 2.8.1.1.14.1."""
+    b = footing_width_m
+    if factors.limit_state == "service":
+        return b / 6.0
+    if factors.limit_state == "extreme":
+        return b * (1.0 / 6.0 + factors.ll * (0.40 - 1.0 / 6.0))
+    return b / 3.0
+
+
+def _minimum_contact_ratio_for_limit(e_limit: float, footing_width_m: float) -> float:
+    """Contact ratio implied by a triangular pressure at the kern limit (report only)."""
+    b = footing_width_m
+    if b <= 1e-12:
+        return 0.0
+    if e_limit <= b / 6.0 + 1e-12:
+        return 1.0
+    return max(3.0 * (0.50 - e_limit / b), 0.0)
 
 
 def pure_wall_load_inputs() -> AbutmentLoadInputs:
@@ -674,8 +711,9 @@ def solve_abutment_design(
     pressures = _soil_pressures(data, dc_weight, ev_weight, dc_y, ev_y)
     components = _load_components(data, dc_weight, dc_x, dc_y, ev_weight, ev_x, ev_y, pressures)
     key = _passive_key(data) if data.key.enabled else None
-    strength_factors = DEFAULT_LOAD_FACTORS[:2]
-    extreme_factors = DEFAULT_LOAD_FACTORS[2]
+    load_factors = abutment_load_factors(data.gamma_eq)
+    strength_factors = load_factors[:2]
+    extreme_factors = load_factors[2]
 
     def _strength_states(
         vertical: tuple[LoadComponent, ...],
@@ -721,7 +759,7 @@ def solve_abutment_design(
     service_without_bridge = (
         _stability_state(
             data,
-            DEFAULT_LOAD_FACTORS[3],
+            load_factors[3],
             components.vertical_without_bridge,
             components.horizontal_without_bridge,
             key,
@@ -730,7 +768,7 @@ def solve_abutment_design(
     service_with_bridge = service_without_bridge if data.is_pure_wall else (
         _stability_state(
             data,
-            DEFAULT_LOAD_FACTORS[3],
+            load_factors[3],
             components.vertical_with_bridge,
             components.horizontal_with_bridge,
             key,
@@ -760,7 +798,7 @@ def solve_abutment_design(
         soil_components=ev_components,
         pressures=pressures,
         components=components,
-        load_factors=DEFAULT_LOAD_FACTORS,
+        load_factors=load_factors,
         with_bridge=with_bridge,
         without_bridge=without_bridge,
         service_with_bridge=service_with_bridge,
@@ -923,8 +961,9 @@ def _stability_states_for_width_recommendation(
     pressures = _soil_pressures(inputs, dc_weight, ev_weight, dc_y, ev_y)
     components = _load_components(inputs, dc_weight, dc_x, dc_y, ev_weight, ev_x, ev_y, pressures)
     key = _passive_key(inputs) if inputs.key.enabled else None
-    strength_factors = DEFAULT_LOAD_FACTORS[:2]
-    extreme_factors = DEFAULT_LOAD_FACTORS[2]
+    load_factors = abutment_load_factors(inputs.gamma_eq)
+    strength_factors = load_factors[:2]
+    extreme_factors = load_factors[2]
     without_strength = tuple(
         _stability_state(
             inputs,
@@ -949,7 +988,7 @@ def _stability_states_for_width_recommendation(
     service_without_bridge = (
         _stability_state(
             inputs,
-            DEFAULT_LOAD_FACTORS[3],
+            load_factors[3],
             components.vertical_without_bridge,
             components.horizontal_without_bridge,
             key,
@@ -984,7 +1023,7 @@ def _stability_states_for_width_recommendation(
     service_with_bridge = (
         _stability_state(
             inputs,
-            DEFAULT_LOAD_FACTORS[3],
+            load_factors[3],
             components.vertical_with_bridge,
             components.horizontal_with_bridge,
             key,
@@ -1562,13 +1601,8 @@ def _stability_state(
     b = inputs.geometry.footing_width_m
     qmax_linear = vu / b * (1.0 + 6.0 * abs_eccentricity / b) / 10.0
     qmin_linear = vu / b * (1.0 - 6.0 * abs_eccentricity / b) / 10.0
-    if factors.limit_state == "service":
-        minimum_contact_ratio = 1.0
-    elif factors.limit_state == "extreme":
-        minimum_contact_ratio = 1.0 / 3.0
-    else:
-        minimum_contact_ratio = 0.50
-    e_limit = b * (0.50 - minimum_contact_ratio / 3.0)
+    e_limit = eccentricity_limit_m(b, factors)
+    minimum_contact_ratio = _minimum_contact_ratio_for_limit(e_limit, b)
     effective_width = b - 2.0 * abs_eccentricity
     geotechnical_pressure = vu / effective_width / 10.0 if effective_width > 0.0 else float("inf")
     if qmin_linear >= -1e-9:
@@ -2586,12 +2620,13 @@ def _stem_design_limit_moments_at_height(
     )
     strength_mu = 1.75 * ls_moment + 1.50 * eh_moment + 1.75 * br_moment
     pae_force = eh_force + eq_force
+    gamma_eq = inputs.gamma_eq
     # MTC 2.8.1.1.14.1 — envolvente de las dos combinaciones PAE/PIR
-    extreme_mu_a = 0.50 * ls_moment + eh_moment + eq_moment + pir_moment + peq_moment + 0.50 * br_moment
+    extreme_mu_a = gamma_eq * ls_moment + eh_moment + eq_moment + pir_moment + peq_moment + gamma_eq * br_moment
     earth_b = max(0.5 * pae_force, eh_force)
     earth_moment_b = eh_moment if earth_b <= eh_force + 1e-12 else earth_b * remaining_height / 2.0
     pir_moment_full = (pir * upper_concrete[1]) * (remaining_height / height)
-    extreme_mu_b = 0.50 * ls_moment + earth_moment_b + pir_moment_full + peq_moment + 0.50 * br_moment
+    extreme_mu_b = gamma_eq * ls_moment + earth_moment_b + pir_moment_full + peq_moment + gamma_eq * br_moment
     extreme_mu = max(extreme_mu_a, extreme_mu_b)
     return strength_mu, extreme_mu
 
@@ -2634,14 +2669,15 @@ def _stem_design_demands(
     pir_moment_full = pir * pir_arm
     peq_moment = peq_force * (height - g.seat_block_height_m / 2.0)
     br_moment = br_force * (height + g.bridge_seat_to_bearing_height_m)
+    gamma_eq = inputs.gamma_eq
     # MTC 2.8.1.1.14.1 — combo A: PAE + 0.5·PIR
-    extreme_mu_a = 0.50 * ls_moment + eh_moment + eq_moment + pir_moment_half + peq_moment + 0.50 * br_moment
-    extreme_vu_a = 0.50 * ls_force + eh_force + eq_force + 0.50 * pir + peq_force + 0.50 * br_force
+    extreme_mu_a = gamma_eq * ls_moment + eh_moment + eq_moment + pir_moment_half + peq_moment + gamma_eq * br_moment
+    extreme_vu_a = gamma_eq * ls_force + eh_force + eq_force + 0.50 * pir + peq_force + gamma_eq * br_force
     # MTC combo B: max(0.5·PAE, EH) + PIR
     earth_b = max(0.5 * pae_force, eh_force)
     earth_moment_b = eh_moment if earth_b <= eh_force + 1e-12 else earth_b * height / 2.0
-    extreme_mu_b = 0.50 * ls_moment + earth_moment_b + pir_moment_full + peq_moment + 0.50 * br_moment
-    extreme_vu_b = 0.50 * ls_force + earth_b + pir + peq_force + 0.50 * br_force
+    extreme_mu_b = gamma_eq * ls_moment + earth_moment_b + pir_moment_full + peq_moment + gamma_eq * br_moment
+    extreme_vu_b = gamma_eq * ls_force + earth_b + pir + peq_force + gamma_eq * br_force
     return {
         "strength_mu": 1.75 * ls_moment + 1.50 * eh_moment + 1.75 * br_moment,
         "extreme_mu": max(extreme_mu_a, extreme_mu_b),

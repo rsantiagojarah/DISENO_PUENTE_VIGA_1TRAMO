@@ -164,13 +164,67 @@ def test_extreme_event_reviews_both_mtc_papir_combinations() -> None:
     assert earth_b == pytest.approx(result.pressures.eh_tn_m, abs=1e-9)
 
 
+def test_seismic_eccentricity_limit_interpolates_with_gamma_eq() -> None:
+    from bridge_design.domain.abutment import eccentricity_limit_m, abutment_load_factors
+
+    b = 4.70
+    factors_half = abutment_load_factors(0.50)[2]
+    factors_none = abutment_load_factors(0.0)[2]
+    factors_full = abutment_load_factors(1.0)[2]
+
+    assert eccentricity_limit_m(b, factors_none) == pytest.approx(b / 6.0)
+    assert eccentricity_limit_m(b, factors_full) == pytest.approx(0.40 * b)
+    assert eccentricity_limit_m(b, factors_half) == pytest.approx(
+        b * (1.0 / 6.0 + 0.50 * (0.40 - 1.0 / 6.0))
+    )
+
+
+def test_default_extreme_overturning_uses_mtc_gamma_eq_kernel() -> None:
+    result = solve_abutment_design()
+    extreme = result.with_bridge[2]
+    b = result.inputs.geometry.footing_width_m
+    e_lim = b * (1.0 / 6.0 + 0.50 * (0.40 - 1.0 / 6.0))
+
+    assert result.inputs.gamma_eq == pytest.approx(0.50)
+    assert extreme.eccentricity_limit_m == pytest.approx(e_lim)
+    assert abs(extreme.eccentricity_m) == pytest.approx(1.422570, abs=1e-6)
+    assert extreme.overturning_status == "NO"
+    assert result.footing_width_recommendation is not None
+
+
+def test_gamma_eq_one_relaxes_seismic_kern_and_scales_live_load_factors() -> None:
+    result = solve_abutment_design(AbutmentInputs(gamma_eq=1.0))
+    extreme_factors = result.load_factors[2]
+    extreme = result.with_bridge[2]
+    b = result.inputs.geometry.footing_width_m
+
+    assert extreme_factors.ll == pytest.approx(1.0)
+    assert extreme_factors.br == pytest.approx(1.0)
+    assert extreme.eccentricity_limit_m == pytest.approx(0.40 * b)
+
+
+def test_gamma_eq_zero_uses_central_third_and_drops_live_seismic_factors() -> None:
+    result = solve_abutment_design(AbutmentInputs(gamma_eq=0.0))
+    extreme_factors = result.load_factors[2]
+    extreme = result.with_bridge[2]
+    b = result.inputs.geometry.footing_width_m
+
+    assert extreme_factors.ll == pytest.approx(0.0)
+    assert extreme_factors.ls_vertical == pytest.approx(0.0)
+    assert extreme_factors.ls_horizontal == pytest.approx(0.0)
+    assert extreme_factors.br == pytest.approx(0.0)
+    assert extreme.eccentricity_limit_m == pytest.approx(b / 6.0)
+
+
 def test_abutment_stability_report_includes_qmin_and_central_third_limit() -> None:
     from bridge_design.cli.abutment_ascii_output import format_abutment_design_result
 
     report = format_abutment_design_result(solve_abutment_design())
 
     assert "qmin" in report
-    assert "Lc/B" in report
+    assert "Longitud comprimida Lc" in report
+    assert "gamma_EQ" in report
+    assert "B*[1/6+gamma_EQ*(0.4-1/6)]" in report
     assert "Parcial triangular" in report
     assert "CRITERIO GEOTECNICO Y ESTRUCTURAL DE ZAPATA" in report
     assert "Servicio I" in report
@@ -328,15 +382,15 @@ def test_abutment_recommends_footing_width_when_overturning_fails() -> None:
     assert any(state.overturning_status == "NO" for state in result.with_bridge)
     assert recommendation is not None
     assert recommendation.current_width_m == pytest.approx(4.00)
-    assert recommendation.recommended_width_m == pytest.approx(4.45)
-    assert recommendation.controlling_case == "CON PUENTE - Resistencia Ia"
+    assert recommendation.recommended_width_m == pytest.approx(4.85)
+    assert recommendation.controlling_case == "CON PUENTE - Evento Extremo I"
     assert recommendation.all_bearing_ok_at_recommended_width is True
     assert recommendation.all_overturning_ok_at_recommended_width is True
     assert recommendation.found_compliant_width is True
 
     adopted = solve_abutment_design(
         AbutmentInputs(
-            geometry=AbutmentGeometryInputs(footing_width_m=4.45, backfill_step_width_m=0.0),
+            geometry=AbutmentGeometryInputs(footing_width_m=4.85, backfill_step_width_m=0.0),
             soil=AbutmentSoilInputs(allowable_bearing_kg_cm2=10.0),
             key=AbutmentKeyInputs(enabled=False),
         )
@@ -366,13 +420,13 @@ def test_abutment_adopts_footing_width_when_overturning_fails(monkeypatch) -> No
 
     updated_inputs, updated_result = _consider_footing_width_when_contact_fails(inputs, preliminary)
 
-    assert updated_inputs.geometry.footing_width_m == pytest.approx(4.45)
+    assert updated_inputs.geometry.footing_width_m == pytest.approx(4.85)
     assert updated_result.footing_width_recommendation is None
     assert all(
         state.overturning_status == "OK" and state.bearing_status == "OK"
         for state in updated_result.with_bridge + updated_result.service_with_bridge
     )
-    assert any("Adoptar B recomendado = 4.45 m" in prompt for prompt in prompts)
+    assert any("Adoptar B recomendado = 4.85 m" in prompt for prompt in prompts)
 
 
 def _abutment_inputs_service_pressure_cannot_be_fixed_by_width() -> AbutmentInputs:
@@ -939,7 +993,9 @@ def test_abutment_input_flow_can_defer_key_prompt_until_stability_check(monkeypa
     inputs = collect_abutment_inputs(collect_key=False)
 
     assert inputs.key.enabled is False
+    assert inputs.gamma_eq == pytest.approx(0.50)
     assert inputs.key.passive_soil_height_m == pytest.approx(inputs.geometry.front_soil_depth_m)
+    assert "gamma_EQ" in "\n".join(prompts)
     assert "h pasivo - altura garantizada de relleno sobre fondo de zapata" not in "\n".join(prompts)
     assert "Considerar diente" not in "\n".join(prompts)
     assert "h die - altura de diente" not in "\n".join(prompts)

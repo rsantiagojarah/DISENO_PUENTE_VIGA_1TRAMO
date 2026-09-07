@@ -40,6 +40,7 @@ def test_abutment_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "Expresión Ai" in xml
     assert "0.5PIR" in xml
     assert "2.8.1.1.14.1" in xml
+    assert "γEQ" in xml
     assert "max(0.5PAE,EH)+PIR" in xml or "max(0.5" in xml
     assert "750" in xml
     assert "2.9.1.4.5.8" in xml

@@ -443,7 +443,7 @@ def test_pure_wall_input_flow_omits_bridge_loads_and_key(monkeypatch) -> None:
     from bridge_design.cli.abutment_input_prompts import collect_abutment_inputs
     from bridge_design.domain.abutment import AbutmentLoadInputs
 
-    answers = iter([""] * 21)
+    answers = iter([""] * 30)
     prompts: list[str] = []
 
     def fake_input(prompt: str) -> str:
@@ -470,6 +470,8 @@ def test_pure_wall_input_flow_omits_bridge_loads_and_key(monkeypatch) -> None:
     assert "Considerar diente" not in prompt_text
     assert inputs.key.enabled is False
     assert inputs.is_pure_wall is True
+    assert inputs.gamma_eq == pytest.approx(0.50)
+    assert "gamma_EQ" in prompt_text
 
 
 def test_wall_soil_prompt_accepts_zero_vehicular_surcharge(monkeypatch) -> None:

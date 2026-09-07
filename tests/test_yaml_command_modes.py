@@ -1,3 +1,4 @@
+import pytest
 import yaml
 
 
@@ -34,6 +35,8 @@ def test_abutment_yaml_output_and_input_direct(tmp_path, monkeypatch) -> None:
 
     assert isinstance(captured[0], AbutmentInputs)
     assert captured[0].is_pure_wall is False
+    assert data["suelo_sismo"]["gamma_eq"] == 0.5
+    assert captured[0].gamma_eq == pytest.approx(0.50)
 
 
 def test_abutment_yaml_file_runs_full_contact_recommendation_case(tmp_path) -> None:
@@ -86,6 +89,7 @@ def test_abutment_yaml_file_runs_full_contact_recommendation_case(tmp_path) -> N
             "fs_capacidad_portante_nominal": 3.0,
             "pga": 0.3,
             "fpga": 1.2,
+            "gamma_eq": 0.50,
             "sobrecarga_peatonal_relleno_tn_m2": 0.0,
         },
     }
@@ -162,9 +166,11 @@ def test_wall_yaml_helpers_expose_wall_named_api() -> None:
     inputs = cantilever_wall_inputs_from_yaml(data)
 
     assert data["comando"] == "diseno-muros"
+    assert data["suelo_sismo"]["gamma_eq"] == 0.5
     assert inputs.is_pure_wall is True
     assert inputs.loads.pdc_tn_m == 0.0
     assert inputs.loads.braking_tn_m == 0.0
+    assert inputs.gamma_eq == pytest.approx(0.50)
 
 
 def test_bearing_yaml_output_and_input_direct(tmp_path, monkeypatch) -> None:

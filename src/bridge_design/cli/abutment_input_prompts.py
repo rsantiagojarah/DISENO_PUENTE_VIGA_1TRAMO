@@ -11,6 +11,7 @@ from bridge_design.domain.abutment import (
     AbutmentLoadInputs,
     AbutmentMaterialInputs,
     AbutmentSoilInputs,
+    GAMMA_EQ_DEFAULT,
     equivalent_vehicular_surcharge_height_m,
 )
 from bridge_design.domain.cantilever_wall import cantilever_wall_geometry_inputs, cantilever_wall_load_inputs
@@ -45,6 +46,7 @@ def collect_abutment_inputs(
     else:
         loads = cantilever_wall_load_inputs()
     soil = _collect_soil(geometry, element_label)
+    gamma_eq = _prompt_gamma_eq(GAMMA_EQ_DEFAULT)
     key = (
         collect_abutment_key(default_passive_soil_height_m=geometry.front_soil_depth_m)
         if include_bridge_inputs and collect_key
@@ -60,6 +62,7 @@ def collect_abutment_inputs(
         soil=soil,
         key=key,
         is_pure_wall=not include_bridge_inputs,
+        gamma_eq=gamma_eq,
     )
 
 
@@ -215,6 +218,18 @@ def _collect_soil(
             default.pedestrian_surcharge_tn_m2,
         ),
     )
+
+
+def _prompt_gamma_eq(default: float) -> float:
+    while True:
+        value = prompt_non_negative_float(
+            "gamma_EQ factor de carga viva con sismo (0 a 1; 0=sin viva, 1=viva completa)",
+            "-",
+            default,
+        )
+        if value <= 1.0:
+            return value
+        print("gamma_EQ debe estar entre 0 y 1.")
 
 
 def _prompt_wall_backface_angle(

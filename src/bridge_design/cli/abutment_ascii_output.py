@@ -614,6 +614,7 @@ def _format_soil_pressure_procedure(result: AbutmentDesignResult) -> list[str]:
         ("LS peatonal horizontal", "Ka * qpeat * H", f"{p.ka:.4f}*{soil.pedestrian_surcharge_tn_m2:.3f}*{g.retained_height_m:.3f}", f"{p.pedestrian_lsx_tn_m:.3f} Tn/m"),
         ("EH terreno", "0.5 * Ka * gamma * H^2", f"0.5*{p.ka:.4f}*{gamma:.3f}*{g.retained_height_m:.3f}^2", f"{p.eh_tn_m:.3f} Tn/m"),
         ("As", "Fpga * PGA", f"{soil.fpga:.3f}*{soil.pga:.3f}", f"{as_coeff:.4f}"),
+        ("gamma_EQ", "factor de carga viva con sismo", f"{data.gamma_eq:.2f}", f"{data.gamma_eq:.2f}"),
         ("kh", "0.5 * As", f"0.5*{as_coeff:.4f}", f"{kh:.4f}"),
         ("kAE", "Mononobe-Okabe", f"angulo sismico={p.seismic_angle_deg:.3f} grados", f"{p.k_ae:.4f}"),
         ("PAE", "0.5 * kAE * gamma * H^2", f"0.5*{p.k_ae:.4f}*{gamma:.3f}*{g.retained_height_m:.3f}^2", f"{p.pae_tn_m:.3f} Tn/m"),
@@ -861,6 +862,21 @@ def _format_contact_criteria() -> list[str]:
     ]
 
 
+def _eccentricity_limit_formula(
+    result: AbutmentDesignResult,
+    state: StabilityStateResult,
+    footing_width_m: float,
+) -> str:
+    if "Extremo" in state.name:
+        return (
+            f"B*[1/6+gamma_EQ*(0.4-1/6)]; gamma_EQ={result.inputs.gamma_eq:.2f}; "
+            f"B={footing_width_m:.3f}"
+        )
+    if "Servicio" in state.name:
+        return f"B/6; B={footing_width_m:.3f}"
+    return f"B/3; B={footing_width_m:.3f}"
+
+
 def _format_stability(title: str, result: AbutmentDesignResult, states: tuple[StabilityStateResult, ...]) -> list[str]:
     lines = ["", *audit_subtitle("", title, 112)]
     data = result.inputs
@@ -882,7 +898,7 @@ def _format_stability(title: str, result: AbutmentDesignResult, states: tuple[St
             ("MHu volcador", "sum(gamma_i*H_i*y_i)", f"{state.overturning_moment_tn_m_m:.3f} Tn*m/m"),
             ("x resultante", f"({state.stabilizing_moment_tn_m_m:.3f}-{state.overturning_moment_tn_m_m:.3f})/{state.vu_tn_m:.3f}", f"{state.resultant_x_m:.3f} m"),
             ("Excentricidad e", f"{b:.3f}/2 - {state.resultant_x_m:.3f}", f"{state.eccentricity_m:.3f} m"),
-            ("Limite emax", f"contacto minimo Lc/B={state.minimum_contact_length_ratio:.3f}; B={b:.3f}", f"{state.eccentricity_limit_m:.3f} m"),
+            ("Limite emax", _eccentricity_limit_formula(result, state, b), f"{state.eccentricity_limit_m:.3f} m"),
             ("Resistencia por friccion Ff", f"{state.vu_tn_m:.3f}*tan({phi:.3f})", f"{state.friction_resistance_tn_m:.3f} Tn/m"),
             ("B' Meyerhof", f"{b:.3f} - 2*|{state.eccentricity_m:.3f}|", f"{state.effective_width_m:.3f} m"),
             ("q Meyerhof", f"{state.vu_tn_m:.3f}/{state.effective_width_m:.3f}/10", f"{state.geotechnical_pressure_kg_cm2:.3f} kg/cm2"),

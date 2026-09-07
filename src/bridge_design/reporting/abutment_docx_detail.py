@@ -396,28 +396,41 @@ def eccentricity_limit_trace(
 ) -> tuple[str, str, str, str, str]:
     factors = factors_for_state(result, state)
     b = result.inputs.geometry.footing_width_m
-    ratio = state.minimum_contact_length_ratio
     if factors.limit_state == "service":
-        criterion = "Servicio: Lc,min/B = 1 (contacto completo)"
+        formula = "e_lím = B/6"
+        legend = "e_lím: excentricidad máxima; B: ancho de zapata; resultante en el tercio central."
+        substitution = (
+            "Servicio I: resultante en el tercio central.\n"
+            f"e_lím = {b:.3f}/6 = {state.eccentricity_limit_m:.3f} m"
+        )
+        comment = "MTC 2.8.1.1.12 / AASHTO 11.6.3: contacto completo de servicio."
     elif factors.limit_state == "extreme":
-        criterion = "Evento extremo: Lc,min/B = 1/3"
+        gamma_eq = result.inputs.gamma_eq
+        formula = "e_lím = B·[1/6 + γEQ·(0.40 − 1/6)]"
+        legend = (
+            "e_lím: excentricidad máxima sísmica; B: ancho de zapata; "
+            "γEQ: factor de carga viva simultánea con el sismo."
+        )
+        substitution = (
+            f"Evento Extremo I: γEQ = {gamma_eq:.2f}\n"
+            f"e_lím = {b:.3f}·[1/6 + {gamma_eq:.2f}·(0.40 − 1/6)] = {state.eccentricity_limit_m:.3f} m"
+        )
+        comment = (
+            "MTC 2.8.1.1.14.1: tercio central si γEQ = 0; ocho décimas centrales si γEQ = 1; "
+            "interpolación lineal entre ambos. La longitud comprimida se informa aparte."
+        )
     else:
-        criterion = "Resistencia: Lc,min/B = 1/2"
-    formula = "e_lím = B·(1/2 − Lc,min/(3B)) = B·(0.5 − rmin/3)"
-    legend = (
-        "e_lím: excentricidad máxima admisible; B: ancho de zapata; "
-        "rmin = Lc,min/B: fracción mínima de contacto del estado límite."
-    )
-    substitution = (
-        f"{criterion}\n"
-        f"rmin = {ratio:.4f}\n"
-        f"e_lím = {b:.3f}·(0.5 − {ratio:.4f}/3) = {state.eccentricity_limit_m:.3f} m"
-    )
+        formula = "e_lím = B/3"
+        legend = "e_lím: excentricidad máxima; B: ancho de zapata; resultante en los dos tercios centrales."
+        substitution = (
+            "Resistencia: resultante en los dos tercios centrales (suelo).\n"
+            f"e_lím = {b:.3f}/3 = {state.eccentricity_limit_m:.3f} m"
+        )
+        comment = "MTC 2.8.1.1.12.3 / AASHTO 11.6.3.3 para fundaciones en suelo."
     result_text = (
         f"|e| = {abs(state.eccentricity_m):.3f} m ≤ e_lím = {state.eccentricity_limit_m:.3f} m: "
         f"{state.overturning_status}."
     )
-    comment = "El límite de excentricidad garantiza la longitud de contacto mínima del estado analizado."
     return formula, legend, substitution, result_text, comment
 
 

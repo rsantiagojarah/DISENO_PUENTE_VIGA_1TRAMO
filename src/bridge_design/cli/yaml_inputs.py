@@ -13,6 +13,7 @@ from bridge_design.domain.abutment import (
     AbutmentLoadInputs,
     AbutmentMaterialInputs,
     AbutmentSoilInputs,
+    GAMMA_EQ_DEFAULT,
     equivalent_vehicular_surcharge_height_m,
 )
 from bridge_design.domain.cantilever_wall import cantilever_wall_geometry_inputs, cantilever_wall_load_inputs
@@ -153,6 +154,7 @@ def abutment_yaml_template(*, pure_wall: bool = False) -> YamlMap:
                 "fs_capacidad_portante_nominal": soil.bearing_capacity_factor_fs,
                 "pga": soil.pga,
                 "fpga": soil.fpga,
+                "gamma_eq": GAMMA_EQ_DEFAULT,
                 "sobrecarga_peatonal_relleno_tn_m2": soil.pedestrian_surcharge_tn_m2,
             },
         }
@@ -246,6 +248,7 @@ def abutment_inputs_from_yaml(data: YamlMap, *, pure_wall: bool = False) -> Abut
         soil=soil_inputs,
         key=key_inputs,
         is_pure_wall=pure_wall,
+        gamma_eq=float(_value(soil, "gamma_eq", GAMMA_EQ_DEFAULT)),
     )
 
 

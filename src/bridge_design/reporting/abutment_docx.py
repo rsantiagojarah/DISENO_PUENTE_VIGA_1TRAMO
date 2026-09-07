@@ -68,7 +68,8 @@ from bridge_design.reporting.deck_docx import (
 
 REF_COMBINATIONS = "Manual de Puentes MTC 2018, Art. 2.4.5.3.1 y Tabla 2.4.5.3.1-1."
 REF_EARTH = "Manual de Puentes MTC 2018, criterios de empuje de suelo de la Sección 2.11; AASHTO LRFD 3.11."
-REF_STABILITY = "Manual de Puentes MTC 2018, criterios de estribos y cimentaciones; AASHTO LRFD 10.6.3.1 y 11.6.3."
+REF_STABILITY = "Manual de Puentes MTC 2018, Art. 2.8.1.1.12; AASHTO LRFD 10.6.3.1 y 11.6.3."
+REF_SEISMIC_ECC = "Manual de Puentes MTC 2018, Art. 2.8.1.1.14.1; AASHTO LRFD 11.6.5.1."
 REF_FLEXURE = "Manual de Puentes MTC 2018, Sección 2.9.4.2; AASHTO LRFD 5.7.3."
 REF_SHEAR = (
     "Manual de Puentes MTC 2018 Arts. 2.9.1.5.6.3.3, 2.9.1.5.6.3.4.1 y 2.9.1.5.6.3.4.2; "
@@ -334,6 +335,7 @@ def _design_basis(
             ("Ángulo de la cara posterior", "θ", f"{data.soil.wall_backface_angle_deg:.2f}°"),
             ("Presión admisible", "qadm", f"{data.soil.allowable_bearing_kg_cm2:.3f} kg/cm²"),
             ("PGA y factor Fpga", "PGA; Fpga", f"{data.soil.pga:.3f}; {data.soil.fpga:.3f}"),
+            ("γEQ carga viva con sismo", "γEQ", f"{data.gamma_eq:.2f}"),
         ),
         widths=(78, 30, 59),
     )
@@ -671,7 +673,8 @@ def _stability_state_calculations(
         "La excentricidad se compara a continuación con el límite del estado límite.",
         REF_STABILITY,
     )
-    _calc(document, "Límite de excentricidad y contacto", *eccentricity_limit_trace(result, state), REF_STABILITY)
+    ecc_ref = REF_SEISMIC_ECC if "Extremo" in state.name else REF_STABILITY
+    _calc(document, "Límite de excentricidad", *eccentricity_limit_trace(result, state), ecc_ref)
     if state.key_resistance_tn_m is None:
         passive_contribution = 0.0
         total_resistance = state.friction_resistance_tn_m
