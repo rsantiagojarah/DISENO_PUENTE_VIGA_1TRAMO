@@ -451,6 +451,14 @@ class StructuralDesignCase:
     shear_controlling_moment_tn_m_m: float = 0.0
     is_custom_selection: bool = False
     notes: str = ""
+    strength_limit_mu_tn_m_m: float = 0.0
+    extreme_limit_mu_tn_m_m: float = 0.0
+    strength_limit_as_cm2_m: float = 0.0
+    extreme_limit_as_cm2_m: float = 0.0
+    strength_moment_resistance_tn_m_m: float = 0.0
+    extreme_moment_resistance_tn_m_m: float = 0.0
+    strength_moment_status: str = ""
+    extreme_moment_status: str = ""
 
 
 @dataclass(frozen=True)
@@ -1665,6 +1673,10 @@ def _structural_design(
     stem_mu = max(stem_demands["strength_mu"], stem_demands["extreme_mu"])
     stem_vu = max(stem_demands["strength_vu"], stem_demands["extreme_vu"])
     stem_temperature_as = _stem_temperature_as(inputs)
+    stem_limit_states = (
+        ("Resistencia I", stem_demands["strength_mu"], r.flexural_phi),
+        ("Evento Extremo", stem_demands["extreme_mu"], r.stem_design_phi_for_as),
+    )
     heel_demands = tuple(_heel_design_demands(inputs, state) for state in with_bridge)
     heel_mu = max(moment for moment, _ in heel_demands)
     heel_vu = max(shear for _, shear in heel_demands)
@@ -1681,11 +1693,16 @@ def _structural_design(
             stem_vu,
             inputs,
             grid,
-            r.stem_design_phi_for_as,
+            r.flexural_phi,
             r.stem_main_bar_label,
             stem_temperature_as,
             selected_reinforcement.get("Pantalla"),
+            notes=(
+                "As = max(As Resistencia I con φ=0.90, As Evento Extremo con φ=1.00); "
+                "cada estado se verifica con su propio factor de resistencia."
+            ),
             shear_method="general",
+            limit_states=stem_limit_states,
         ),
         _reinforced_case(
             "Zapata - talon superior",
@@ -1769,31 +1786,58 @@ def _reinforced_case(
     moment_capacity_multiplier: float = 1.0,
     notes: str = "Mr >= max(Mu, min(Mcr, 1.33Mu))",
     shear_method: str = "general",
+    limit_states: tuple[tuple[str, float, float], ...] | None = None,
 ) -> StructuralDesignCase:
-    as_strength = _flexural_steel_area_workbook_cm2_m(
-        mu_tn_m=abs(mu_tn_m),
-        width_cm=100.0,
-        effective_depth_cm=effective_depth_cm,
-        concrete_strength_kg_cm2=inputs.materials.concrete_strength_kg_cm2,
-        steel_yield_kg_cm2=inputs.materials.steel_yield_kg_cm2,
-        phi=design_phi_for_as,
+    states = limit_states or (("Diseño", abs(mu_tn_m), design_phi_for_as),)
+    flexural_as_by_state = tuple(
+        (
+            label,
+            abs(state_mu),
+            state_phi,
+            _flexural_steel_area_workbook_cm2_m(
+                mu_tn_m=abs(state_mu),
+                width_cm=100.0,
+                effective_depth_cm=effective_depth_cm,
+                concrete_strength_kg_cm2=inputs.materials.concrete_strength_kg_cm2,
+                steel_yield_kg_cm2=inputs.materials.steel_yield_kg_cm2,
+                phi=state_phi,
+            ),
+        )
+        for label, state_mu, state_phi in states
     )
+    governing_flexure = max(flexural_as_by_state, key=lambda item: (item[3], item[1]))
+    as_strength = governing_flexure[3]
+    governing_mu = governing_flexure[1]
+    governing_phi = governing_flexure[2]
     gross_depth_cm = _section_depth_cm(inputs, name)
-    cracking_moment = _cracking_moment_tn_m(gross_depth_cm, inputs) if abs(mu_tn_m) > 0.0 else 0.0
+    cracking_moment = _cracking_moment_tn_m(gross_depth_cm, inputs) if governing_mu > 0.0 else 0.0
     multiplier_minimum_moment = (
-        inputs.reinforcement.minimum_flexural_capacity_multiplier * abs(mu_tn_m)
-        if abs(mu_tn_m) > 0.0
+        inputs.reinforcement.minimum_flexural_capacity_multiplier * governing_mu
+        if governing_mu > 0.0
         else 0.0
     )
     minimum_moment = min(cracking_moment, multiplier_minimum_moment)
-    capacity_minimum_as = _flexural_steel_area_workbook_cm2_m(
-        mu_tn_m=minimum_moment,
-        width_cm=100.0,
-        effective_depth_cm=effective_depth_cm,
-        concrete_strength_kg_cm2=inputs.materials.concrete_strength_kg_cm2,
-        steel_yield_kg_cm2=inputs.materials.steel_yield_kg_cm2,
-        phi=design_phi_for_as,
-    )
+    capacity_minimum_as = 0.0
+    for _label, state_mu, state_phi, _as_state in flexural_as_by_state:
+        state_minimum_moment = (
+            min(
+                cracking_moment,
+                inputs.reinforcement.minimum_flexural_capacity_multiplier * state_mu,
+            )
+            if state_mu > 0.0
+            else 0.0
+        )
+        capacity_minimum_as = max(
+            capacity_minimum_as,
+            _flexural_steel_area_workbook_cm2_m(
+                mu_tn_m=state_minimum_moment,
+                width_cm=100.0,
+                effective_depth_cm=effective_depth_cm,
+                concrete_strength_kg_cm2=inputs.materials.concrete_strength_kg_cm2,
+                steel_yield_kg_cm2=inputs.materials.steel_yield_kg_cm2,
+                phi=state_phi,
+            ),
+        )
     minimum_as = max(minimum_as_cm2_m, capacity_minimum_as)
     required = max(as_strength, minimum_as)
     spacing_options = generate_spacing_options(name, required, grid)
@@ -1808,15 +1852,16 @@ def _reinforced_case(
         selected_bar = selected_option.bar
         selected_spacing = selected_option.spacing_m
         provided_as = selected_option.provided_area_cm2_m
-    moment_resistance = _moment_resistance_tn_m(
+    nominal_resistance = _moment_resistance_tn_m(
         provided_as,
         100.0,
         effective_depth_cm,
         inputs.materials.concrete_strength_kg_cm2,
         inputs.materials.steel_yield_kg_cm2,
-        design_phi_for_as,
+        1.0,
     )
-    required_moment = max(abs(mu_tn_m), minimum_moment)
+    moment_resistance = governing_phi * nominal_resistance
+    required_moment = max(governing_mu, minimum_moment)
     if moment_capacity_multiplier > 1.0:
         required_moment = max(required_moment, moment_capacity_multiplier * abs(mu_tn_m))
         while (
@@ -1825,14 +1870,33 @@ def _reinforced_case(
         ):
             selected_spacing = round(selected_spacing - grid.step_m, 3)
             provided_as = selected_bar.area_cm2 / selected_spacing
-            moment_resistance = _moment_resistance_tn_m(
+            nominal_resistance = _moment_resistance_tn_m(
                 provided_as,
                 100.0,
                 effective_depth_cm,
                 inputs.materials.concrete_strength_kg_cm2,
                 inputs.materials.steel_yield_kg_cm2,
-                design_phi_for_as,
+                1.0,
             )
+            moment_resistance = governing_phi * nominal_resistance
+    state_status: dict[str, tuple[str, float, float]] = {}
+    all_states_ok = True
+    for label, state_mu, state_phi, _as_state in flexural_as_by_state:
+        state_minimum_moment = (
+            min(
+                cracking_moment,
+                inputs.reinforcement.minimum_flexural_capacity_multiplier * state_mu,
+            )
+            if state_mu > 0.0
+            else 0.0
+        )
+        state_required = max(state_mu, state_minimum_moment)
+        if moment_capacity_multiplier > 1.0 and abs(state_mu - abs(mu_tn_m)) <= 1e-12:
+            state_required = max(state_required, moment_capacity_multiplier * abs(mu_tn_m))
+        state_resistance = state_phi * nominal_resistance
+        ok = state_resistance + 1e-9 >= state_required
+        state_status[label] = ("OK" if ok else "NO", state_resistance, state_mu)
+        all_states_ok = all_states_ok and ok
     shear_detail = _shear_beta_detail(
         mu_tn_m=abs(mu_tn_m),
         vu_tn_m=shear_demand_tn_m,
@@ -1848,9 +1912,12 @@ def _reinforced_case(
         inputs.reinforcement.shear_phi,
         shear_detail["beta"],
     )
+    as_by_label = {label: as_state for label, _mu, _phi, as_state in flexural_as_by_state}
+    strength_info = state_status.get("Resistencia I")
+    extreme_info = state_status.get("Evento Extremo")
     return StructuralDesignCase(
         name=name,
-        controlling_moment_tn_m_m=abs(mu_tn_m),
+        controlling_moment_tn_m_m=governing_mu,
         effective_depth_cm=effective_depth_cm,
         strength_as_cm2_m=as_strength,
         cracking_moment_tn_m_m=cracking_moment,
@@ -1864,7 +1931,7 @@ def _reinforced_case(
         selected_spacing_m=selected_spacing,
         provided_as_cm2_m=provided_as,
         moment_resistance_tn_m_m=moment_resistance,
-        moment_status="OK" if moment_resistance + 1e-9 >= required_moment else "NO",
+        moment_status="OK" if all_states_ok else "NO",
         temperature_as_cm2_m=temperature_as_cm2_m,
         shear_demand_tn_m=shear_demand_tn_m,
         shear_resistance_tn_m=shear_resistance_tn_m,
@@ -1878,6 +1945,14 @@ def _reinforced_case(
         shear_controlling_moment_tn_m_m=shear_detail["mu_used_tn_m_m"],
         is_custom_selection=bool(selected_option and selected_option.is_custom),
         notes=notes,
+        strength_limit_mu_tn_m_m=strength_info[2] if strength_info else 0.0,
+        extreme_limit_mu_tn_m_m=extreme_info[2] if extreme_info else 0.0,
+        strength_limit_as_cm2_m=as_by_label.get("Resistencia I", 0.0),
+        extreme_limit_as_cm2_m=as_by_label.get("Evento Extremo", 0.0),
+        strength_moment_resistance_tn_m_m=strength_info[1] if strength_info else 0.0,
+        extreme_moment_resistance_tn_m_m=extreme_info[1] if extreme_info else 0.0,
+        strength_moment_status=strength_info[0] if strength_info else "",
+        extreme_moment_status=extreme_info[0] if extreme_info else "",
     )
 
 
@@ -2264,7 +2339,7 @@ def _stem_reinforcement_cut(
         effective_depth_cm,
         inputs.materials.concrete_strength_kg_cm2,
         inputs.materials.steel_yield_kg_cm2,
-        inputs.reinforcement.stem_design_phi_for_as,
+        inputs.reinforcement.flexural_phi,
     )
     thickness_at_cut_cm = _stem_thickness_at_height_m(inputs, theoretical_cut) * 100.0
     status = "OK"
@@ -2314,7 +2389,7 @@ def _stem_cut_upper_steel_satisfies(
     provided_as_cm2_m: float,
     bar_diameter_cm: float,
 ) -> bool:
-    moment, effective_depth_cm, _, _, required_as, required_moment = _stem_cut_design_at_height(
+    _moment, effective_depth_cm, _, _, required_as, _required_moment = _stem_cut_design_at_height(
         inputs,
         pressures,
         height_above_footing_m,
@@ -2322,15 +2397,12 @@ def _stem_cut_upper_steel_satisfies(
     )
     if provided_as_cm2_m + 1e-9 < required_as:
         return False
-    resistance = _moment_resistance_tn_m(
+    return _stem_provided_steel_satisfies_limit_states(
+        inputs,
         provided_as_cm2_m,
-        100.0,
         effective_depth_cm,
-        inputs.materials.concrete_strength_kg_cm2,
-        inputs.materials.steel_yield_kg_cm2,
-        inputs.reinforcement.stem_design_phi_for_as,
+        _stem_design_moments_at_height(inputs, pressures, height_above_footing_m),
     )
-    return resistance + 1e-9 >= max(moment, required_moment)
 
 
 def _stem_cut_design_at_height(
@@ -2341,32 +2413,62 @@ def _stem_cut_design_at_height(
 ) -> tuple[float, float, float, float, float, float]:
     thickness_m = _stem_thickness_at_height_m(inputs, height_above_footing_m)
     effective_depth_cm = thickness_m * 100.0 - inputs.reinforcement.stem_cover_cm - bar_diameter_cm / 2.0
-    moment = _stem_design_moment_at_height(inputs, pressures, height_above_footing_m)
-    as_strength = _flexural_steel_area_workbook_cm2_m(
-        mu_tn_m=moment,
+    moments = _stem_design_moments_at_height(inputs, pressures, height_above_footing_m)
+    strength_mu = moments["strength_mu"]
+    extreme_mu = moments["extreme_mu"]
+    as_strength_i = _flexural_steel_area_workbook_cm2_m(
+        mu_tn_m=strength_mu,
+        width_cm=100.0,
+        effective_depth_cm=effective_depth_cm,
+        concrete_strength_kg_cm2=inputs.materials.concrete_strength_kg_cm2,
+        steel_yield_kg_cm2=inputs.materials.steel_yield_kg_cm2,
+        phi=inputs.reinforcement.flexural_phi,
+    )
+    as_extreme = _flexural_steel_area_workbook_cm2_m(
+        mu_tn_m=extreme_mu,
         width_cm=100.0,
         effective_depth_cm=effective_depth_cm,
         concrete_strength_kg_cm2=inputs.materials.concrete_strength_kg_cm2,
         steel_yield_kg_cm2=inputs.materials.steel_yield_kg_cm2,
         phi=inputs.reinforcement.stem_design_phi_for_as,
     )
+    as_strength = max(as_strength_i, as_extreme)
+    governing_mu = strength_mu if as_strength_i >= as_extreme else extreme_mu
     minimum_moment = _minimum_flexural_capacity_moment_tn_m(
-        moment,
+        governing_mu,
         thickness_m * 100.0,
         inputs,
     )
-    capacity_minimum_as = _flexural_steel_area_workbook_cm2_m(
-        mu_tn_m=minimum_moment,
-        width_cm=100.0,
-        effective_depth_cm=effective_depth_cm,
-        concrete_strength_kg_cm2=inputs.materials.concrete_strength_kg_cm2,
-        steel_yield_kg_cm2=inputs.materials.steel_yield_kg_cm2,
-        phi=inputs.reinforcement.stem_design_phi_for_as,
+    capacity_minimum_as = max(
+        _flexural_steel_area_workbook_cm2_m(
+            mu_tn_m=_minimum_flexural_capacity_moment_tn_m(
+                strength_mu,
+                thickness_m * 100.0,
+                inputs,
+            ),
+            width_cm=100.0,
+            effective_depth_cm=effective_depth_cm,
+            concrete_strength_kg_cm2=inputs.materials.concrete_strength_kg_cm2,
+            steel_yield_kg_cm2=inputs.materials.steel_yield_kg_cm2,
+            phi=inputs.reinforcement.flexural_phi,
+        ),
+        _flexural_steel_area_workbook_cm2_m(
+            mu_tn_m=_minimum_flexural_capacity_moment_tn_m(
+                extreme_mu,
+                thickness_m * 100.0,
+                inputs,
+            ),
+            width_cm=100.0,
+            effective_depth_cm=effective_depth_cm,
+            concrete_strength_kg_cm2=inputs.materials.concrete_strength_kg_cm2,
+            steel_yield_kg_cm2=inputs.materials.steel_yield_kg_cm2,
+            phi=inputs.reinforcement.stem_design_phi_for_as,
+        ),
     )
     minimum_as = max(_stem_temperature_as(inputs), capacity_minimum_as)
     required_as = max(as_strength, minimum_as)
-    required_moment = max(moment, minimum_moment)
-    return moment, effective_depth_cm, as_strength, minimum_as, required_as, required_moment
+    required_moment = max(governing_mu, minimum_moment)
+    return governing_mu, effective_depth_cm, as_strength, minimum_as, required_as, required_moment
 
 
 def _stem_thickness_at_height_m(inputs: AbutmentInputs, height_above_footing_m: float) -> float:
@@ -2378,17 +2480,86 @@ def _stem_thickness_at_height_m(inputs: AbutmentInputs, height_above_footing_m: 
     return g.lower_stem_thickness_m - (g.lower_stem_thickness_m - g.upper_stem_thickness_m) * ratio
 
 
+def _stem_provided_steel_satisfies_limit_states(
+    inputs: AbutmentInputs,
+    provided_as_cm2_m: float,
+    effective_depth_cm: float,
+    moments: dict[str, float] | float,
+) -> bool:
+    if isinstance(moments, dict):
+        strength_mu = moments["strength_mu"]
+        extreme_mu = moments["extreme_mu"]
+    else:
+        # Compatibilidad: un solo momento se verifica con ambos φ.
+        strength_mu = abs(moments)
+        extreme_mu = abs(moments)
+    nominal = _moment_resistance_tn_m(
+        provided_as_cm2_m,
+        100.0,
+        effective_depth_cm,
+        inputs.materials.concrete_strength_kg_cm2,
+        inputs.materials.steel_yield_kg_cm2,
+        1.0,
+    )
+    thickness_cm = (
+        effective_depth_cm
+        + inputs.reinforcement.stem_cover_cm
+        + inputs.reinforcement.stem_main_bar_diameter_cm / 2.0
+    )
+    strength_required = max(
+        strength_mu,
+        _minimum_flexural_capacity_moment_tn_m(strength_mu, thickness_cm, inputs),
+    )
+    extreme_required = max(
+        extreme_mu,
+        _minimum_flexural_capacity_moment_tn_m(extreme_mu, thickness_cm, inputs),
+    )
+    return (
+        inputs.reinforcement.flexural_phi * nominal + 1e-9 >= strength_required
+        and inputs.reinforcement.stem_design_phi_for_as * nominal + 1e-9 >= extreme_required
+    )
+
+
+def _stem_design_moments_at_height(
+    inputs: AbutmentInputs,
+    pressures: SoilPressureResult,
+    height_above_footing_m: float,
+) -> dict[str, float]:
+    strength_mu, extreme_mu = _stem_design_limit_moments_at_height(
+        inputs,
+        pressures,
+        height_above_footing_m,
+    )
+    return {
+        "strength_mu": strength_mu,
+        "extreme_mu": extreme_mu,
+    }
+
+
 def _stem_design_moment_at_height(
     inputs: AbutmentInputs,
     pressures: SoilPressureResult,
     height_above_footing_m: float,
 ) -> float:
+    strength_mu, extreme_mu = _stem_design_limit_moments_at_height(
+        inputs,
+        pressures,
+        height_above_footing_m,
+    )
+    return max(strength_mu, extreme_mu)
+
+
+def _stem_design_limit_moments_at_height(
+    inputs: AbutmentInputs,
+    pressures: SoilPressureResult,
+    height_above_footing_m: float,
+) -> tuple[float, float]:
     g = inputs.geometry
     gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     height = g.stem_height_above_footing_m
     remaining_height = max(height - height_above_footing_m, 0.0)
     if remaining_height <= 0.0:
-        return 0.0
+        return 0.0, 0.0
 
     ka = pressures.ka
     k_ae = pressures.k_ae
@@ -2422,7 +2593,7 @@ def _stem_design_moment_at_height(
     pir_moment_full = (pir * upper_concrete[1]) * (remaining_height / height)
     extreme_mu_b = 0.50 * ls_moment + earth_moment_b + pir_moment_full + peq_moment + 0.50 * br_moment
     extreme_mu = max(extreme_mu_a, extreme_mu_b)
-    return max(strength_mu, extreme_mu)
+    return strength_mu, extreme_mu
 
 
 def _secondary_bar_detail_length_m(

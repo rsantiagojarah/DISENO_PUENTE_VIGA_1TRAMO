@@ -543,15 +543,22 @@ def test_abutment_design_accepts_zero_optional_pdf_dimensions() -> None:
 def test_default_structural_design_matches_reference_workbook() -> None:
     result = solve_abutment_design()
 
-    assert result.stem_design.controlling_moment_tn_m_m == pytest.approx(72.436292, abs=1e-6)
-    assert result.stem_design.strength_as_cm2_m == pytest.approx(21.148141, abs=1e-6)
+    assert result.stem_design.strength_limit_mu_tn_m_m == pytest.approx(71.488083, abs=1e-6)
+    assert result.stem_design.extreme_limit_mu_tn_m_m == pytest.approx(72.436292, abs=1e-6)
+    assert result.stem_design.strength_limit_as_cm2_m == pytest.approx(23.261471, abs=1e-6)
+    assert result.stem_design.extreme_limit_as_cm2_m == pytest.approx(21.148141, abs=1e-6)
+    assert result.stem_design.controlling_moment_tn_m_m == pytest.approx(71.488083, abs=1e-6)
+    assert result.stem_design.strength_as_cm2_m == pytest.approx(23.261471, abs=1e-6)
     assert result.stem_design.selected_bar_label == '3/4"'
-    assert result.stem_design.selected_spacing_m == pytest.approx(0.125)
+    assert result.stem_design.selected_spacing_m == pytest.approx(0.100)
+    assert result.stem_design.moment_status == "OK"
+    assert result.stem_design.strength_moment_status == "OK"
+    assert result.stem_design.extreme_moment_status == "OK"
+    assert result.stem_design.strength_moment_resistance_tn_m_m + 1e-9 >= result.stem_design.strength_limit_mu_tn_m_m
     assert result.stem_design.shear_demand_tn_m == pytest.approx(24.209938, abs=1e-6)
     assert result.stem_design.shear_beta_method == "general"
-    assert result.stem_design.shear_beta == pytest.approx(1.194281, abs=1e-5)
-    assert result.stem_design.shear_longitudinal_strain == pytest.approx(0.002640, abs=1e-5)
-    assert result.stem_design.shear_resistance_tn_m == pytest.approx(34.692003, abs=1e-5)
+    assert result.stem_design.shear_beta == pytest.approx(1.377311, abs=1e-5)
+    assert result.stem_design.shear_resistance_tn_m > result.stem_design.shear_demand_tn_m
 
     assert result.heel_design.shear_beta_method == "simplified"
     assert result.heel_design.shear_beta == pytest.approx(2.0, abs=1e-9)
@@ -579,6 +586,23 @@ def test_default_structural_design_matches_reference_workbook() -> None:
     assert result.key_design.selected_spacing_m == pytest.approx(0.300)
     assert result.key_design.moment_status == "OK"
     assert result.key_design.shear_status == "OK"
+
+
+def test_default_stem_rejects_phi_1_capacity_against_strength_i() -> None:
+    from bridge_design.domain.abutment import _moment_resistance_tn_m
+
+    result = solve_abutment_design()
+    stem = result.stem_design
+    nominal = _moment_resistance_tn_m(
+        22.72,
+        100.0,
+        stem.effective_depth_cm,
+        result.inputs.materials.concrete_strength_kg_cm2,
+        result.inputs.materials.steel_yield_kg_cm2,
+        1.0,
+    )
+    assert 0.90 * nominal < stem.strength_limit_mu_tn_m_m
+    assert stem.provided_as_cm2_m > 22.72
 
 
 def test_abutment_primary_reinforcement_never_ignores_temperature_minimum() -> None:
@@ -611,8 +635,8 @@ def test_abutment_generates_single_stem_reinforcement_cut() -> None:
     assert cut.upper_spacing_m == pytest.approx(
         cut.continuous_every_n_bars * cut.lower_spacing_m
     )
-    assert cut.continuous_every_n_bars == 2
-    assert cut.upper_spacing_m == pytest.approx(0.250)
+    assert cut.continuous_every_n_bars == 3
+    assert cut.upper_spacing_m == pytest.approx(0.300)
     assert cut.upper_provided_as_cm2_m >= cut.minimum_as_cm2_m
     assert cut.moment_resistance_at_cut_tn_m_m >= cut.required_moment_at_cut_tn_m_m - 1e-6
     assert cut.upper_spacing_limit_m == pytest.approx(0.300)
@@ -634,7 +658,7 @@ def test_abutment_report_includes_stem_reinforcement_cut() -> None:
     assert "Altura teorica de corte" in report
     assert "Altura constructiva de corte" in report
     assert "Acero continuo superior" in report
-    assert "Continua 1 de cada 2 barras inferiores" in report
+    assert "Continua 1 de cada 3 barras inferiores" in report
 
 
 def test_abutment_report_can_omit_stem_reinforcement_cut() -> None:

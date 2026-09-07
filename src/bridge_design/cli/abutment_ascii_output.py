@@ -737,9 +737,19 @@ def _format_structural_procedure(result: AbutmentDesignResult) -> list[str]:
     for case in cases:
         rows.extend(
             [
-                (case.name, "Mu", "maximo de combinaciones aplicables", f"{case.controlling_moment_tn_m_m:.3f} Tn*m/m"),
+                (case.name, "Mu", "maximo requerimiento de As entre estados", f"{case.controlling_moment_tn_m_m:.3f} Tn*m/m"),
+                *(
+                    (
+                        (case.name, "Mu R-I", "Resistencia I, phi=0.90", f"{case.strength_limit_mu_tn_m_m:.3f} Tn*m/m"),
+                        (case.name, "As R-I", "acero con phi=0.90", f"{case.strength_limit_as_cm2_m:.3f} cm2/m"),
+                        (case.name, "Mu EE", "Evento Extremo, phi=1.00", f"{case.extreme_limit_mu_tn_m_m:.3f} Tn*m/m"),
+                        (case.name, "As EE", "acero con phi=1.00", f"{case.extreme_limit_as_cm2_m:.3f} cm2/m"),
+                    )
+                    if case.strength_limit_mu_tn_m_m
+                    else ()
+                ),
                 (case.name, "d", "peralte - recubrimiento - db/2", f"{case.effective_depth_cm:.2f} cm"),
-                (case.name, "As flex", "area por resistencia a flexion", f"{case.strength_as_cm2_m:.3f} cm2/m"),
+                (case.name, "As flex", "maximo As de los estados limite", f"{case.strength_as_cm2_m:.3f} cm2/m"),
                 (case.name, "As min", "maximo entre minimo y control de fisuracion/capacidad", f"{case.minimum_as_cm2_m:.3f} cm2/m"),
                 (case.name, "As req", "max(As flex, As min)", f"{case.required_as_cm2_m:.3f} cm2/m"),
                 (case.name, "As prov", "Abarra / separacion", f"{case.provided_as_cm2_m:.3f} cm2/m"),
@@ -1045,6 +1055,16 @@ def _format_structural_design(
                     f"DISENO ESTRUCTURAL - {case.name}",
                     (
                         ("Momento ultimo Mu", f"{case.controlling_moment_tn_m_m:.3f} Tn*m/m"),
+                        *(() if not case.strength_limit_mu_tn_m_m else (
+                            ("Mu Resistencia I", f"{case.strength_limit_mu_tn_m_m:.3f} Tn*m/m"),
+                            ("As Resistencia I (phi=0.90)", f"{case.strength_limit_as_cm2_m:.3f} cm2/m"),
+                            ("Mr Resistencia I", f"{case.strength_moment_resistance_tn_m_m:.3f} Tn*m/m"),
+                            ("Estado Resistencia I", case.strength_moment_status),
+                            ("Mu Evento Extremo", f"{case.extreme_limit_mu_tn_m_m:.3f} Tn*m/m"),
+                            ("As Evento Extremo (phi=1.00)", f"{case.extreme_limit_as_cm2_m:.3f} cm2/m"),
+                            ("Mr Evento Extremo", f"{case.extreme_moment_resistance_tn_m_m:.3f} Tn*m/m"),
+                            ("Estado Evento Extremo", case.extreme_moment_status),
+                        )),
                         ("Peralte efectivo d", f"{case.effective_depth_cm:.2f} cm"),
                         ("As por flexion", f"{case.strength_as_cm2_m:.3f} cm2/m"),
                         (

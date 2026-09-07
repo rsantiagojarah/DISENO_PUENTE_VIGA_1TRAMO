@@ -275,8 +275,8 @@ def test_pure_wall_stem_cut_uses_continuous_bars_from_lower_grid() -> None:
     cut = result.stem_reinforcement_cut
     assert cut is not None
     assert cut.continuous_every_n_bars == 2
-    assert cut.lower_spacing_m == pytest.approx(0.150)
-    assert cut.upper_spacing_m == pytest.approx(0.300)
+    assert cut.lower_spacing_m == pytest.approx(0.125)
+    assert cut.upper_spacing_m == pytest.approx(0.250)
     assert cut.upper_spacing_m == pytest.approx(
         cut.continuous_every_n_bars * cut.lower_spacing_m
     )
@@ -287,7 +287,7 @@ def test_pure_wall_omits_cut_when_no_continuous_subset_is_possible() -> None:
 
     result = solve_cantilever_wall_design()
 
-    assert result.stem_design.selected_spacing_m == pytest.approx(0.200)
+    assert result.stem_design.selected_spacing_m == pytest.approx(0.175)
     assert result.stem_reinforcement_cut is None
 
 
@@ -320,7 +320,7 @@ def test_pure_wall_main_stem_reinforcement_is_not_less_than_exterior_vertical_mi
     secondary_by_name = {case.name: case for case in result.secondary_reinforcement}
     exterior_vertical = secondary_by_name["Pantalla - vertical exterior"]
 
-    assert result.stem_design.required_as_cm2_m == pytest.approx(4.505436, abs=1e-6)
+    assert result.stem_design.required_as_cm2_m == pytest.approx(5.018974, abs=1e-6)
     assert result.stem_design.required_as_cm2_m >= exterior_vertical.required_as_cm2_m
 
 

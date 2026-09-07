@@ -777,7 +777,7 @@ def _structural_design(document: Document, result: AbutmentDesignResult) -> None
 def _structural_case(document: Document, result: AbutmentDesignResult, case: StructuralDesignCase) -> None:
     data = result.inputs
     gross_depth = _gross_depth_cm(result, case.name)
-    phi = data.reinforcement.stem_design_phi_for_as if case.name == "Pantalla" else data.reinforcement.footing_design_phi_for_as
+    phi = data.reinforcement.flexural_phi if case.name == "Pantalla" else data.reinforcement.footing_design_phi_for_as
     rho = case.strength_as_cm2_m / (100.0 * case.effective_depth_cm) if case.effective_depth_cm else 0.0
     omega = rho * data.materials.steel_yield_kg_cm2 / data.materials.concrete_strength_kg_cm2
     bar_area = _bar_area_cm2(case.selected_bar_label)
@@ -788,17 +788,31 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
         if demand is not None:
             _calc(document, f"Origen de Mu y Vu - {case.name}", *demand, REF_FLEXURE)
     _calc(document, "Peralte efectivo", *effective_depth_trace(result, case, gross_depth), REF_FLEXURE)
-    _calc(
-        document,
-        "Acero por resistencia a flexión",
-        "ω = [1 − √(1 − 4·0.59·Mu/(φ·f'c·b·d²))]/(2·0.59) ; ρ = ω·f'c/fy ; As = ρ·b·d",
-        "ω: índice mecánico; Mu: momento último; φ: factor de resistencia; b: ancho unitario; d: peralte efectivo; ρ: cuantía; As: acero requerido.",
-        f"Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; φ = {phi:.3f}; b = 100 cm; d = {case.effective_depth_cm:.2f} cm\n"
-        f"ω = {omega:.6f}; ρ = {rho:.6f}; As = {case.strength_as_cm2_m:.3f} cm²/m",
-        f"El acero por resistencia es As,flex = {case.strength_as_cm2_m:.3f} cm²/m.",
-        "La expresión corresponde a una sección rectangular con bloque equivalente de compresión.",
-        REF_FLEXURE,
-    )
+    if case.name == "Pantalla" and case.strength_limit_as_cm2_m:
+        _calc(
+            document,
+            "Acero por resistencia a flexión",
+            "As,R = As(Mu,R; φ=0.90) ; As,E = As(Mu,E; φ=1.00) ; As,flex = max(As,R, As,E)",
+            "Mu,R: momento de Resistencia I; Mu,E: momento de Evento Extremo; φ: factor de resistencia del estado; As,flex: acero gobernante.",
+            f"Mu,R = {case.strength_limit_mu_tn_m_m:.3f} Tn·m/m; φ,R = {data.reinforcement.flexural_phi:.2f}; As,R = {case.strength_limit_as_cm2_m:.3f} cm²/m\n"
+            f"Mu,E = {case.extreme_limit_mu_tn_m_m:.3f} Tn·m/m; φ,E = {data.reinforcement.stem_design_phi_for_as:.2f}; As,E = {case.extreme_limit_as_cm2_m:.3f} cm²/m\n"
+            f"As,flex = {case.strength_as_cm2_m:.3f} cm²/m",
+            f"El acero por resistencia es As,flex = {case.strength_as_cm2_m:.3f} cm²/m, gobernado por el estado de mayor requerimiento.",
+            "No se dimensiona por el máximo momento bruto con un único φ; cada estado límite usa su factor MTC 2.7.1.1.4.2a.",
+            REF_FLEXURE,
+        )
+    else:
+        _calc(
+            document,
+            "Acero por resistencia a flexión",
+            "ω = [1 − √(1 − 4·0.59·Mu/(φ·f'c·b·d²))]/(2·0.59) ; ρ = ω·f'c/fy ; As = ρ·b·d",
+            "ω: índice mecánico; Mu: momento último; φ: factor de resistencia; b: ancho unitario; d: peralte efectivo; ρ: cuantía; As: acero requerido.",
+            f"Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; φ = {phi:.3f}; b = 100 cm; d = {case.effective_depth_cm:.2f} cm\n"
+            f"ω = {omega:.6f}; ρ = {rho:.6f}; As = {case.strength_as_cm2_m:.3f} cm²/m",
+            f"El acero por resistencia es As,flex = {case.strength_as_cm2_m:.3f} cm²/m.",
+            "La expresión corresponde a una sección rectangular con bloque equivalente de compresión.",
+            REF_FLEXURE,
+        )
     _calc(
         document,
         "Capacidad mínima, temperatura y acero requerido",
@@ -811,12 +825,25 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
         "Refuerzo adoptado y momento resistente",
         "As,prov = Ab/s ; a = As,prov·fy/(0.85·f'c·b) ; Mr = φ·As,prov·fy·(d − a/2)",
         "Ab: área de una barra; s: espaciamiento; a: profundidad del bloque equivalente; Mr: momento resistente.",
-        f"As,prov = {bar_area:.3f}/{case.selected_spacing_m:.3f} = {case.provided_as_cm2_m:.3f} cm²/m\n"
-        f"a = {a_cm:.3f} cm; Mr = {case.moment_resistance_tn_m_m:.3f} Tn·m/m",
+        (
+            f"As,prov = {bar_area:.3f}/{case.selected_spacing_m:.3f} = {case.provided_as_cm2_m:.3f} cm²/m\n"
+            f"a = {a_cm:.3f} cm; Mr = {case.moment_resistance_tn_m_m:.3f} Tn·m/m"
+            + (
+                f"\nMr,R = {case.strength_moment_resistance_tn_m_m:.3f} Tn·m/m "
+                f"({'OK' if case.strength_moment_status == 'OK' else 'NO'} frente a Mu,R = {case.strength_limit_mu_tn_m_m:.3f})\n"
+                f"Mr,E = {case.extreme_moment_resistance_tn_m_m:.3f} Tn·m/m "
+                f"({'OK' if case.extreme_moment_status == 'OK' else 'NO'} frente a Mu,E = {case.extreme_limit_mu_tn_m_m:.3f})"
+                if case.name == "Pantalla" and case.strength_limit_mu_tn_m_m
+                else ""
+            )
+        ),
         f"Se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"
         f"{' (selección personalizada del usuario)' if case.is_custom_selection else ''}, "
         f"con estado a flexión {case.moment_status}.",
-        _status_comment(case.moment_status, "El momento resistente cubre la demanda y la capacidad mínima aplicable."),
+        _status_comment(
+            case.moment_status,
+            "El momento resistente cubre la demanda de cada estado límite y la capacidad mínima aplicable.",
+        ),
         REF_FLEXURE,
     )
     _calc(document, "Verificación de cortante", *shear_beta_trace(result, case), REF_SHEAR)
