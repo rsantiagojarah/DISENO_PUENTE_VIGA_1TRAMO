@@ -1387,7 +1387,22 @@ def _calc(document, title, formula, legend, substitution, result, comment, refer
 
 
 def _legend_items(legend: str) -> tuple[str, ...]:
-    return tuple(item.strip().rstrip(".") for item in legend.split(";") if item.strip())
+    """Split definitions without breaking semicolons inside equations."""
+    items: list[str] = []
+    remaining = legend.strip()
+    while remaining:
+        split = _split_top_level(remaining, (";",))
+        if split is None:
+            item = remaining.strip().rstrip(".")
+            if item:
+                items.append(item)
+            break
+        left, _, remaining = split
+        item = left.strip().rstrip(".")
+        if item:
+            items.append(item)
+        remaining = remaining.strip()
+    return tuple(items)
 
 
 def _add_substitution(document: Document, substitution: str) -> None:

@@ -10,6 +10,18 @@ from bridge_design.reporting import deck_docx
 from test_ascii_output import _project_inputs
 
 
+def test_legend_items_preserve_semicolons_inside_equations() -> None:
+    legend = (
+        "γe: factor de exposición (1.0 ambiente normal); "
+        "fss = min(fs,real; 0.60·fy) para la ecuación de separación."
+    )
+
+    assert deck_docx._legend_items(legend) == (
+        "γe: factor de exposición (1.0 ambiente normal)",
+        "fss = min(fs,real; 0.60·fy) para la ecuación de separación",
+    )
+
+
 def generate_sample_report(output_path: Path) -> Path:
     """Run the real deck workflow with every recommended reinforcement option."""
     original_input = builtins.input
