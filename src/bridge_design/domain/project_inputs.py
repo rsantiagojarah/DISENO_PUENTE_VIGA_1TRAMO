@@ -1,6 +1,6 @@
 """Project input aggregate models."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from bridge_design.domain.barrier import BarrierDesignInputs
 from bridge_design.domain.diaphragm import DiaphragmBeamGeometry
@@ -22,3 +22,22 @@ class ProjectInputs:
     interior_girder: InteriorGirderGeometry
     exterior_girder: ExteriorGirderGeometry
     diaphragm: DiaphragmBeamGeometry
+
+    def __post_init__(self) -> None:
+        """Derive the barrier dead load from its resisting profile."""
+        weight = self.barrier.geometry.cross_section_area_m2 * self.materials.concrete.specific_weight_tn_m3 * 1000.0
+        object.__setattr__(self, "materials", replace(
+            self.materials, barrier=replace(self.materials.barrier, weight_kg_m=weight)
+        ))
+        old_layout = self.transverse_slab.load_layout
+        traffic_face = old_layout.barrier_left_m + self.barrier.geometry.base_width_m
+        other_face = self.transverse_slab.geometry.total_width_m - traffic_face
+        layout = replace(old_layout, barrier_width_m=self.barrier.geometry.base_width_m,
+                         asphalt_start_m=max(old_layout.asphalt_start_m, traffic_face),
+                         asphalt_end_m=min(old_layout.asphalt_end_m, other_face))
+        object.__setattr__(self, "transverse_slab", replace(self.transverse_slab, load_layout=layout))
+        object.__setattr__(self, "exterior_girder", replace(
+            self.exterior_girder,
+            exterior_web_to_traffic_barrier_m=self.transverse_slab.geometry.overhang_m - layout.barrier_left_m - layout.barrier_width_m,
+            asphalt_tributary_width_m=max(0.0, self.exterior_girder.tributary_width_m - layout.asphalt_start_m),
+        ))

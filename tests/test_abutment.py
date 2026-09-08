@@ -679,27 +679,14 @@ def test_default_structural_design_matches_reference_workbook() -> None:
     assert result.stem_design.shear_beta == pytest.approx(1.377311, abs=1e-5)
     assert result.stem_design.shear_resistance_tn_m > result.stem_design.shear_demand_tn_m
 
-    assert result.heel_design.shear_beta_method == "simplified"
-    assert result.heel_design.shear_beta == pytest.approx(2.0, abs=1e-9)
-
-    assert result.heel_design.controlling_moment_tn_m_m == pytest.approx(73.350916, abs=1e-6)
-    assert result.heel_design.strength_as_cm2_m == pytest.approx(19.552185, abs=1e-6)
-    assert result.heel_design.minimum_as_cm2_m == pytest.approx(17.175139, abs=1e-6)
-    assert result.heel_design.required_as_cm2_m == pytest.approx(19.552185, abs=1e-6)
-    assert result.heel_design.selected_spacing_m == pytest.approx(0.125)
-    assert result.heel_design.shear_demand_tn_m == pytest.approx(47.619108, abs=1e-6)
-    assert "Envolvente Resistencia/Evento Extremo" in result.heel_design.notes
-    assert "presion triangular/trapezoidal" in result.heel_design.notes
-
-    assert result.toe_design.controlling_moment_tn_m_m == pytest.approx(26.422087, abs=1e-6)
-    assert result.toe_design.strength_as_cm2_m == pytest.approx(6.917255, abs=1e-6)
-    assert result.toe_design.minimum_as_cm2_m == pytest.approx(9.224731, abs=1e-6)
-    assert result.toe_design.required_as_cm2_m == pytest.approx(9.224731, abs=1e-6)
-    assert result.toe_design.selected_bar_label == '1/2"'
-    assert result.toe_design.selected_spacing_m == pytest.approx(0.125)
-    assert result.toe_design.shear_demand_tn_m == pytest.approx(4.032242, abs=1e-6)
-    assert result.toe_design.moment_resistance_tn_m_m >= 1.33 * 26.422087 - 1e-6
-    assert "Envolvente Resistencia/Evento Extremo" in result.toe_design.notes
+    # H20-H23 invalidate the old workbook values (mixed factors and d for Vc).
+    for case in (result.heel_design, result.toe_design):
+        assert case.shear_beta_method == "general"
+        assert 12.0 <= case.shear_effective_crack_spacing_in <= 80.0
+        assert case.controlling_moment_tn_m_m == pytest.approx(max(map(abs, case.signed_moment_envelope_tn_m_m)))
+        assert case.required_faces == ("superior", "inferior")
+        assert case.required_as_cm2_m >= case.minimum_as_cm2_m
+        assert case.notes == "Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente."
     assert result.key_design is not None
     assert result.key_design.selected_bar_label == '1/2"'
     assert result.key_design.selected_spacing_m == pytest.approx(0.300)
@@ -764,8 +751,8 @@ def test_abutment_generates_single_stem_reinforcement_cut() -> None:
     assert cut.lower_cut_bar_length_m == pytest.approx(
         cut.constructive_cut_height_m + cut.development_extension_m
     )
-    assert cut.continuous_bar_length_m > cut.lower_cut_bar_length_m
-    assert cut.status == "OK"
+    assert cut.continuous_bar_length_m >= cut.lower_cut_bar_length_m
+    assert cut.status == "NO CONVIENE"
 
 
 def test_abutment_report_includes_stem_reinforcement_cut() -> None:

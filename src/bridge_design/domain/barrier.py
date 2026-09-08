@@ -207,6 +207,29 @@ class BarrierDesignInputs:
         default_factory=HookedBarDevelopmentFactors
     )
 
+    def __post_init__(self) -> None:
+        # Only the documented New Jersey profile has section geometry.
+        g = self.geometry
+        if any(abs(value - target) > 1e-9 for value, target in (
+            (g.height_m, 0.85), (g.base_width_m, 0.375),
+            (g.cross_section_area_m2, 0.202875),
+        )):
+            raise ValueError(
+                "Geometría fuera de alcance; el perfil New Jersey implementado mide "
+                "H=0.85 m, base=0.375 m y A=0.202875 m2."
+            )
+        reference = BarrierSectionModel.new_jersey_image_default()
+        if self.section_model.dowel_bar_diameter_cm != reference.dowel_bar_diameter_cm:
+            raise ValueError(
+                "Cambiar el diámetro requiere reconstruir los peraltes de los segmentos."
+            )
+        if (tuple((s.concrete_width_cm, s.effective_depths_cm) for s in self.section_model.mw_segments)
+                != tuple((s.concrete_width_cm, s.effective_depths_cm) for s in reference.mw_segments)
+                or self.section_model.mc_segments != reference.mc_segments):
+            raise ValueError(
+                "Los segmentos resistentes deben corresponder al perfil geométrico implementado."
+            )
+
 
 @dataclass(frozen=True)
 class BarrierFlexuralComponent:
@@ -303,6 +326,8 @@ class BarrierDesignResult:
     shear_transfer: ShearTransferCheck
     dowel: DowelCheck
     development: DevelopmentLengthCheck
+    geometry: BarrierGeometry = field(default_factory=BarrierGeometry)
+    line_weight_kg_m: float = 0.0
 
 
 def design_concrete_barrier(
@@ -321,6 +346,8 @@ def design_concrete_barrier(
         shear_transfer=shear_transfer,
         dowel=dowel,
         development=development,
+        geometry=inputs.geometry,
+        line_weight_kg_m=inputs.geometry.cross_section_area_m2 * materials.concrete.specific_weight_tn_m3 * 1000.0,
     )
 
 

@@ -164,19 +164,20 @@ def service_reaction_trace(result: SimpleSupportResult) -> TraceTuple:
 
 def thermal_movement_trace(result: SimpleSupportResult) -> TraceTuple:
     dem = result.inputs.demands
-    temp = dem.temperature
-    delta_t = temp.contraction_delta_t_c if temp is not None else 0.0
+    from bridge_design.domain.elastomeric_bearing import TemperatureRange
+    temp = dem.temperature or TemperatureRange.mtc_default("costa")
+    delta_t = temp.envelope_delta_t_c
     formula = "Δ_s = γ_TU · α · L · ΔT"
     legend = (
-        "Δ_s: movimiento térmico de contracción; γ_TU: factor de temperatura; "
-        "α: coeficiente de dilatación del concreto; L: luz del tramo; ΔT: T_inst − T_inf."
+        "Δ_s: envolvente térmica de ambos sentidos; γ_TU: factor de temperatura; "
+        "α: coeficiente de dilatación; L: luz; ΔT: max(T_inst − T_inf, T_sup − T_inst)."
     )
     substitution = (
-        f"ΔT = {temp.t_install_c:.1f} − {temp.t_inf_c:.1f} = {delta_t:.1f} °C\n"
+        f"ΔT = max({temp.contraction_delta_t_c:.1f}, {temp.expansion_delta_t_c:.1f}) = {delta_t:.1f} °C\n"
         f"Δ_s = {dem.gamma_tu:.2f} · {dem.alpha_per_c:.8f} · {dem.span_length_m * 100:.1f} · {delta_t:.1f} "
         f"= {result.delta_thermal_cm:.3f} cm"
     )
-    result_text = f"El movimiento térmico de contracción es Δ_s = {result.delta_thermal_cm:.3f} cm."
+    result_text = f"La envolvente de movimiento térmico es Δ_s = {result.delta_thermal_cm:.3f} cm."
     comment = "El movimiento gobierna el corte del apoyo móvil y la verificación h ≥ 2·Δ_s."
     return formula, legend, substitution, result_text, comment
 

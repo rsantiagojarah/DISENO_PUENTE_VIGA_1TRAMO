@@ -112,6 +112,11 @@ def test_pure_wall_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "Estabilidad del muro" in xml
     assert "Condición con puente" not in xml
     assert "Condición sin puente" not in xml
+    assert "con/sin puente" not in xml.lower()
+    assert "con puente" not in xml.lower()
+    assert "sin puente" not in xml.lower()
+    assert "acciones del tablero" not in xml.lower()
+    assert "acciones de superestructura" not in xml.lower()
     assert "Fuerza inercial del muro y combinaciones MTC PAE/PIR" in xml
     assert "PEQ superestructura" not in xml
     assert "2.9.1.4.5.8" in xml
@@ -120,3 +125,36 @@ def test_pure_wall_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "2.9.1.5.6.3.4.2" in xml or "Procedimiento general" in xml
     assert "Verificación de cortante" in xml
     assert "Cuadro de barras" in xml
+    assert "H20-H21" not in xml
+    assert "H21:" not in xml
+
+
+def test_pure_wall_without_toe_omits_toe_design_from_word_report(tmp_path: Path) -> None:
+    result = solve_abutment_design(
+        AbutmentInputs(
+            geometry=AbutmentGeometryInputs(
+                retained_height_m=2.45,
+                footing_width_m=2.00,
+                footing_thickness_m=0.50,
+                toe_length_m=0.0,
+                lower_stem_thickness_m=0.30,
+                upper_stem_thickness_m=0.30,
+                front_soil_depth_m=0.50,
+                seat_block_height_m=0.0,
+                backwall_drop_m=0.0,
+                backwall_taper_height_m=0.0,
+            ),
+            is_pure_wall=True,
+        )
+    )
+
+    output = abutment_docx.generate_abutment_docx(
+        result,
+        tmp_path / "memoria_muro_sin_puntera.docx",
+    )
+    with ZipFile(output) as package:
+        assert package.testzip() is None
+        xml = package.read("word/document.xml").decode("utf-8")
+
+    assert "la geometría adoptada no tiene puntera" in xml
+    assert "Zapata - puntera inferior" not in xml

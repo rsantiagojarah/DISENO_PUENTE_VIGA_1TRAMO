@@ -1055,6 +1055,10 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
     )
     collision = result.barrier_collision
     if collision is not None:
+        _comment(document, f"N simultanea={collision.axial_tension_tn_m:.3f} Tn/m; As incluye N/(phi*fy). {collision.status}: {collision.scope_note}")
+        _table(document, ("Caso", "M Tn.m/m", "N Tn/m", "V Tn/m", "Estado"),
+               tuple((case.name, f"{case.moment_tn_m:.3f}", f"{case.axial_tension_tn_m:.3f}", f"{case.vertical_force_tn_m:.3f}", case.status) for case in collision.cases),
+               widths=(75, 30, 30, 30, 25))
         col_formula, col_legend, col_sub, col_result, col_comment = detail.cantilever_collision_trace(
             collision,
             control,
@@ -1173,6 +1177,17 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
 
 
 def _reactions(document: Document, data: DeckReportData) -> None:
+    from bridge_design.domain.global_reactions import project_live_reaction_cases
+    live_cases = project_live_reaction_cases(data.project_inputs)
+    _table(document, ("Caso global HL-93", "R fijo Tn", "R movil Tn", "Carga total Tn"),
+           tuple((row.name, f"{row.left_tn:.3f}", f"{row.right_tn:.3f}", f"{row.total_load_tn:.3f}") for row in live_cases),
+           widths=(77, 30, 30, 30))
+    _comment(
+        document,
+        "LL+IM para estribos procede de estos casos globales por equilibrio. "
+        "Las reacciones por viga de la tabla siguiente corresponden a la posición de Mmax "
+        "y no son máximos globales de apoyo. Se incluye tráfico nulo para efectos estabilizadores.",
+    )
     document.add_heading("8. Reacciones para el diseño de apoyos y estribos", level=1)
     _body(
         document,
@@ -1235,6 +1250,10 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
     )
     for label, option in data.cantilever_selected:
         rows.append(("Voladizo", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
+    collision = data.cantilever_result.barrier_collision
+    rows.append(("Voladizo", "Conexion y todos los casos de colision",
+                 "Casos 1/2/3 + yield-line/dowel/desarrollo",
+                 collision.status if collision is not None else "FUERA DE ALCANCE"))
     for label, option in data.diaphragm_selected:
         rows.append(("Diafragma", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
     _table(document, ("Elemento", "Función", "Refuerzo adoptado", "Estado"), tuple(rows), widths=(32, 62, 48, 25), font_size=7.6)

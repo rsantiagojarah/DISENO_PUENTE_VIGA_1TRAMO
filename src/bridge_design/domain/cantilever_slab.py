@@ -139,6 +139,18 @@ class CantileverFlexuralSteelDesign:
 
 
 @dataclass(frozen=True)
+class CantileverCollisionCase:
+    """One MTC/AASHTO overhang collision design case."""
+
+    name: str
+    moment_tn_m: float
+    axial_tension_tn_m: float
+    vertical_force_tn_m: float
+    status: str
+    reference: str
+
+
+@dataclass(frozen=True)
 class CantileverBarrierCollisionDesign:
     """Extreme-event barrier collision demand transmitted to the deck overhang."""
 
@@ -150,6 +162,11 @@ class CantileverBarrierCollisionDesign:
     permanent_moment_tn_m: float
     design_moment_tn_m: float
     reference: str
+    axial_tension_tn_m: float = 0.0
+    status: str = "PENDIENTE"
+    scope_note: str = ""
+    cases: tuple[CantileverCollisionCase, ...] = ()
+    connection_checks: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -245,6 +262,20 @@ class CantileverSlabDesignResult:
     vehicular_load_method: str
     applicability_notes: tuple[str, ...]
 
+    @property
+    def overall_ok(self) -> bool:
+        """A horizontal collision calculation alone cannot approve the connection."""
+        return bool(
+            self.barrier_collision is not None
+            and self.barrier_collision.status == "OK"
+            and all(case.status == "OK" for case in self.barrier_collision.cases)
+            and all(check == "OK" for check in self.barrier_collision.connection_checks)
+            and self.flexural_steel.spacing_options.recommended is not None
+            and self.shear.status == "CUMPLE"
+            and self.crack_control.status == "CUMPLE"
+            and self.development.status == "OK"
+        )
+
 
 def design_cantilever_slab(
     geometry: TransverseSlabGeometry,
@@ -289,7 +320,17 @@ def design_cantilever_slab(
         (row for row in combinations if row.limit_state == "Resistencia"),
         key=lambda row: row.combined_moment_tn_m,
     )
-    collision = design_barrier_collision(barrier_result, combinations) if barrier_result else None
+    collision = (
+        design_barrier_collision(
+            barrier_result,
+            combinations,
+            overhang_m=geometry.overhang_m,
+            traffic_face_m=traffic_face,
+            girder_spacing_m=geometry.girder_spacing_m,
+        )
+        if barrier_result
+        else None
+    )
     flexural = design_flexural_steel(geometry, materials, params, controlling, collision)
     temperature = design_temperature_steel(geometry, params)
     shear = design_shear(geometry, materials, params, effects)

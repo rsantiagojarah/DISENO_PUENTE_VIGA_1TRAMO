@@ -171,11 +171,11 @@ def test_transverse_load_location_schemes_include_dc_dw_pl_data() -> None:
     assert "peso propio losa" in output
     assert "0.000 a 7.950 m" in output
     assert "asfalto" in output
-    assert "1.075 a 6.875 m" in output
+    assert "1.200 a 6.750 m" in output  # H19: asphalt starts at the actual barrier face.
     assert "peatonal derecha" in output
     assert "7.125 a 7.950 m" in output
     assert "barrera izquierda" in output
-    assert "x=0.950 m" in output
+    assert "x=1.012 m" in output  # H19: width matches the resisting barrier profile.
     assert "LL+IM - cargas moviles vehiculares" in output
     assert "LL+IM - 1 carril(es) movil(es)" in output
     assert "x1: 1.675 a 4.475 m" in output

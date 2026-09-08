@@ -73,7 +73,8 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
     )
     draw.text((sx(g.toe_length_m + g.lower_stem_thickness_m + g.heel_length_m / 2) - 80, top + 55), "Relleno", font=regular, fill=INK)
     draw.text((stem_left_top - 70, top + 75), "Pantalla", font=small, fill=INK)
-    draw.text((left + 15, footing_top + 25), "Puntera", font=small, fill=INK)
+    if g.toe_length_m > 0.0:
+        draw.text((left + 15, footing_top + 25), "Puntera", font=small, fill=INK)
     draw.text((sx(g.toe_length_m + g.lower_stem_thickness_m) + 20, footing_top + 25), "Talón", font=small, fill=INK)
 
     if result.key is not None:
@@ -90,7 +91,10 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
 
     _dimension(draw, (left, 890), (right, 890), f"B = {g.footing_width_m:.2f} m", regular, horizontal=True)
     _dimension(draw, (105, base), (105, top), f"H = {g.retained_height_m:.2f} m", regular, horizontal=False)
-    _dimension(draw, (left, 835), (stem_left_base, 835), f"Lp = {g.toe_length_m:.2f} m", small, horizontal=True)
+    if g.toe_length_m > 0.0:
+        _dimension(draw, (left, 835), (stem_left_base, 835), f"Lp = {g.toe_length_m:.2f} m", small, horizontal=True)
+    else:
+        draw.text((left, 800), "Sin puntera (Lp = 0.00 m)", font=small, fill=INK)
     _dimension(draw, (stem_right_base, 835), (right, 835), f"Lt = {g.heel_length_m:.2f} m", small, horizontal=True)
 
     pressure_x = stem_right_top + 30

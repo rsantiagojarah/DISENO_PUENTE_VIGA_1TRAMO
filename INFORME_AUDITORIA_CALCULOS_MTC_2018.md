@@ -1,5 +1,9 @@
 # Informe de revisión de cálculos y criterios de ingeniería
 
+Actualización del código (8 de septiembre de 2026): véase
+[implementación y estado de H18–H34](IMPLEMENTACION_AUDITORIA_H18_H34.md).
+El diagnóstico que sigue conserva la versión y los resultados de la auditoría original.
+
 Proyecto: DISEÑO_PUENTE_VIGA_1TRAMO  
 Fecha: 6 de septiembre de 2026  
 Versión de referencia del repositorio: `715b60f`  

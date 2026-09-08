@@ -54,6 +54,7 @@ def test_deck_command_generates_detailed_word_memory_automatically(tmp_path) -> 
     assert "Reemplazando los valores correspondientes" in xml
     assert "Donde:" in xml
     assert "Por lo tanto" in xml
+    assert "H34:" not in xml
     assert "Comentario técnico" not in xml
     assert "Referencia normativa" in xml
     assert "páginas PDF" not in xml

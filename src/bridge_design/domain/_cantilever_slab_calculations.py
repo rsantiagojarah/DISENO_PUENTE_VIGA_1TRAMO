@@ -95,6 +95,11 @@ def design_flexural_steel(
         materials.concrete.compressive_strength_kg_cm2,
     )
     minimum_moment = mtc_minimum_flexural_moment_tn_m(strength_moment, cracking_moment)
+    # FHWA PSC example 4.10: As(M) + N/fy is a conservative combined
+    # flexure/tension design. Retain phi <= 0.90 for this envelope.
+    axial_area = (collision.axial_tension_tn_m * 1000.0 /
+                  (params.flexural_resistance_factor * materials.steel.yield_strength_kg_cm2)
+                  if collision is not None else 0.0)
     strength_area = flexural_steel_area_cm2(
         design_moment_tn_m=minimum_moment,
         strip_width_cm=geometry.strip_length_m * 100.0,
@@ -102,7 +107,7 @@ def design_flexural_steel(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
         steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=params.flexural_resistance_factor,
-    ) / geometry.strip_length_m
+    ) / geometry.strip_length_m + axial_area
     minimum_area = minimum_temperature_area_cm2_m(geometry, params)
     required = max(strength_area, minimum_area)
     spacing_options = generate_spacing_options(
@@ -119,7 +124,7 @@ def design_flexural_steel(
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
             steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
             phi=params.flexural_resistance_factor,
-        ) / geometry.strip_length_m
+        ) / geometry.strip_length_m + axial_area
         required = max(strength_area, minimum_area)
         if required > spacing_options.required_area_cm2_m + 1e-9:
             spacing_options = generate_spacing_options(

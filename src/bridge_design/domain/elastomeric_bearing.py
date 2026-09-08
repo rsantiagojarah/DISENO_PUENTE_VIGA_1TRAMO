@@ -69,8 +69,13 @@ class TemperatureRange:
     t_install_c: float
 
     def __post_init__(self) -> None:
+        from math import isfinite
+        if not all(isfinite(v) for v in (self.t_sup_c, self.t_inf_c, self.t_install_c)):
+            raise ValueError("Las temperaturas deben ser finitas.")
         if self.t_sup_c < self.t_inf_c:
             raise ValueError("t_sup debe ser mayor o igual que t_inf.")
+        if not self.t_inf_c <= self.t_install_c <= self.t_sup_c:
+            raise ValueError("La temperatura de instalacion debe estar dentro del rango de diseno.")
 
     @property
     def design_range_c(self) -> float:
@@ -80,6 +85,14 @@ class TemperatureRange:
     def contraction_delta_t_c(self) -> float:
         """ΔT desde instalación hacia el extremo inferior (contracción)."""
         return max(self.t_install_c - self.t_inf_c, 0.0)
+
+    @property
+    def expansion_delta_t_c(self) -> float:
+        return self.t_sup_c - self.t_install_c
+
+    @property
+    def envelope_delta_t_c(self) -> float:
+        return max(self.contraction_delta_t_c, self.expansion_delta_t_c)
 
     @classmethod
     def mtc_default(cls, zone: ClimateZone, t_install_c: float = 20.0) -> "TemperatureRange":
@@ -112,6 +125,11 @@ class BearingLoads:
     @property
     def total_service_tn(self) -> float:
         return self.permanent_tn + self.live_load_ll_tn
+
+    @property
+    def strength_i_tn(self) -> float:
+        """MTC 2.4.5.3.1-1: maximum vertical Strength I reaction."""
+        return 1.25 * self.dead_load_dc_tn + 1.50 * self.wearing_surface_dw_tn + 1.75 * self.live_load_ll_tn
 
     @property
     def total_service_kg(self) -> float:
@@ -155,7 +173,7 @@ class BearingMovements:
     def thermal_displacement_cm(self) -> float:
         length_cm = self.span_length_m * 100.0
         delta_t = (
-            self.temperature.contraction_delta_t_c
+            self.temperature.envelope_delta_t_c
             if self.use_install_to_min
             else self.temperature.design_range_c
         )
@@ -163,12 +181,12 @@ class BearingMovements:
 
     @property
     def unfactored_permanent_displacement_cm(self) -> float:
-        return (
-            self.thermal_displacement_cm
-            + self.shrinkage_cm
-            + self.prestress_shortening_cm
-            + self.other_permanent_cm
-        )
+        shortening = self.shrinkage_cm + self.prestress_shortening_cm + self.other_permanent_cm
+        if not self.use_install_to_min:
+            return self.thermal_displacement_cm + shortening
+        coefficient = self.alpha_per_c * self.span_length_m * 100.0
+        return max(coefficient * self.temperature.contraction_delta_t_c + shortening,
+                   abs(coefficient * self.temperature.expansion_delta_t_c - shortening))
 
     @property
     def service_shear_displacement_cm(self) -> float:
@@ -257,7 +275,7 @@ class DesignCheck:
 
     @property
     def ok(self) -> bool:
-        return self.status in {"OK", "ANCLAR"}
+        return self.status == "OK"
 
 
 @dataclass(frozen=True)
@@ -304,6 +322,12 @@ class ElastomericBearingDesignResult:
     @property
     def overall_ok(self) -> bool:
         return all(check.ok for check in self.checks)
+
+    @property
+    def elastomer_ok(self) -> bool:
+        """Service checks of the pad, excluding unverified external restraints."""
+        external = {"Friccion vs fuerza servicio", "Sismo: fuerza de union", "Aplastamiento concreto"}
+        return all(check.ok for check in self.checks if check.name not in external)
 
 
 def _status(demand: float, limit: float, *, lower_is_better: bool = True) -> str:
@@ -513,14 +537,11 @@ def design_elastomeric_bearing_method_a(
     f_eq_longitudinal = factor * p_long if seismic.longitudinal_restrained else 0.0
     f_eq_gov = max(f_eq_transverse, f_eq_longitudinal)
 
-    # Capacidad horizontal admitida por el pad (fuerza de corte con Gmáx) y fricción.
-    pad_capacity_tn = shear_force_service_tn
-    if seismic.bearing_role == "expansion":
-        horizontal_capacity = max(pad_capacity_tn, friction_tn)
-        anchor_required = max(f_eq_gov - horizontal_capacity, 0.0)
-    else:
-        horizontal_capacity = pad_capacity_tn
-        anchor_required = max(f_eq_gov - horizontal_capacity, 0.0)
+    # GA*Delta/h is a service reaction, never an ultimate resistance.
+    # Without a verified seismic load path, size the external restraint for
+    # the full connection force, with no thermal/friction deduction.
+    horizontal_capacity = 0.0
+    anchor_required = max(f_eq_gov, shear_force_service_tn if shear_force_service_tn > friction_tn else 0.0)
 
     checks: list[DesignCheck] = [
         DesignCheck(
@@ -651,9 +672,7 @@ def design_elastomeric_bearing_method_a(
         m = min(sqrt(a2 / a1), 2.0)
         pn = 0.85 * support.fc_kg_cm2 * a1 * m
         phi_pn = support.phi * pn
-        # Demanda: carga factorada aproximada Evento Extremo / resistencia;
-        # se compara contra reacción total de servicio amplificada 1.0 como piso.
-        demand_kg = p_total_kg
+        demand_kg = loads.strength_i_tn * 1000.0
         checks.append(
             DesignCheck(
                 name="Aplastamiento concreto",
@@ -662,7 +681,7 @@ def design_elastomeric_bearing_method_a(
                 unit="kg",
                 status=_status(demand_kg, phi_pn),
                 reference="AASHTO 5.7.5 / MTC 2.8.1.4",
-                notes=f"m=sqrt(A2/A1)={m:.3f}; phiPn={phi_pn:.0f} kg",
+                notes=f"Resistencia I: 1.25DC+1.50DW+1.75LL; m={m:.3f}; phiPn={phi_pn:.0f} kg",
             )
         )
 

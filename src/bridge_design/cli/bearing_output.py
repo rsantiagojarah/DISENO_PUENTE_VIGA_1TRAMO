@@ -28,6 +28,7 @@ def format_elastomeric_bearing_result(result: ElastomericBearingDesignResult) ->
         "             Manual MTC 2018 2.10.4 / 2.4.3.11.8 / 2.8.1.4 / Tabla 2.4.3.9.2-1.",
         f"Designacion: {result.designation}",
         f"Estado global: {'CUMPLE' if result.overall_ok else 'NO CUMPLE'}",
+        f"Elastomero (servicio): {'CUMPLE' if result.elastomer_ok else 'NO CUMPLE'}; ANCLAR requiere verificacion externa.",
     ]
     lines.extend(_format_inputs(result))
     lines.extend(_format_procedure(result))
@@ -43,7 +44,7 @@ def _format_inputs(result: ElastomericBearingDesignResult) -> list[str]:
     seis = inp.seismic
     grade = result.grade
     delta_t = (
-        temp.contraction_delta_t_c if mov.use_install_to_min else temp.design_range_c
+        temp.envelope_delta_t_c if mov.use_install_to_min else temp.design_range_c
     )
     lines = [
         "",
@@ -60,7 +61,7 @@ def _format_inputs(result: ElastomericBearingDesignResult) -> list[str]:
                 ("Luz del tramo L", f"{mov.span_length_m:.3f}", "m", "Longitud de viga"),
                 ("Zona climatica (rango)", f"{temp.t_sup_c:.1f} / {temp.t_inf_c:.1f}", "C", "MTC Tabla 2.4.3.9.2-1"),
                 ("Temperatura instalacion", f"{temp.t_install_c:.1f}", "C", "Entrada"),
-                ("Delta T usada", f"{delta_t:.1f}", "C", "t_inst - t_inf" if mov.use_install_to_min else "t_sup - t_inf"),
+                ("Delta T usada", f"{delta_t:.1f}", "C", "max(Tinst-Tmin,Tmax-Tinst)" if mov.use_install_to_min else "t_sup - t_inf"),
                 ("alpha concreto", f"{mov.alpha_per_c:.2e}", "1/C", "AASHTO 5.4.2.2"),
                 ("Retraccion", f"{mov.shrinkage_cm:.3f}", "cm", "Entrada"),
                 ("Acort. pretensado", f"{mov.prestress_shortening_cm:.3f}", "cm", "Entrada"),
@@ -203,16 +204,16 @@ def _step_shear_displacement(result: ElastomericBearingDesignResult) -> list[str
     temp = mov.temperature
     length_cm = mov.span_length_m * 100.0
     delta_t = (
-        temp.contraction_delta_t_c if mov.use_install_to_min else temp.design_range_c
+        temp.envelope_delta_t_c if mov.use_install_to_min else temp.design_range_c
     )
     d_temp = mov.thermal_displacement_cm
     d_unfact = mov.unfactored_permanent_displacement_cm
     rows = [
         (
             "Delta T",
-            "t_inst - t_inf" if mov.use_install_to_min else "t_sup - t_inf",
+            "max(Tinst-Tmin,Tmax-Tinst)" if mov.use_install_to_min else "t_sup - t_inf",
             (
-                f"{temp.t_install_c:.1f} - ({temp.t_inf_c:.1f})"
+                f"max({temp.contraction_delta_t_c:.1f},{temp.expansion_delta_t_c:.1f})"
                 if mov.use_install_to_min
                 else f"{temp.t_sup_c:.1f} - {temp.t_inf_c:.1f}"
             ),
@@ -226,10 +227,10 @@ def _step_shear_displacement(result: ElastomericBearingDesignResult) -> list[str
         ),
         (
             "Mov. permanentes",
-            "Dperm = Dtemp + Dretrac + Dpret + Dotros",
+            "Dperm = max(Dcontr+acortamiento, abs(Dexp-acortamiento))" if mov.use_install_to_min else "Dperm = Drango + acortamiento",
             (
-                f"{d_temp:.3f}+{mov.shrinkage_cm:.3f}+"
-                f"{mov.prestress_shortening_cm:.3f}+{mov.other_permanent_cm:.3f}"
+                f"Envolvente con Dretrac={mov.shrinkage_cm:.3f}, "
+                f"Dpret={mov.prestress_shortening_cm:.3f}, Dotros={mov.other_permanent_cm:.3f}"
             ),
             f"{d_unfact:.3f} cm",
         ),
@@ -594,13 +595,8 @@ def _step_seismic(result: ElastomericBearingDesignResult) -> list[str]:
         if seis.tributary_permanent_longitudinal_tn is not None
         else p_perm
     )
-    pad_cap = result.shear_force_service_tn
-    if seis.bearing_role == "expansion":
-        horiz_cap = max(pad_cap, result.friction_capacity_tn)
-        capacity_note = f"max(Hu_pad={pad_cap:.3f}, Ff={result.friction_capacity_tn:.3f})"
-    else:
-        horiz_cap = pad_cap
-        capacity_note = f"Hu_pad={pad_cap:.3f} (apoyo fijo)"
+    horiz_cap = 0.0
+    capacity_note = "Sin resistencia externa verificada; GA*Ds/h es reaccion de servicio"
     rows = [
         (
             "Factor conexion",
@@ -643,14 +639,14 @@ def _step_seismic(result: ElastomericBearingDesignResult) -> list[str]:
         ),
         (
             "Capacidad horizontal",
-            "capacidad del pad/friccion",
+            "Sin deducir reaccion termica ni friccion del sismo",
             capacity_note,
             f"{horiz_cap:.3f} Tn",
         ),
         (
             "Anclaje sismico",
-            "Ancl = max(F_EQ - capacidad, 0)",
-            f"max({result.seismic_governing_tn:.3f} - {horiz_cap:.3f}, 0)",
+            "Ancl = max(F_EQ, Hu servicio si falta friccion)",
+            f"F_EQ={result.seismic_governing_tn:.3f}; Hu={result.shear_force_service_tn:.3f}",
             (
                 "OK (sin anclar)"
                 if result.anchor_force_required_tn <= 1e-9
@@ -673,7 +669,7 @@ def _step_concrete_bearing(result: ElastomericBearingDesignResult) -> list[str]:
     m = min(sqrt(a2 / a1), 2.0) if a1 > 0 else 0.0
     pn = 0.85 * support.fc_kg_cm2 * a1 * m
     phi_pn = support.phi * pn
-    demand = result.inputs.loads.total_service_kg
+    demand = result.inputs.loads.strength_i_tn * 1000.0
     rows = [
         (
             "Areas",
@@ -701,7 +697,7 @@ def _step_concrete_bearing(result: ElastomericBearingDesignResult) -> list[str]:
         ),
         (
             "Demanda",
-            "PT servicio (piso)",
+            "Pu Resistencia I = 1.25DC+1.50DW+1.75LL",
             f"{demand:.0f}",
             f"{demand:.0f} kg",
         ),

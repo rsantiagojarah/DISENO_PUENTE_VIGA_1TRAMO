@@ -125,13 +125,18 @@ def cantilever_story(data: DeckReportData, styles) -> list:
         collision = result.barrier_collision
         story.append(formula_card(
             "Colision de barrera transmitida al voladizo",
-            "M_EEII = M_colision + gamma_p M_permanente; M_colision = Ft H/Lt",
+            "N = max(Ft,Rw)/(Lc+2H); M_colision = max(Mc,N H); As = As(M)+N/(phi fy)",
             "Ft: fuerza transversal; H: brazo; Lt: longitud efectiva de transferencia.",
             f"Ft={collision.transverse_force_tn:.3f} Tn; H={collision.barrier_height_m:.3f} m; Lt={collision.transfer_length_m:.3f} m",
             f"M colision={collision.collision_moment_tn_m:.3f}; Mu EEII={collision.design_moment_tn_m:.3f} Tn.m/m",
-            "La accion horizontal de colision no se combina con la sobrecarga vehicular vertical ordinaria.",
+            f"N simultanea={collision.axial_tension_tn_m:.3f} Tn/m. {collision.status}: {collision.scope_note}",
             collision.reference,
             styles,
+        ))
+        story.append(data_table(
+            ("Caso", "M Tn.m/m", "N Tn/m", "V Tn/m", "Estado"),
+            tuple((case.name, f"{case.moment_tn_m:.3f}", f"{case.axial_tension_tn_m:.3f}", f"{case.vertical_force_tn_m:.3f}", case.status) for case in collision.cases),
+            [57 * mm, 27 * mm, 27 * mm, 27 * mm, 25 * mm], styles,
         ))
     return story
 
@@ -193,6 +198,7 @@ def diaphragm_story(data: DeckReportData, styles) -> list:
 
 
 def reactions_story(data: DeckReportData, styles) -> list:
+    from bridge_design.domain.global_reactions import project_live_reaction_cases
     gcount = data.project_inputs.interior_girder.girder_count
     width = data.project_inputs.transverse_slab.geometry.total_width_m
     interior_count = max(gcount - 2, 0)
@@ -200,7 +206,6 @@ def reactions_story(data: DeckReportData, styles) -> list:
         ("PDC", data.interior_result.dc, data.exterior_result.dc),
         ("PDW", data.interior_result.dw, data.exterior_result.dw),
         ("PPL", None, data.exterior_result.pl),
-        ("PLL+IM", data.interior_result.ll_im_envelope, data.exterior_result.ll_im_envelope),
     )
     rows = []
     for label, interior, exterior in cases:
@@ -208,12 +213,15 @@ def reactions_story(data: DeckReportData, styles) -> list:
         re = _maximum_reaction(exterior)
         total = interior_count * ri + 2 * re
         rows.append((label, f"{ri:.3f}", f"{re:.3f}", f"{total:.3f}", f"{total / width:.3f}"))
+    live_cases = project_live_reaction_cases(data.project_inputs)
+    live_max = max(row.left_tn for row in live_cases)
+    rows.append(("PLL+IM", "Global", "Global", f"{live_max:.3f}", f"{live_max / width:.3f}"))
     return [
         p("8. Reacciones para apoyos y estribos", styles["h1"]),
         p(
             "Las reacciones se reportan sin factor para que los modulos de apoyos y estribos "
             "apliquen la combinacion correspondiente. Se suman dos vigas exteriores y las vigas "
-            "interiores restantes; luego se divide entre el ancho del estribo.",
+            "interiores restantes para cargas permanentes y PL. LL+IM proviene del equilibrio global por caso; incluir trafico nulo para efectos favorables.",
             styles["body"],
         ),
         formula_card(
@@ -233,6 +241,9 @@ def reactions_story(data: DeckReportData, styles) -> list:
             styles,
         ),
         Spacer(1, 3 * mm),
+        data_table(("Caso HL-93", "R fijo", "R movil", "Carga total"),
+                   [(row.name, f"{row.left_tn:.3f}", f"{row.right_tn:.3f}", f"{row.total_load_tn:.3f}") for row in live_cases],
+                   [66 * mm, 30 * mm, 30 * mm, 30 * mm], styles),
         p(
             "Conclusión: el reporte conserva las acciones por naturaleza de carga. La adopcion "
             "definitiva del apoyo y del estribo debe realizarse en sus comandos especializados.",

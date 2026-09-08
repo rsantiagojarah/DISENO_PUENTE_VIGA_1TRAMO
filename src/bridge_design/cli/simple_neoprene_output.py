@@ -325,5 +325,5 @@ def _free_area_substitution(result: SimpleSupportResult) -> str:
 def _thermal_substitution(result: SimpleSupportResult) -> str:
     dem = result.inputs.demands
     temp = dem.temperature
-    delta_t = temp.contraction_delta_t_c if temp is not None else 0.0
+    delta_t = temp.envelope_delta_t_c if temp is not None else 20.0
     return f"{dem.gamma_tu:.2f}*{dem.alpha_per_c:.8f}*{dem.span_length_m*100:.1f}*{delta_t:.1f}"

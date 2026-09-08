@@ -269,7 +269,7 @@ def _design_basis(document: Document, result: SimpleSupportResult) -> None:
                 ("Temperatura superior MTC", "T_sup", f"{temp.t_sup_c:.1f} °C"),
                 ("Temperatura inferior MTC", "T_inf", f"{temp.t_inf_c:.1f} °C"),
                 ("Temperatura de instalación", "T_inst", f"{temp.t_install_c:.1f} °C"),
-                ("Contracción térmica", "ΔT", f"{temp.contraction_delta_t_c:.1f} °C"),
+                ("Envolvente térmica", "ΔT", f"{temp.envelope_delta_t_c:.1f} °C"),
             )
         )
     _table(document, ("Parámetro", "Símbolo", "Valor"), tuple(horizontal_rows), widths=(78, 30, 59))

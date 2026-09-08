@@ -89,7 +89,11 @@ def _collect_geometry(include_bridge_inputs: bool = True) -> AbutmentGeometryInp
         "bridge_length_m": bridge_length,
         "footing_width_m": footing_width,
         "footing_thickness_m": footing_thickness,
-        "toe_length_m": prompt_float("Longitud de puntera", "m", default.toe_length_m),
+        "toe_length_m": prompt_non_negative_float(
+            "Longitud de puntera (0 para muro sin puntera)",
+            "m",
+            default.toe_length_m,
+        ),
         "lower_stem_thickness_m": prompt_float("Espesor inferior de pantalla", "m", default.lower_stem_thickness_m),
         "upper_stem_thickness_m": prompt_float("Espesor superior de pantalla", "m", default.upper_stem_thickness_m),
         "backfill_step_width_m": 0.0,
@@ -195,6 +199,9 @@ def _collect_soil(
     )
     friction_angle = prompt_float("Angulo de friccion del relleno", "grados", default.friction_angle_deg)
     wall_soil_friction = prompt_non_negative_float("delta muro-suelo", "grados", default.wall_soil_friction_deg)
+    while wall_soil_friction != 0.0:
+        print("El modelo actual requiere delta=0 para emplear una resultante horizontal.")
+        wall_soil_friction = prompt_non_negative_float("delta muro-suelo", "grados", 0.0)
     backfill_slope = prompt_non_negative_float("beta pendiente del relleno", "grados", default.backfill_slope_deg)
     wall_backface_angle = _prompt_wall_backface_angle(
         friction_angle,
@@ -342,8 +349,9 @@ def _abutment_reinforcement_cases(
     options = [
         result.stem_design.spacing_options,
         result.heel_design.spacing_options,
-        result.toe_design.spacing_options,
     ]
+    if result.toe_design is not None:
+        options.append(result.toe_design.spacing_options)
     if result.key_design is not None:
         options.append(result.key_design.spacing_options)
     for secondary in result.secondary_reinforcement:

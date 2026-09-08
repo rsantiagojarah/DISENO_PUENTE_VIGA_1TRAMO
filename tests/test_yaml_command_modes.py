@@ -158,6 +158,7 @@ def test_wall_yaml_helpers_expose_wall_named_api() -> None:
     from bridge_design.cli.yaml_inputs import cantilever_wall_inputs_from_yaml, cantilever_wall_yaml_template
 
     data = cantilever_wall_yaml_template()
+    data["geometria"]["longitud_puntera_m"] = 0.0
     data["cargas_tablero"] = {
         "pdc_carga_muerta_tablero_tn_m": 10.0,
         "br_frenado_tn_m": 5.0,
@@ -170,6 +171,7 @@ def test_wall_yaml_helpers_expose_wall_named_api() -> None:
     assert inputs.is_pure_wall is True
     assert inputs.loads.pdc_tn_m == 0.0
     assert inputs.loads.braking_tn_m == 0.0
+    assert inputs.geometry.toe_length_m == 0.0
     assert inputs.gamma_eq == pytest.approx(0.50)
 
 

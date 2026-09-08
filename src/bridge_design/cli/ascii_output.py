@@ -1200,6 +1200,14 @@ def format_cantilever_slab_design_result(
         lines.append("No se evaluo colision de barrera porque no se recibio resultado de diseno de barrera.")
     else:
         collision = result.barrier_collision
+        lines.append(f"N simultanea={collision.axial_tension_tn_m:.3f} Tn/m; As incluye N/(phi*fy). {collision.status}: {collision.scope_note}")
+        lines.extend(
+            [
+                "Casos de colision MTC/AASHTO:",
+                *(f"  {case.name}: M={case.moment_tn_m:.3f} Tn*m/m; N={case.axial_tension_tn_m:.3f} Tn/m; V={case.vertical_force_tn_m:.3f} Tn/m; {case.status}" for case in collision.cases),
+                f"Conexion barrera-losa: yield-line={collision.connection_checks[0]}; friccion={collision.connection_checks[1]}; dowel={collision.connection_checks[2]}; desarrollo={collision.connection_checks[3]}",
+            ]
+        )
         lines.extend(
             [
                 (
@@ -1884,6 +1892,7 @@ def format_abutment_reaction_summary(
     project_inputs: ProjectInputs,
 ) -> str:
     """Return unfactored bridge reactions converted to abutment line loads."""
+    from bridge_design.domain.global_reactions import project_live_reaction_row, project_live_reaction_cases
     girder_count = project_inputs.interior_girder.girder_count
     exterior_count = 2
     interior_count = max(girder_count - exterior_count, 0)
@@ -1916,15 +1925,7 @@ def format_abutment_reaction_summary(
             exterior_count,
             abutment_length_m,
         ),
-        _abutment_live_reaction_row(
-            "PLL+IM",
-            "Carga viva vehicular",
-            interior_result.ll_im_envelope,
-            exterior_result.ll_im_envelope,
-            interior_count,
-            exterior_count,
-            abutment_length_m,
-        ),
+        project_live_reaction_row(project_inputs),
     )
     service_fixed_total = sum(float(row[2]) for row in rows)
     service_movable_total = sum(float(row[3]) for row in rows)
@@ -1947,7 +1948,7 @@ def format_abutment_reaction_summary(
         ),
         (
             f"Primero se suman {interior_count} viga(s) interior(es) y {exterior_count} viga(s) exterior(es); "
-            "luego q = R total / L estribo."
+            "para DC/DW/PL; LL+IM se calcula por equilibrio global de vehiculos y carriles. q = R/L."
         ),
     ]
     lines.extend(
@@ -1963,7 +1964,7 @@ def format_abutment_reaction_summary(
             "Unidades: R en Tn; q en Ton/m.",
             "PDC incluye losa, vigas, veredas, barandas, barreras y diafragmas modelados como DC.",
             "PDW incluye solo la superficie de rodadura de asfalto tributaria.",
-            "PLL+IM es la envolvente vehicular maxima de reaccion; incluye IM y carga de carril.",
+            "PLL+IM: maximos por apoyo de casos distintos. Para acciones favorables incluir el caso sin vehiculos.",
             (
                 "La carga peatonal se reporta como PPL: usarla aparte de PLL+IM, sin IM, "
                 "y combinarla como carga viva peatonal cuando las veredas puedan estar cargadas."
@@ -1971,6 +1972,12 @@ def format_abutment_reaction_summary(
             "=" * 104,
         ]
     )
+    lines.extend(boxed_table(
+        ("Caso fisico LL+IM", "R fijo", "R movil", "Carga total"),
+        ((row.name, f"{row.left_tn:.3f}", f"{row.right_tn:.3f}", f"{row.total_load_tn:.3f}")
+         for row in project_live_reaction_cases(project_inputs)),
+        title="Reacciones simultaneas por caso (Tn); R fijo + R movil = carga total",
+    ))
     return "\n".join(lines)
 
 
@@ -1994,28 +2001,6 @@ def _abutment_reaction_row(
         f"{movable_total:.3f}",
         f"{fixed_total / abutment_length_m:.3f}",
         f"{movable_total / abutment_length_m:.3f}",
-    )
-
-
-def _abutment_live_reaction_row(
-    symbol: str,
-    label: str,
-    interior_case,
-    exterior_case,
-    interior_count: int,
-    exterior_count: int,
-    abutment_length_m: float,
-) -> tuple[str, str, str, str, str, str]:
-    interior_reaction = interior_case.max_shear_tn
-    exterior_reaction = exterior_case.max_shear_tn
-    total = interior_count * interior_reaction + exterior_count * exterior_reaction
-    return (
-        symbol,
-        label,
-        f"{total:.3f}",
-        f"{total:.3f}",
-        f"{total / abutment_length_m:.3f}",
-        f"{total / abutment_length_m:.3f}",
     )
 
 

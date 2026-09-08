@@ -556,11 +556,11 @@ def cantilever_collision_trace(collision, control, geom_height: float | None = N
     mu_ee = collision.design_moment_tn_m
     mu_ri = control.design_moment_tn_m
     formula = (
-        "Ltr = Lc + 2H  ;  Vct = Ft/Ltr  ;  Mcol = Vct·H  ;  "
+        "Casos 1/2/3; Ltr = Lc + 2H ; N = max(Ft,Rw)/Ltr ; Mcol = max(Mc,N·H) ; As = As(M)+N/(phi·fy) ; "
         "Mperm = |γDC·MDC + γDW·MDW|  ;  Mu,EE-II = Mcol + Mperm"
     )
     legend = (
-        "Ft: fuerza transversal TL (YAML/impacto); Lc: longitud crítica del yield-line de la barrera; "
+        "F: mayor entre fuerza TL y resistencia desarrollable Rw; Lc: longitud crítica de la barrera; "
         "H: altura de la barrera; Mperm: permanentes factorizados de Resistencia I en el voladizo "
         "(sin PL ni LL)."
     )
@@ -570,10 +570,14 @@ def cantilever_collision_trace(collision, control, geom_height: float | None = N
         f"Lc = Ltr − 2H = {ltr:.3f} − 2·{h:.3f} = {lc:.3f} m\n"
         f"Ltr = {lc:.3f} + 2·{h:.3f} = {ltr:.3f} m\n"
         f"Vct = {ft:.3f}/{ltr:.3f} = {vct:.3f} Tn/m\n"
-        f"Mcol = {vct:.3f}·{h:.3f} = {mcol:.3f} Tn·m/m\n"
+        f"Mcol = max(Mc, {vct:.3f}·{h:.3f}) = {mcol:.3f} Tn·m/m\n"
         f"Mperm = {mperm:.3f} Tn·m/m\n"
         f"Mu,EE-II = {mcol:.3f} + {mperm:.3f} = {mu_ee:.3f} Tn·m/m\n"
-        f"Mu,RI = {mu_ri:.3f} Tn·m/m"
+        f"Mu,RI = {mu_ri:.3f} Tn·m/m\n"
+        + "Casos: " + "; ".join(
+            f"{case.name}: M={case.moment_tn_m:.3f}, N={case.axial_tension_tn_m:.3f}, {case.status}"
+            for case in collision.cases
+        )
     )
     design = max(mu_ri, mu_ee)
     result = f"El diseño flexional adopta Mu = max({mu_ri:.3f}; {mu_ee:.3f}) = {design:.3f} Tn·m/m."

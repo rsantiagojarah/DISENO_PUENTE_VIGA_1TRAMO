@@ -101,6 +101,7 @@ class AbutmentGeometryInputs:
             "backfill_step_width_m",
             "top_step_thickness_m",
             "small_batter_width_m",
+            "toe_length_m",
             "front_soil_depth_m",
             "bridge_seat_to_bearing_height_m",
         }
@@ -226,6 +227,11 @@ class AbutmentSoilInputs:
             self.backfill_slope_deg,
             self.wall_backface_angle_deg,
         )
+        if abs(self.wall_backface_angle_deg - 90.0) > 1e-9 or self.wall_soil_friction_deg > 1e-9:
+            raise ValueError(
+                "El modelo de empujes admite trasdos vertical y delta=0; "
+                "otras geometrías requieren descomposición completa de fuerzas."
+            )
 
 
 @dataclass(frozen=True)
@@ -403,6 +409,8 @@ class StabilityStateResult:
     sliding_with_key_status: str | None = None
     seismic_papir_combination: str | None = None
     effective_gamma_eq: float | None = None
+    load_factors: LoadFactors | None = None
+    vertical_components: tuple[LoadComponent, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -483,6 +491,8 @@ class StructuralDesignCase:
     extreme_moment_resistance_tn_m_m: float = 0.0
     strength_moment_status: str = ""
     extreme_moment_status: str = ""
+    signed_moment_envelope_tn_m_m: tuple[float, float] = (0.0, 0.0)
+    required_faces: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -628,7 +638,7 @@ class AbutmentDesignResult:
     stem_design: StructuralDesignCase
     stem_reinforcement_cut: AbutmentStemReinforcementCut | None
     heel_design: StructuralDesignCase
-    toe_design: StructuralDesignCase
+    toe_design: StructuralDesignCase | None
     key_design: StructuralDesignCase | None
     secondary_reinforcement: tuple[AbutmentSecondaryReinforcementCase, ...]
     crack_checks: tuple[AbutmentCrackCheck, ...]
@@ -790,14 +800,31 @@ def solve_abutment_design(
             key,
         ),
     )
-    stem_design, heel_design, toe_design = _structural_design(data, pressures, with_bridge, selected)
+    structural_states = without_bridge[:2] + extreme_without
+    if not data.is_pure_wall:
+        structural_states += with_bridge[:2] + extreme_with
+    stem_design, heel_design, toe_design = _structural_design(data, pressures, structural_states, selected)
+    heel_moments = [_heel_design_demands(data, state)[0] for state in structural_states]
+    heel_design = replace(heel_design, signed_moment_envelope_tn_m_m=(min(heel_moments), max(heel_moments)), required_faces=("superior", "inferior"))
+    if toe_design is not None:
+        toe_moments = [
+            _toe_design_demands(data, state, toe_design.effective_depth_cm)[0]
+            for state in structural_states
+        ]
+        toe_design = replace(
+            toe_design,
+            signed_moment_envelope_tn_m_m=(min(toe_moments), max(toe_moments)),
+            required_faces=("superior", "inferior"),
+        )
     key_design = _key_structural_design(data, key, selected)
-    structural_cases = (
-        (stem_design, heel_design, toe_design, key_design)
-        if key_design is not None
-        else (stem_design, heel_design, toe_design)
+    structural_cases = tuple(
+        case
+        for case in (stem_design, heel_design, toe_design, key_design)
+        if case is not None
     )
-    crack_checks = _crack_checks(data, pressures, service_with_bridge[0], structural_cases)
+    service_checks = [_crack_checks(data, pressures, state, structural_cases)
+                      for state in service_with_bridge + service_without_bridge]
+    crack_checks = tuple(max(rows, key=lambda row: row.steel_stress_kg_cm2) for rows in zip(*service_checks))
     development_checks = _development_checks(data, structural_cases)
     secondary_reinforcement = _secondary_reinforcement(data, selected)
     stem_reinforcement_cut = _stem_reinforcement_cut(data, pressures, stem_design, development_checks)
@@ -1151,7 +1178,7 @@ def _concrete_components(inputs: AbutmentInputs) -> tuple[LoadComponent, ...]:
             (
                 "Ensanche de pantalla",
                 (g.lower_stem_thickness_m - g.upper_stem_thickness_m) * e71 / 2.0,
-                g.toe_length_m + (g.lower_stem_thickness_m - g.upper_stem_thickness_m) / 3.0,
+                g.toe_length_m + 2.0 * (g.lower_stem_thickness_m - g.upper_stem_thickness_m) / 3.0,
                 g.footing_thickness_m + e71 / 3.0,
             ),
             ("Zapata - puntera", g.toe_length_m * g.footing_thickness_m, g.toe_length_m / 2.0, g.footing_thickness_m / 2.0),
@@ -1171,6 +1198,7 @@ def _concrete_components(inputs: AbutmentInputs) -> tuple[LoadComponent, ...]:
         return tuple(
             LoadComponent(name, "DC", area * gamma * g.strip_width_m, x, y)
             for name, area, x, y in rows
+            if area > 0.0
         )
     m67 = g.load_x_m
     puntera = g.toe_length_m
@@ -1670,6 +1698,8 @@ def _stability_state(
         sliding_with_key_status=("OK" if key_resistance >= hu else "NO") if key is not None else None,
         seismic_papir_combination=seismic_papir_combination,
         effective_gamma_eq=factors.ll if factors.limit_state == "extreme" else None,
+        load_factors=factors,
+        vertical_components=vertical,
     )
 
 
@@ -1719,9 +1749,9 @@ def _key_passive_soil_height_m(inputs: AbutmentInputs) -> float:
 def _structural_design(
     inputs: AbutmentInputs,
     pressures: SoilPressureResult,
-    with_bridge: tuple[StabilityStateResult, ...],
+    states: tuple[StabilityStateResult, ...],
     selected_reinforcement: Mapping[str, ReinforcementSpacingOption],
-) -> tuple[StructuralDesignCase, StructuralDesignCase, StructuralDesignCase]:
+) -> tuple[StructuralDesignCase, StructuralDesignCase, StructuralDesignCase | None]:
     g = inputs.geometry
     r = inputs.reinforcement
     grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m, r.maximum_spacing_m)
@@ -1736,52 +1766,52 @@ def _structural_design(
         ("Resistencia I", stem_demands["strength_mu"], r.flexural_phi),
         ("Evento Extremo", stem_demands["extreme_mu"], r.stem_design_phi_for_as),
     )
-    heel_demands = tuple(_heel_design_demands(inputs, state) for state in with_bridge)
-    heel_mu = max(moment for moment, _ in heel_demands)
-    heel_vu = max(shear for _, shear in heel_demands)
-    toe_demands = tuple(_toe_design_demands(inputs, state, toe_depth_cm) for state in with_bridge)
-    toe_mu = max(moment for moment, _ in toe_demands)
-    toe_vu = max(shear for _, shear in toe_demands)
+    heel_demands = tuple(_heel_design_demands(inputs, state) for state in states)
+    heel_mu = max(abs(moment) for moment, _ in heel_demands)
+    heel_vu = max(abs(shear) for _, shear in heel_demands)
     footing_temperature_as = _footing_temperature_as(inputs)
-    return (
-        _reinforced_case(
-            "Pantalla",
-            stem_mu,
-            stem_depth_cm,
-            stem_temperature_as,
-            stem_vu,
-            inputs,
-            grid,
-            r.flexural_phi,
-            r.stem_main_bar_label,
-            stem_temperature_as,
-            selected_reinforcement.get("Pantalla"),
-            notes=(
-                "As = max(As Resistencia I, As Evento Extremo); cada estado se "
-                "verifica con φ limitado por la deformación neta de tracción."
-            ),
-            shear_method="general",
-            limit_states=stem_limit_states,
+    stem_design = _reinforced_case(
+        "Pantalla",
+        stem_mu,
+        stem_depth_cm,
+        stem_temperature_as,
+        stem_vu,
+        inputs,
+        grid,
+        r.flexural_phi,
+        r.stem_main_bar_label,
+        stem_temperature_as,
+        selected_reinforcement.get("Pantalla"),
+        notes=(
+            "As = max(As Resistencia I, As Evento Extremo); cada estado se "
+            "verifica con φ limitado por la deformación neta de tracción."
         ),
-        _reinforced_case(
-            "Zapata - talon superior",
-            heel_mu,
-            footing_depth_cm,
-            footing_temperature_as,
-            heel_vu,
-            inputs,
-            grid,
-            r.footing_design_phi_for_as,
-            r.heel_main_bar_label,
-            footing_temperature_as,
-            selected_reinforcement.get("Zapata - talon superior"),
-            notes=(
-                "Envolvente Resistencia/Evento Extremo; Mu neto = |M descendente - M reaccion suelo| "
-                "con presion triangular/trapezoidal adoptada."
-            ),
-            shear_method="simplified",
-        ),
-        _reinforced_case(
+        shear_method="general",
+        limit_states=stem_limit_states,
+    )
+    heel_design = _reinforced_case(
+        "Zapata - talon superior",
+        heel_mu,
+        footing_depth_cm,
+        footing_temperature_as,
+        heel_vu,
+        inputs,
+        grid,
+        r.footing_design_phi_for_as,
+        r.heel_main_bar_label,
+        footing_temperature_as,
+        selected_reinforcement.get("Zapata - talon superior"),
+        notes="Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente.",
+        shear_method="simplified",
+    )
+    toe_design = None
+    if g.toe_length_m > 0.0:
+        toe_demands = tuple(
+            _toe_design_demands(inputs, state, toe_depth_cm) for state in states
+        )
+        toe_mu = max(abs(moment) for moment, _ in toe_demands)
+        toe_vu = max(abs(shear) for _, shear in toe_demands)
+        toe_design = _reinforced_case(
             "Zapata - puntera inferior",
             toe_mu,
             toe_depth_cm,
@@ -1794,10 +1824,10 @@ def _structural_design(
             footing_temperature_as,
             selected_reinforcement.get("Zapata - puntera inferior"),
             r.toe_moment_capacity_multiplier,
-            "Envolvente Resistencia/Evento Extremo con presion triangular/trapezoidal adoptada.",
+            "Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente.",
             shear_method="simplified",
-        ),
-    )
+        )
+    return stem_design, heel_design, toe_design
 
 
 def _key_structural_design(
@@ -1971,7 +2001,7 @@ def _reinforced_case(
         inputs=inputs,
     )
     shear_resistance_tn_m = _concrete_shear_resistance_tn(
-        effective_depth_cm,
+        shear_detail["dv_cm"],
         inputs,
         inputs.reinforcement.shear_phi,
         shear_detail["beta"],
@@ -2074,6 +2104,17 @@ def _secondary_reinforcement(
     horizontal_stem_note = (
         "Acero horizontal de distribucion en ambas caras; el acero principal es vertical."
     )
+    footing_direction = (
+        "Horizontal transversal al talon"
+        if inputs.geometry.toe_length_m == 0.0
+        else "Horizontal transversal a talon/puntera"
+    )
+    footing_lower_note = (
+        "Acero transversal inferior minimo por temperatura; la geometria no tiene puntera."
+        if inputs.geometry.toe_length_m == 0.0
+        else "Acero transversal inferior; el acero principal de la puntera es longitudinal "
+        "y no cubre el minimo por temperatura en esta direccion."
+    )
     return (
         _secondary_reinforcement_case(
             "Pantalla - vertical exterior",
@@ -2112,7 +2153,7 @@ def _secondary_reinforcement(
             "Zapata - transversal superior",
             "Zapata",
             "Superior",
-            "Horizontal transversal a talon/puntera",
+            footing_direction,
             footing_temperature,
             0.0,
             grid,
@@ -2124,12 +2165,11 @@ def _secondary_reinforcement(
             "Zapata - transversal inferior",
             "Zapata",
             "Inferior",
-            "Horizontal transversal a talon/puntera",
+            footing_direction,
             footing_temperature,
             0.0,
             grid,
-            "Acero transversal inferior; el acero principal de la puntera es longitudinal "
-            "y no cubre el minimo por temperatura en esta direccion.",
+            footing_lower_note,
             selected_reinforcement.get("Zapata - transversal inferior"),
         ),
     )
@@ -2463,6 +2503,29 @@ def _stem_cut_upper_steel_satisfies(
     provided_as_cm2_m: float,
     bar_diameter_cm: float,
 ) -> bool:
+    # Stepped sections do not have a monotone capacity with height.
+    # Verify the whole remaining length using the thinnest section and largest
+    # demand in each geometric interval, not just the proposed cutoff section.
+    g = inputs.geometry
+    height = g.stem_height_above_footing_m
+    body = height - g.seat_block_height_m - g.backwall_drop_m
+    breaks = (body - g.backwall_taper_height_m, body, height - g.seat_block_height_m)
+    points = {height_above_footing_m, height}
+    for boundary in breaks:
+        for y in (boundary - 1e-8, boundary, boundary + 1e-8):
+            if height_above_footing_m < y < height:
+                points.add(y)
+    ordered = sorted(points)
+    if provided_as_cm2_m + 1e-9 < _stem_temperature_as(inputs):
+        return False
+    for start, end in zip(ordered, ordered[1:]):
+        thickness = min(_stem_thickness_at_height_m(inputs, y) for y in (start, end))
+        depth = thickness * 100.0 - inputs.reinforcement.stem_cover_cm - bar_diameter_cm / 2.0
+        if depth <= 0.0 or not _stem_provided_steel_satisfies_limit_states(
+            inputs, provided_as_cm2_m, depth,
+            _stem_design_moments_at_height(inputs, pressures, start),
+        ):
+            return False
     _moment, effective_depth_cm, _, _, required_as, _required_moment = _stem_cut_design_at_height(
         inputs,
         pressures,
@@ -2548,6 +2611,17 @@ def _stem_cut_design_at_height(
 def _stem_thickness_at_height_m(inputs: AbutmentInputs, height_above_footing_m: float) -> float:
     g = inputs.geometry
     height = g.stem_height_above_footing_m
+    if not inputs.is_pure_wall:
+        y = min(max(height_above_footing_m, 0.0), height)
+        body = height - g.seat_block_height_m - g.backwall_drop_m
+        taper_start = body - g.backwall_taper_height_m
+        if y <= taper_start and taper_start > 1e-12:
+            return g.upper_stem_thickness_m + (g.lower_stem_thickness_m - g.upper_stem_thickness_m) * (1.0 - y / taper_start)
+        if y < body:
+            return g.upper_stem_thickness_m + (g.small_batter_width_m + g.backfill_step_width_m) * (y - taper_start) / g.backwall_taper_height_m
+        if y < height - g.seat_block_height_m:
+            return g.bearing_seat_length_m + g.seat_wall_width_m
+        return g.seat_wall_width_m
     if height <= 0.0:
         return g.lower_stem_thickness_m
     ratio = min(max(height_above_footing_m / height, 0.0), 1.0)
@@ -2771,6 +2845,9 @@ def _upper_concrete_weight_and_arm(inputs: AbutmentInputs) -> tuple[float, float
 
 def _heel_design_demands(inputs: AbutmentInputs, state: StabilityStateResult) -> tuple[float, float]:
     g = inputs.geometry
+    factors = state.load_factors
+    if factors is None:
+        raise ValueError("El caso de zapata debe conservar sus factores de carga.")
     gamma_concrete = inputs.materials.concrete_unit_weight_kg_m3 / 1000.0
     gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     h = g.stem_height_above_footing_m
@@ -2793,12 +2870,27 @@ def _heel_design_demands(inputs: AbutmentInputs, state: StabilityStateResult) ->
     lsy += inputs.soil.pedestrian_surcharge_tn_m2 * h_heel
     lsy_arm = h_heel / 2.0 + b_step
     moment = (
-        1.25 * footing_weight * (h_heel + b_step) / 2.0
-        + 1.35 * soil_weight * soil_arm
-        + 1.75 * lsy * lsy_arm
+        factors.dc * footing_weight * (h_heel + b_step) / 2.0
+        + factors.ev * soil_weight * soil_arm
+        + factors.ls_vertical * lsy * lsy_arm
     )
-    shear = 1.25 * footing_weight + 1.35 * soil_weight + 1.75 * lsy
+    shear = factors.dc * footing_weight + factors.ev * soil_weight + factors.ls_vertical * lsy
     heel_start = g.toe_length_m + g.lower_stem_thickness_m
+    if not inputs.is_pure_wall:
+        # Concrete projecting over the heel belongs to the same free body.
+        concrete_area = b_step * (g.backwall_drop_m + g.backwall_taper_height_m / 2.0)
+        concrete_first = b_step**2 * (g.backwall_drop_m / 2.0 + g.backwall_taper_height_m / 6.0)
+        wall_width = min(b_step, g.seat_wall_width_m)
+        concrete_area += wall_width * g.seat_block_height_m
+        concrete_first += wall_width * g.seat_block_height_m * (b_step - wall_width / 2.0)
+        shear += factors.dc * gamma_concrete * concrete_area
+        moment += factors.dc * gamma_concrete * concrete_first
+        for component in state.vertical_components:
+            if component.name.startswith(("PDC", "PDW", "PPL", "PLL")) and component.arm_m > heel_start:
+                factor = {"DC": factors.dc, "DW": factors.dw, "LL": factors.ll}[component.load_type]
+                load = factor * component.value_tn_m
+                shear += load
+                moment += load * (component.arm_m - heel_start)
     soil_reaction, soil_reaction_moment = _contact_pressure_resultant_over_interval(
         g,
         state,
@@ -2806,7 +2898,7 @@ def _heel_design_demands(inputs: AbutmentInputs, state: StabilityStateResult) ->
         g.footing_width_m,
         heel_start,
     )
-    return abs(moment - soil_reaction_moment), abs(shear - soil_reaction)
+    return moment - soil_reaction_moment, shear - soil_reaction
 
 
 def _toe_design_demands(
@@ -2816,14 +2908,19 @@ def _toe_design_demands(
 ) -> tuple[float, float]:
     g = inputs.geometry
     toe = g.toe_length_m
-    qmax = _contact_pressure_tn_m2_at_x(g, state, 0.0)
-    q_at_stem = _contact_pressure_tn_m2_at_x(g, state, toe)
-    moment = toe**2.0 / 6.0 * (q_at_stem + 2.0 * qmax)
+    factors = state.load_factors
+    if factors is None:
+        raise ValueError("El caso de zapata debe conservar sus factores de carga.")
+    downward = (factors.dc * g.footing_thickness_m * inputs.materials.concrete_unit_weight_kg_m3
+                + factors.ev * max(g.front_soil_depth_m - g.footing_thickness_m, 0.0) * inputs.materials.soil_unit_weight_kg_m3) / 1000.0
+    _, reaction_moment = _contact_pressure_resultant_over_interval(g, state, 0.0, toe, toe)
+    moment = -reaction_moment - downward * toe**2 / 2.0
     # Iterative capacity refinements can reduce the critical shear section; use
     # d initially, matching the workbook order within a small tolerance.
     critical_distance_m = min(effective_depth_cm / 100.0, toe)
-    q_at_critical = _contact_pressure_tn_m2_at_x(g, state, toe - critical_distance_m)
-    shear = 0.5 * (q_at_critical + qmax) * max(toe - critical_distance_m, 0.0)
+    length = max(toe - critical_distance_m, 0.0)
+    reaction, _ = _contact_pressure_resultant_over_interval(g, state, 0.0, length, toe)
+    shear = reaction - downward * length
     return moment, shear
 
 
@@ -2859,46 +2956,11 @@ def _stem_service_moment(inputs: AbutmentInputs, pressures: SoilPressureResult) 
 
 
 def _heel_service_moment(inputs: AbutmentInputs, state: StabilityStateResult) -> float:
-    g = inputs.geometry
-    gamma_concrete = inputs.materials.concrete_unit_weight_kg_m3 / 1000.0
-    gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
-    h = g.stem_height_above_footing_m
-    h_heel = g.heel_length_m - g.backfill_step_width_m
-    b_step = g.backfill_step_width_m
-    footing_weight = g.heel_length_m * g.footing_thickness_m * gamma_concrete
-    soil_rect = h_heel * h * gamma_soil
-    soil_triangle = b_step * g.backwall_taper_height_m / 2.0 * gamma_soil
-    soil_step = b_step * (h - g.seat_block_height_m - g.backwall_drop_m - g.backwall_taper_height_m) * gamma_soil
-    soil_weight = soil_rect + soil_triangle + soil_step
-    soil_arm = (
-        soil_rect * (b_step + h_heel / 2.0)
-        + soil_triangle * (b_step / 3.0)
-        + soil_step * (b_step / 2.0)
-    ) / soil_weight
-    h_eq = inputs.soil.vehicular_surcharge_height_m
-    if h_eq is None:
-        h_eq = equivalent_vehicular_surcharge_height_m(g.retained_height_m)
-    lsy = h_heel * h_eq * gamma_soil
-    lsy += inputs.soil.pedestrian_surcharge_tn_m2 * h_heel
-    lsy_arm = h_heel / 2.0 + b_step
-    moment = footing_weight * (h_heel + b_step) / 2.0 + soil_weight * soil_arm + lsy * lsy_arm
-    heel_start = g.toe_length_m + g.lower_stem_thickness_m
-    _, soil_reaction_moment = _contact_pressure_resultant_over_interval(
-        g,
-        state,
-        heel_start,
-        g.footing_width_m,
-        heel_start,
-    )
-    return abs(moment - soil_reaction_moment)
+    return abs(_heel_design_demands(inputs, state)[0])
 
 
 def _toe_service_moment(inputs: AbutmentInputs, state: StabilityStateResult) -> float:
-    g = inputs.geometry
-    toe = g.toe_length_m
-    qmax = _contact_pressure_tn_m2_at_x(g, state, 0.0)
-    q_at_stem = _contact_pressure_tn_m2_at_x(g, state, toe)
-    return toe**2.0 / 6.0 * (q_at_stem + 2.0 * qmax)
+    return abs(_toe_design_demands(inputs, state, 0.0)[0])
 
 
 def _contact_pressure_resultant_over_interval(
@@ -2968,7 +3030,7 @@ def _contact_pressure_tn_m2_at_x(
 
 def _key_base_moment_tn_m(inputs: AbutmentInputs, key: PassiveKeyResult) -> float:
     height = inputs.key.height_m
-    return height**2.0 * (2.0 * key.top_pressure_tn_m2 + key.bottom_pressure_tn_m2) / 6.0
+    return height**2.0 * (key.top_pressure_tn_m2 + 2.0 * key.bottom_pressure_tn_m2) / 6.0
 
 
 def _service_steel_stress_kg_cm2(
@@ -3047,9 +3109,9 @@ def _detail_face(element: str) -> str:
     if element == "Pantalla":
         return "Cara relleno"
     if element == "Zapata - talon superior":
-        return "Superior talon"
+        return "Ambas caras talon"
     if element == "Zapata - puntera inferior":
-        return "Inferior puntera"
+        return "Ambas caras puntera"
     if element == "Diente de concreto":
         return "Cara pasiva"
     return "-"
@@ -3177,9 +3239,8 @@ def _footing_simplified_shear_eligible(
     inputs: AbutmentInputs,
     effective_shear_depth_cm: float,
 ) -> bool:
-    """Simplified β=2 applies when the critical section is within 3·dv of the stem face."""
-    stem_thickness_m = inputs.geometry.lower_stem_thickness_m
-    return stem_thickness_m <= 0.0 or stem_thickness_m <= 3.0 * effective_shear_depth_cm / 100.0
+    """Use the general procedure until the actual zero-shear location is established."""
+    return False
 
 
 def _general_shear_beta(
@@ -3200,6 +3261,7 @@ def _general_shear_beta(
     epsilon_s = max(epsilon_s, 0.0)
     s_x_in = effective_shear_depth_cm / CM_PER_IN
     s_xe_in = s_x_in * 1.38 / (max_aggregate_size_in + 0.63)
+    s_xe_in = min(max(s_xe_in, 12.0), 80.0)
     beta = (4.8 / (1.0 + 750.0 * epsilon_s)) * (51.0 / (39.0 + s_xe_in))
     return beta, epsilon_s, s_x_in, s_xe_in, mu_used
 

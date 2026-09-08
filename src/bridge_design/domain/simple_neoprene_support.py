@@ -87,6 +87,11 @@ class SimpleSupportDemands:
         return self.r_dc_tn + self.r_dw_tn + self.r_pl_tn + self.r_ll_im_tn
 
     @property
+    def r_strength_tn(self) -> float:
+        """MTC 2.4.5.3.1-1, Resistencia I; inputs remain service actions."""
+        return 1.25 * self.r_dc_tn + 1.50 * self.r_dw_tn + 1.75 * (self.r_pl_tn + self.r_ll_im_tn)
+
+    @property
     def r_permanent_tn(self) -> float:
         return self.r_dc_tn + self.r_dw_tn
 
@@ -109,7 +114,7 @@ class SimpleSupportDemands:
             * self.alpha_per_c
             * self.span_length_m
             * 100.0
-            * temp.contraction_delta_t_c
+            * temp.envelope_delta_t_c
         )
 
 
@@ -299,8 +304,8 @@ def design_simple_neoprene_support(inputs: SimpleSupportInputs) -> SimpleSupport
             _check(
                 "Aplastamiento concreto bajo apoyo",
                 "R <= phi*0.85*f'c*A_eff",
-                f"{demands.r_service_tn*1000:.0f} <= 0.70*0.85*{inputs.fc_kg_cm2:.0f}*{effective_area:.1f}",
-                demands.r_service_tn * 1000.0,
+                f"Resistencia I: {demands.r_strength_tn*1000:.0f} <= 0.70*0.85*{inputs.fc_kg_cm2:.0f}*{effective_area:.1f}",
+                demands.r_strength_tn * 1000.0,
                 0.70 * 0.85 * inputs.fc_kg_cm2 * effective_area,
                 "kg",
             ),
@@ -430,7 +435,7 @@ def _movable_plate_checks(
     plates = inputs.plates
     assert plates is not None
     plate_area = geom.gross_area_cm2
-    sigma_plate = demands.r_service_tn * 1000.0 / plate_area
+    sigma_plate = demands.r_strength_tn * 1000.0 / plate_area
     return [
         _check(
             "Cortante por movimiento termico",
@@ -484,7 +489,7 @@ def _movable_plate_checks(
         _check(
             "Compresion en planchas A36",
             "R/A <= 0.95Fy",
-            f"{demands.r_service_tn*1000:.0f}/{plate_area:.1f}={sigma_plate:.2f}",
+            f"Resistencia I: {demands.r_strength_tn*1000:.0f}/{plate_area:.1f}={sigma_plate:.2f}",
             sigma_plate,
             0.95 * plates.fy_kg_cm2,
             "kg/cm2",

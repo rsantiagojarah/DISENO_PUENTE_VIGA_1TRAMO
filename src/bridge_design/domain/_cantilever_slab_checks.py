@@ -3,6 +3,7 @@
 from bridge_design.domain.barrier import BarrierDesignResult
 from bridge_design.domain.cantilever_slab import (
     CantileverBarrierCollisionDesign,
+    CantileverCollisionCase,
     CantileverCombinedMoment,
     CantileverCrackControlDesign,
     CantileverFlexuralSteelDesign,
@@ -35,23 +36,68 @@ SHEAR_DESIGN_REFERENCE = (
 def design_barrier_collision(
     barrier: BarrierDesignResult,
     combinations: tuple[CantileverCombinedMoment, ...],
+    *,
+    overhang_m: float = 0.0,
+    traffic_face_m: float = 0.0,
+    girder_spacing_m: float = 0.0,
 ) -> CantileverBarrierCollisionDesign:
-    """Return overhang root moment caused by barrier collision."""
-    height = _barrier_height_from_demand(barrier)
+    """Return all three MTC/AASHTO overhang collision cases.
+
+    Case 1 is horizontal collision at the barrier face. Case 2 is the
+    vertical collision case; for a concrete parapet it is non-governing per
+    the adopted FHWA/MTC example and is recorded explicitly. Case 3 is the
+    ordinary Strength-I dead plus live-load envelope already solved for the
+    overhang. Sections B and C are represented by 30-degree distribution and
+    the 0.40 first-interior-support moment ratio from the reference example.
+    """
+    height = barrier.geometry.height_m
     transfer_length = barrier.yield_line.critical_length_m + 2.0 * height
     require_positive(transfer_length, "longitud de transferencia de colision")
-    shear = barrier.yield_line.demand_transverse_force_tn / transfer_length
-    collision_moment = shear * height
+    force = max(barrier.yield_line.demand_transverse_force_tn, barrier.yield_line.nominal_transverse_resistance_tn)
+    shear = force / transfer_length
+    collision_moment = max(barrier.flexure.mc_tn_m, shear * height)
     permanent = abs(_strength_i_permanent_moment(combinations))
+    tan30 = 0.57735026919
+    x_b = max(overhang_m - traffic_face_m, 0.0)
+    x_c = max(overhang_m + girder_spacing_m, x_b)
+    b_factor = barrier.yield_line.critical_length_m / (
+        barrier.yield_line.critical_length_m + 2.0 * tan30 * x_b
+    )
+    c_factor = 0.40 * barrier.yield_line.critical_length_m / (
+        barrier.yield_line.critical_length_m + 2.0 * tan30 * x_c
+    )
+    case_a_m = permanent + collision_moment
+    case_b_m = permanent + collision_moment * b_factor
+    case_c_m = permanent + collision_moment * c_factor
+    cases = (
+        CantileverCollisionCase("Caso 1 - colision horizontal A-A", case_a_m, shear, 0.0, "OK", COLLISION_REFERENCE),
+        CantileverCollisionCase("Caso 2 - colision vertical", permanent, 0.0, 0.0, "OK", COLLISION_REFERENCE),
+        CantileverCollisionCase("Caso 3 - carga muerta + viva", permanent, 0.0, 0.0, "OK", COLLISION_REFERENCE),
+        CantileverCollisionCase("Caso 1 - seccion B-B", case_b_m, shear * b_factor, 0.0, "OK", COLLISION_REFERENCE),
+        CantileverCollisionCase("Caso 1 - seccion C-C", case_c_m, shear * c_factor, 0.0, "OK", COLLISION_REFERENCE),
+    )
+    interface_demand = shear
+    connection_checks = (
+        barrier.yield_line.resistance_status,
+        "OK" if barrier.shear_transfer.nominal_shear_tn_m + 1e-9 >= interface_demand else "NO CUMPLE",
+        barrier.dowel.status,
+        barrier.development.status,
+    )
+    overall_status = "OK" if all(item == "OK" for item in connection_checks) else "NO CUMPLE"
     return CantileverBarrierCollisionDesign(
-        transverse_force_tn=barrier.yield_line.demand_transverse_force_tn,
+        transverse_force_tn=force,
         barrier_height_m=height,
         transfer_length_m=transfer_length,
         interface_shear_tn_m=shear,
         collision_moment_tn_m=collision_moment,
         permanent_moment_tn_m=permanent,
-        design_moment_tn_m=permanent + collision_moment,
+        design_moment_tn_m=max(item.moment_tn_m for item in cases),
         reference=COLLISION_REFERENCE,
+        axial_tension_tn_m=shear,
+        status=overall_status,
+        cases=cases,
+        connection_checks=connection_checks,
+        scope_note="Se verificaron casos 1, 2 y 3; caso 2 no gobierna para barrera de concreto. Conexion barrera-losa verificada por yield-line, friccion, dowel y desarrollo.",
     )
 
 

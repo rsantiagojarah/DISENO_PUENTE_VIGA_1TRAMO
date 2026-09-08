@@ -95,7 +95,8 @@ def test_method_a_non_prestressed_example_passes():
     assert result.total_elastomer_cm + 1e-9 >= 2.0 * result.delta_s_cm
     assert result.interior_layers >= 3
     assert result.shape_factor_interior >= 5.0
-    assert result.overall_ok
+    assert not result.overall_ok  # H33: external seismic restraint remains unverified.
+    assert any(check.status == "ANCLAR" for check in result.checks)
     assert "mm" in result.designation
 
 

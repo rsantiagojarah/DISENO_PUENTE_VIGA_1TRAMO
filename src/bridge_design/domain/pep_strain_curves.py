@@ -1,17 +1,17 @@
 """Curvas esfuerzo-deformacion para PEP (Fig. C14.7.6.3.3-1 AASHTO).
 
-Puntos digitalizados de la figura de comentario AASHTO para durezas 50/60/70.
-Interpolacion bilineal en (S, sigma). Si el punto sale del rango, se marca
-extrapolacion limitada y se recomienda dato de fabricante.
+Datos ilustrativos heredados, sin digitalizacion ni fabricante trazables.
+No acreditan una verificacion de deformaciones de un aparato real.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 # Tabla: dureza -> lista (S, sigma_kg_cm2, epsilon)
-# Procedencia: digitalizacion de Fig. C14.7.6.3.3-1 (AASHTO) a partir de
-# valores tipicos publicados en ejemplos Metodo A / Serquen Cap.4.
+# Valores ilustrativos heredados de ejemplos; no hay una digitalizacion
+# documentada ni un certificado de fabricante en el repositorio.
 _CURVE_POINTS: dict[int, tuple[tuple[float, float, float], ...]] = {
     50: (
         (3.0, 20.0, 0.055),
@@ -33,13 +33,9 @@ _CURVE_POINTS: dict[int, tuple[tuple[float, float, float], ...]] = {
         (5.0, 20.0, 0.025),
         (5.0, 40.0, 0.045),
         (5.0, 56.0, 0.060),
-        (6.0, 51.85, 0.036),  # Serquen-style punto ~0.74 ksi
-        (6.0, 68.15, 0.0445),
         (8.0, 20.0, 0.015),
         (8.0, 40.0, 0.028),
         (8.0, 56.0, 0.038),
-        (11.25, 51.85, 0.029),
-        (11.25, 68.15, 0.035),
         (12.0, 20.0, 0.010),
         (12.0, 40.0, 0.018),
         (12.0, 56.0, 0.025),
@@ -65,6 +61,8 @@ class StrainLookupResult:
     epsilon: float
     source: str
     extrapolated: bool
+    verified_source: bool = False
+    status: str = "PENDIENTE DATOS DE FABRICANTE"
 
 
 def compressive_strain_from_curve(
@@ -72,11 +70,11 @@ def compressive_strain_from_curve(
     shape_factor: float,
     sigma_kg_cm2: float,
 ) -> StrainLookupResult:
-    """Return epsilon from digitized AASHTO C14.7.6.3.3-1 curve."""
-    points = _CURVE_POINTS.get(int(hardness))
+    """Return illustrative strain, always marked as lacking a verified source."""
+    points = _CURVE_POINTS.get(hardness)
     if not points:
         raise ValueError(f"No hay curva digitalizada para Shore {hardness}.")
-    if shape_factor <= 0 or sigma_kg_cm2 < 0:
+    if not all(isfinite(v) for v in (shape_factor, sigma_kg_cm2)) or shape_factor <= 0 or sigma_kg_cm2 < 0:
         raise ValueError("S y sigma deben ser no negativos; S > 0.")
 
     # Vecinos por S
@@ -93,11 +91,13 @@ def compressive_strain_from_curve(
     extrapolated = (
         shape_factor < s_values[0] - 1e-9
         or shape_factor > s_values[-1] + 1e-9
-        or sigma_kg_cm2 > max(p[1] for p in points) + 1e-9
+        or any(sigma_kg_cm2 > max(p[1] for p in points if p[0] == s) + 1e-9
+               or (0.0 < sigma_kg_cm2 < min(p[1] for p in points if p[0] == s))
+               for s in {s_lo, s_hi})
     )
     return StrainLookupResult(
         epsilon=max(eps, 0.0),
-        source="Fig. C14.7.6.3.3-1 AASHTO (puntos digitalizados verificables)",
+        source="Referencia orientativa C14.7.6.3.3-1; datos ilustrativos NO verificados; exigir curvas de fabricante",
         extrapolated=extrapolated,
     )
 
@@ -105,7 +105,7 @@ def compressive_strain_from_curve(
 def _interp_sigma(column: list[tuple[float, float, float]], sigma: float) -> float:
     column = sorted(column, key=lambda p: p[1])
     if sigma <= column[0][1]:
-        return column[0][2]
+        return sigma * column[0][2] / column[0][1]
     if sigma >= column[-1][1]:
         # extrapolacion lineal suave del ultimo tramo
         if len(column) == 1:

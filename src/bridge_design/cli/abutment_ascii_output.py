@@ -254,13 +254,26 @@ def _strip_existing_title_code(title: str) -> str:
 def _abutment_reinforcement_case_options(
     result: AbutmentDesignResult,
 ) -> tuple[ReinforcementCaseOptions, ...]:
-    primary = [result.stem_design, result.heel_design, result.toe_design]
-    if result.key_design is not None:
-        primary.append(result.key_design)
+    primary = _primary_structural_cases(result)
     options = [case.spacing_options for case in primary] + [
         case.spacing_options for case in result.secondary_reinforcement
     ]
     return tuple(sorted(options, key=lambda case_options: _reinforcement_group_rank(case_options.label)))
+
+
+def _primary_structural_cases(
+    result: AbutmentDesignResult,
+) -> tuple[StructuralDesignCase, ...]:
+    return tuple(
+        case
+        for case in (
+            result.stem_design,
+            result.heel_design,
+            result.toe_design,
+            result.key_design,
+        )
+        if case is not None
+    )
 
 
 def _reinforcement_group_rank(label: str) -> int:
@@ -340,6 +353,7 @@ def _format_input_summary(result: AbutmentDesignResult) -> list[str]:
         ("B zapata", f"{g.footing_width_m:.3f} m"),
         ("D zapata", f"{g.footing_thickness_m:.3f} m"),
         ("Puntera", f"{g.toe_length_m:.3f} m"),
+        ("Configuracion de zapata", "Solo talon" if g.toe_length_m == 0.0 else "Puntera y talon"),
         ("Talon", f"{g.heel_length_m:.3f} m"),
         ("e inferior pantalla", f"{g.lower_stem_thickness_m:.3f} m"),
         ("e superior pantalla", f"{g.upper_stem_thickness_m:.3f} m"),
@@ -734,10 +748,7 @@ def _format_key_procedure(result: AbutmentDesignResult) -> list[str]:
 
 def _format_structural_procedure(result: AbutmentDesignResult) -> list[str]:
     rows = []
-    cases = [result.stem_design, result.heel_design, result.toe_design]
-    if result.key_design is not None:
-        cases.append(result.key_design)
-    for case in cases:
+    for case in _primary_structural_cases(result):
         rows.extend(
             [
                 (case.name, "Mu", "maximo requerimiento de As entre estados", f"{case.controlling_moment_tn_m_m:.3f} Tn*m/m"),
@@ -1063,10 +1074,7 @@ def _format_structural_design(
     case_filter: set[str] | None = None,
 ) -> list[str]:
     lines: list[str] = []
-    cases = [result.stem_design, result.heel_design, result.toe_design]
-    if result.key_design is not None:
-        cases.append(result.key_design)
-    for case in cases:
+    for case in _primary_structural_cases(result):
         if case_filter is not None and case.name not in case_filter:
             continue
         lines.extend(

@@ -530,8 +530,7 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
         legend = (
             "MLS, MEH, MEQ, MPIR: momentos en la base de pantalla; "
             "Mu,E-A y Mu,E-B: combinaciones MTC Art. 2.8.1.1.14.1; "
-            "As = max(As,R, As,E), ambas con φ(εt). "
-            "El muro no incorpora acciones del tablero."
+            "As = max(As,R, As,E), ambas con φ(εt)."
         )
         substitution = (
             f"Hp = {height:.3f} m; Ka = {ka:.5f}; kAE = {k_ae:.5f}\n"
@@ -546,8 +545,8 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
             f"Vu = {case.shear_demand_tn_m:.3f} Tn/m"
         )
         comment = (
-            "El Evento Extremo de pantalla envuelve las dos combinaciones MTC PAE/PIR "
-            "sin acciones de superestructura; el PIR usa la masa de concreto sobre zapata. "
+            "El Evento Extremo de pantalla envuelve las dos combinaciones MTC PAE/PIR; "
+            "el PIR usa la masa de concreto sobre zapata. "
             "Resistencia I y Evento Extremo se dimensionan con φ(εt), entre 0.75 y 0.90."
         )
     else:
@@ -591,7 +590,11 @@ def heel_toe_demand_trace(
     case: StructuralDesignCase,
 ) -> tuple[str, str, str, str, str] | None:
     if case.name == "Zapata - talon superior":
-        envelope_label = "estados del muro" if result.inputs.is_pure_wall else "estados con puente"
+        envelope_label = (
+            "los estados de Resistencia I y las dos combinaciones sísmicas aplicables al muro"
+            if result.inputs.is_pure_wall
+            else "los estados con y sin puente y las dos combinaciones sísmicas"
+        )
         formula = (
             f"Mu = |Σ(γi·Wi·xi) − Msuelo| ; Vu = |Σ(γi·Wi) − Vsuelo| ; "
             f"envolvente sobre {envelope_label}"
@@ -603,8 +606,7 @@ def heel_toe_demand_trace(
         substitution = (
             f"Mu gobernante = {case.controlling_moment_tn_m_m:.3f} Tn·m/m\n"
             f"Vu gobernante = {case.shear_demand_tn_m:.3f} Tn/m\n"
-            "Pesos factorizados típicos: γDC = 1.25; γEV = 1.35; γLS = 1.75 "
-            "(menos reacción de suelo del estado correspondiente)."
+            f"M con signo: {case.signed_moment_envelope_tn_m_m}; cada peso y reaccion usa los factores de su propio caso."
         )
         result_text = (
             f"Para el talón Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m y "
@@ -618,7 +620,7 @@ def heel_toe_demand_trace(
         g = result.inputs.geometry
         d_m = case.effective_depth_cm / 100.0
         formula = (
-            "Mu = Lp²/6·(qcara + 2·qmax) ; Vu = 0.5·(qcrit + qmax)·(Lp − d)"
+            "M = integral[(qsuelo-qdescendente)·brazo dx]; V = integral[qsuelo-qdescendente dx]"
         )
         legend = (
             "Lp: longitud de puntera; qmax: presión en el borde de puntera; qcara: presión en la "
@@ -803,8 +805,8 @@ def shear_beta_trace(
     if case.shear_beta_method == "general":
         formula = (
             "Mu,usado = max(Mu, Vu·dv) ; εs = 1000·(Mu,usado/dv + Vu)/(Es·As,prov) ; "
-            "dv = max(0.9d, 0.72h) ; sx = dv ; sxe = sx·1.38/(ag + 0.63) ; "
-            "β = 4.8/(1 + 750·εs)·51/(39 + sxe) ; Vr = φv·0.265·β·√f'c·b·d"
+            "dv = max(0.9d, 0.72h) ; sx = dv ; sxe = min(80,max(12,sx·1.38/(ag + 0.63))) ; "
+            "β = 4.8/(1 + 750·εs)·51/(39 + sxe) ; Vr = φv·0.265·β·√f'c·b·dv"
         )
         legend = (
             "Procedimiento general MTC 2.9.1.5.6.3.4.2 / AASHTO 5.7.3.4.2 sin estribos transversales; "
@@ -823,11 +825,11 @@ def shear_beta_trace(
             f"+ {case.shear_demand_tn_m:.3f})/({STEEL_ELASTIC_MODULUS_KG_CM2:.0f}·{case.provided_as_cm2_m:.3f}) "
             f"= {case.shear_longitudinal_strain:.6f}\n"
             f"sx = {case.shear_crack_spacing_in:.3f} in; ag = {ag:.2f} in\n"
-            f"sxe = {case.shear_crack_spacing_in:.3f}·1.38/({ag:.2f} + 0.63) "
+            f"sxe = min(80,max(12,{case.shear_crack_spacing_in:.3f}·1.38/({ag:.2f} + 0.63))) "
             f"= {case.shear_effective_crack_spacing_in:.3f} in\n"
             f"β = 4.8/(1 + 750·{case.shear_longitudinal_strain:.6f})·51/(39 + {case.shear_effective_crack_spacing_in:.3f}) "
             f"= {case.shear_beta:.6f}\n"
-            f"Vr = {phi_v:.3f}·0.265·{case.shear_beta:.6f}·√{fc:.1f}·100·{case.effective_depth_cm:.2f}/1000 "
+            f"Vr = {phi_v:.3f}·0.265·{case.shear_beta:.6f}·√{fc:.1f}·100·{case.shear_effective_depth_cm:.2f}/1000 "
             f"= {case.shear_resistance_tn_m:.3f} Tn/m"
         )
         comment = (
@@ -837,7 +839,7 @@ def shear_beta_trace(
     else:
         formula = (
             "dv = max(0.9d, 0.72h) ; β = 2 (procedimiento simplificado, θ = 45°) ; "
-            "Vr = φv·0.265·β·√f'c·b·d"
+            "Vr = φv·0.265·β·√f'c·b·dv"
         )
         legend = (
             "Procedimiento simplificado MTC 2.9.1.5.6.3.4.1 / AASHTO 5.7.3.4.1 cuando la sección crítica "
@@ -848,7 +850,7 @@ def shear_beta_trace(
             f"dv = max(0.9·{case.effective_depth_cm:.2f}, 0.72·{gross_depth_cm:.2f}) "
             f"= {case.shear_effective_depth_cm:.2f} cm\n"
             f"Distancia cortante nula (cara muro < 3·dv): se adopta β = {SIMPLIFIED_SHEAR_BETA:.1f}\n"
-            f"Vr = {phi_v:.3f}·0.265·{case.shear_beta:.1f}·√{fc:.1f}·100·{case.effective_depth_cm:.2f}/1000 "
+            f"Vr = {phi_v:.3f}·0.265·{case.shear_beta:.1f}·√{fc:.1f}·100·{case.shear_effective_depth_cm:.2f}/1000 "
             f"= {case.shear_resistance_tn_m:.3f} Tn/m\n"
             f"Vu = {case.shear_demand_tn_m:.3f} Tn/m"
         )

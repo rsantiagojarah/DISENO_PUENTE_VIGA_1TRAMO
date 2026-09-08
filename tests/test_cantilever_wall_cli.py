@@ -160,6 +160,73 @@ def test_wall_geometry_prompt_omits_bridge_fields(monkeypatch) -> None:
     assert geometry.front_soil_depth_m == geometry.footing_thickness_m
 
 
+def test_wall_geometry_prompt_accepts_zero_toe(monkeypatch) -> None:
+    from bridge_design.cli.abutment_input_prompts import _collect_geometry
+
+    answers = iter(["", "2.00", "0.50", "0", "0.30", "0.30", ""])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+
+    geometry = _collect_geometry(include_bridge_inputs=False)
+
+    assert geometry.toe_length_m == 0.0
+    assert geometry.heel_length_m == pytest.approx(1.70)
+
+
+def test_pure_wall_without_toe_omits_nonexistent_structural_case() -> None:
+    from bridge_design.cli.abutment_ascii_output import (
+        format_abutment_design_result,
+        format_abutment_reinforcement_option_tables,
+    )
+    from bridge_design.domain.abutment import (
+        AbutmentGeometryInputs,
+        AbutmentInputs,
+        solve_abutment_design,
+    )
+
+    result = solve_abutment_design(
+        AbutmentInputs(
+            geometry=AbutmentGeometryInputs(
+                retained_height_m=2.45,
+                footing_width_m=2.00,
+                footing_thickness_m=0.50,
+                toe_length_m=0.0,
+                lower_stem_thickness_m=0.30,
+                upper_stem_thickness_m=0.30,
+                front_soil_depth_m=0.50,
+                seat_block_height_m=0.0,
+                backwall_drop_m=0.0,
+                backwall_taper_height_m=0.0,
+            ),
+            is_pure_wall=True,
+        )
+    )
+    report = format_abutment_design_result(
+        result,
+        title="DISENO DE MURO DE CONCRETO ARMADO EN CANTILEVER",
+        primary_stability_title="MURO PURO",
+    )
+    option_tables = format_abutment_reinforcement_option_tables(result)
+
+    assert result.inputs.geometry.heel_length_m == pytest.approx(1.70)
+    assert result.toe_design is None
+    assert "Zapata - puntera" not in {
+        component.name for component in result.concrete_components
+    }
+    assert all(check.element != "Zapata - puntera inferior" for check in result.crack_checks)
+    assert all(check.element != "Zapata - puntera inferior" for check in result.development_checks)
+    assert all(detail.element != "Zapata - puntera inferior" for detail in result.bar_details)
+    assert "Solo talon" in report
+    assert "DISENO ESTRUCTURAL - Zapata - puntera inferior" not in report
+    assert "OPCIONES - Zapata - puntera inferior" not in option_tables
+
+
+def test_wall_geometry_rejects_negative_toe() -> None:
+    from bridge_design.domain.abutment import AbutmentGeometryInputs
+
+    with pytest.raises(ValueError, match="toe_length_m"):
+        AbutmentGeometryInputs(toe_length_m=-0.01)
+
+
 def test_pure_wall_solver_sanitizes_bridge_geometry_and_loads() -> None:
     from bridge_design.domain.abutment import (
         AbutmentGeometryInputs,
@@ -500,7 +567,7 @@ def test_wall_soil_prompt_rejects_theta_measured_from_vertical(monkeypatch, caps
     from bridge_design.cli.abutment_input_prompts import _collect_soil
     from bridge_design.domain.abutment import AbutmentGeometryInputs
 
-    answers = iter(["0", "", "28", "28", "", "5", "90", "", "", "", ""])
+    answers = iter(["0", "", "28", "0", "", "5", "90", "", "", "", ""])
 
     def fake_input(prompt: str) -> str:
         return next(answers)
@@ -510,7 +577,7 @@ def test_wall_soil_prompt_rejects_theta_measured_from_vertical(monkeypatch, caps
     soil = _collect_soil(AbutmentGeometryInputs(), element_label="muro")
 
     assert soil.wall_backface_angle_deg == 90.0
-    assert "theta cara posterior se mide desde la horizontal" in capsys.readouterr().out
+    assert "trasdos vertical" in capsys.readouterr().out
 
 
 def test_pure_wall_report_includes_shear_beta_trace() -> None:
@@ -565,6 +632,9 @@ def test_pure_wall_report_omits_bridge_load_terms() -> None:
     assert "PEQ superestructura" not in report
     assert "ESTRIBO CON PUENTE" not in report
     assert "DC estribo" not in report
+    assert "con/sin puente" not in report.lower()
+    assert "con puente" not in report.lower()
+    assert "sin puente" not in report.lower()
     assert "cajuela" not in report.lower()
     assert "transicion" not in report.lower()
     assert "ESTABILIDAD SIN PUENTE" not in report

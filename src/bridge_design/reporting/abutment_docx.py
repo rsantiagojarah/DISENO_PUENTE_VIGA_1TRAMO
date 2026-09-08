@@ -108,7 +108,7 @@ def _labels(*, is_pure_wall: bool) -> _ReportLabels:
             cover_subtitle="Geometría · empujes · estabilidad · dentellón · diseño estructural · detalle",
             system="Muro de contención de concreto armado en cantilever, franja de 1.00 m",
             analysis_intro=(
-                "El muro se analiza por una franja longitudinal de 1.00 m sin acciones del tablero. "
+                "El muro se analiza por una franja longitudinal de 1.00 m. "
                 "Las acciones se conservan por naturaleza de carga y se combinan mediante factores LRFD. "
                 "La estabilidad se verifica con la resultante en la base, la resistencia al deslizamiento "
                 "y la presión de contacto; el diseño estructural emplea las presiones lineales adoptadas "
@@ -415,8 +415,7 @@ def _design_basis(
     else:
         _comment(
             document,
-            "El muro se modela sin transferencia de acciones del tablero; las combinaciones LRFD "
-            "consideran únicamente pesos propios, relleno, empujes y sismo.",
+            "Las combinaciones LRFD consideran únicamente pesos propios, relleno, empujes y sismo.",
         )
 
 
@@ -779,7 +778,17 @@ def _key_design(document: Document, result: AbutmentDesignResult) -> None:
 
 def _structural_design(document: Document, result: AbutmentDesignResult) -> None:
     document.add_heading("6. Diseño estructural", level=1)
-    _body(document, "Se desarrollan por separado la pantalla, el talón, la puntera y el dentellón. Para cada elemento se muestra la demanda gobernante, el acero requerido y el refuerzo adoptado.")
+    footing_elements = (
+        "el talón y la puntera"
+        if result.toe_design is not None
+        else "el talón; la geometría adoptada no tiene puntera"
+    )
+    _body(
+        document,
+        f"Se desarrollan por separado la pantalla, {footing_elements} y el dentellón. "
+        "Para cada elemento existente se muestra la demanda gobernante, el acero requerido "
+        "y el refuerzo adoptado.",
+    )
     for index, case in enumerate(_structural_cases(result), start=1):
         document.add_heading(f"6.{index} {case.name}", level=2)
         _structural_case(document, result, case)
@@ -977,10 +986,16 @@ def _references(document: Document) -> None:
 
 
 def _structural_cases(result: AbutmentDesignResult) -> tuple[StructuralDesignCase, ...]:
-    cases = [result.stem_design, result.heel_design, result.toe_design]
-    if result.key_design is not None:
-        cases.append(result.key_design)
-    return tuple(cases)
+    return tuple(
+        case
+        for case in (
+            result.stem_design,
+            result.heel_design,
+            result.toe_design,
+            result.key_design,
+        )
+        if case is not None
+    )
 
 
 def _gross_depth_cm(result: AbutmentDesignResult, element: str) -> float:
