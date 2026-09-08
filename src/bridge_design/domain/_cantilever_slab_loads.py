@@ -7,6 +7,7 @@ from bridge_design.codes.mtc_2018 import (
 )
 from bridge_design.domain.cantilever_slab import (
     CantileverLoadEffect,
+    CantileverSlabApplicabilityError,
     CantileverSlabParameters,
     LoadGroup,
 )
@@ -25,7 +26,14 @@ def cantilever_load_effects(
     live_loads: LiveLoads,
     layout: TransverseLoadLayout,
     params: CantileverSlabParameters,
-) -> tuple[tuple[CantileverLoadEffect, ...], float, float, tuple[str, ...]]:
+) -> tuple[
+    tuple[CantileverLoadEffect, ...],
+    float,
+    float,
+    float,
+    str,
+    tuple[str, ...],
+]:
     """Return unfactored load effects at the exterior-girder overhang root."""
     root = geometry.overhang_m
     effects: list[CantileverLoadEffect] = []
@@ -96,7 +104,17 @@ def cantilever_load_effects(
 
     traffic_face = layout.barrier_left_m + layout.barrier_width_m
     vehicular_line = traffic_face + params.wheel_clearance_to_traffic_face_m
-    if root <= MAX_DECK_OVERHANG_KNIFE_LOAD_APPLICABILITY_M:
+    traffic_face_to_girder = root - traffic_face
+    if vehicular_line > root:
+        vehicular_load_method = "Ruedas reales en el analisis transversal"
+        notes.append(
+            "La linea vehicular queda hacia el interior del eje de la viga exterior "
+            f"(D={traffic_face_to_girder:.3f} m; x rueda={vehicular_line:.3f} m > "
+            f"x viga={root:.3f} m): no carga directamente el voladizo y su efecto "
+            "se evalua como ruedas reales en el analisis transversal de la losa."
+        )
+    elif traffic_face_to_girder <= MAX_DECK_OVERHANG_KNIFE_LOAD_APPLICABILITY_M:
+        vehicular_load_method = "Cuchilla equivalente MTC 2.4.3.2.3.4"
         _append_point_if_inside(
             effects,
             "LL+IM - cuchilla voladizo",
@@ -110,11 +128,22 @@ def cantilever_load_effects(
             notes,
         )
     else:
-        notes.append(
-            "No se aplica la sustitucion de fila de ruedas por cuchilla: "
-            f"volado={root:.3f} m > {MAX_DECK_OVERHANG_KNIFE_LOAD_APPLICABILITY_M:.3f} m."
+        raise CantileverSlabApplicabilityError(
+            "No puede completarse el diseno del voladizo: la distancia desde la cara "
+            "de trafico hasta el eje de la viga exterior "
+            f"(D={traffic_face_to_girder:.3f} m) excede el limite de aplicacion de "
+            "la cuchilla equivalente "
+            f"({MAX_DECK_OVERHANG_KNIFE_LOAD_APPLICABILITY_M:.3f} m). "
+            "Se requiere un calculo alternativo de ruedas y distribucion."
         )
-    return tuple(effects), traffic_face, vehicular_line, tuple(notes)
+    return (
+        tuple(effects),
+        traffic_face,
+        vehicular_line,
+        traffic_face_to_girder,
+        vehicular_load_method,
+        tuple(notes),
+    )
 
 
 def _append_uniform_intersection(

@@ -74,17 +74,19 @@ def cantilever_story(data: DeckReportData, styles) -> list:
         p("6. Losa en voladizo", styles["h1"]),
         p(
             "El voladizo se verifica en la raiz, medida en el eje de la viga exterior. Se incluyen "
-            "peso propio, vereda, baranda, barrera, superficie, peatones y la cuchilla vehicular "
-            "cuando su posicion es aplicable. La colision se revisa como Evento Extremo II.",
+            "peso propio, vereda, baranda, barrera, superficie y peatones. La cuchilla vehicular "
+            "solo se incluye cuando queda sobre el voladizo y cumple su limite de aplicacion; "
+            "si queda hacia el interior de la viga, las ruedas se consideran en el analisis "
+            "transversal de la losa. La colision se revisa como Evento Extremo II.",
             styles["body"],
         ),
         formula_card(
             "Momento de cada carga en la raiz",
             "M_raiz = integral[q(x)(x-xr) dx] + sum[P_i(x_i-xr)]",
             "q: carga distribuida; P_i: carga concentrada equivalente; xr: eje de la viga exterior.",
-            f"Cara de trafico={result.traffic_face_from_edge_m:.3f} m; linea vehicular={result.vehicular_line_from_edge_m:.3f} m",
+            f"Cara de trafico={result.traffic_face_from_edge_m:.3f} m; linea vehicular={result.vehicular_line_from_edge_m:.3f} m; D cara-viga={result.traffic_face_to_exterior_girder_m:.3f} m",
             f"Combinacion controlante={combination.combination_name}; Mu={combination.combined_moment_tn_m:.3f} Tn.m/m",
-            "Los momentos negativos representan traccion superior en la raiz del voladizo.",
+            f"Metodo vehicular: {result.vehicular_load_method}. Los momentos negativos representan traccion superior en la raiz del voladizo.",
             "MTC 2018 / AASHTO LRFD 3.6.1.3.4 y Tabla 3.4.1-1.",
             styles,
         ),

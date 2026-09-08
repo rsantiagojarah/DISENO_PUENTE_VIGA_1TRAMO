@@ -1,8 +1,13 @@
+from dataclasses import replace
+
 import pytest
 
 from bridge_design.codes.mtc_2018 import mtc_deck_overhang_knife_load_tn_m
 from bridge_design.domain.barrier import BarrierDesignInputs, design_concrete_barrier
-from bridge_design.domain.cantilever_slab import design_cantilever_slab
+from bridge_design.domain.cantilever_slab import (
+    CantileverSlabApplicabilityError,
+    design_cantilever_slab,
+)
 from bridge_design.domain.loads import LiveLoads, PedestrianLoad, VehicleLoadModel
 from bridge_design.domain.materials import (
     ConcreteProperties,
@@ -14,6 +19,7 @@ from bridge_design.domain.materials import (
 from bridge_design.domain.transverse_slab import (
     TransverseLoadLayout,
     TransverseSlabGeometry,
+    solve_transverse_slab_design,
 )
 
 
@@ -78,6 +84,8 @@ def test_cantilever_slab_design_returns_loads_steel_and_development() -> None:
     assert by_label["DC - vereda sobre volado"].root_moment_tn_m == pytest.approx(-0.163, abs=0.001)
     assert by_label["DC - baranda"].root_moment_tn_m == pytest.approx(-0.070, abs=0.001)
     assert "LL+IM - cuchilla voladizo" not in by_label
+    assert result.traffic_face_to_exterior_girder_m == pytest.approx(-0.25)
+    assert result.vehicular_load_method == "Ruedas reales en el analisis transversal"
 
     controlling = result.controlling_strength
     assert controlling.combination_name == "RESISTENCIA I"
@@ -104,3 +112,60 @@ def test_cantilever_slab_design_returns_loads_steel_and_development() -> None:
     assert result.development.required_development_length_cm >= 30.48
     assert result.development.total_additional_bar_length_m > _geometry().overhang_m
     assert result.applicability_notes
+
+
+def test_vehicle_inside_exterior_girder_is_kept_in_transverse_analysis() -> None:
+    live_loads = LiveLoads(
+        pedestrian=PedestrianLoad.mtc_sidewalk_default(),
+        vehicular=VehicleLoadModel.mtc_hl93_default(),
+    )
+    cantilever = design_cantilever_slab(
+        geometry=_geometry(),
+        materials=_materials(),
+        live_loads=live_loads,
+        layout=_layout(),
+    )
+    transverse = solve_transverse_slab_design(
+        geometry=_geometry(),
+        materials=_materials(),
+        live_loads=live_loads,
+        layout=_layout(),
+    )
+
+    assert not any(effect.group == "LL_IM" for effect in cantilever.load_effects)
+    assert transverse.ll_im_envelope.max_positive_moment_tn_m > 0.0
+    assert transverse.ll_im_envelope.max_negative_moment_tn_m < 0.0
+
+
+def test_knife_applicability_uses_traffic_face_to_girder_not_full_overhang() -> None:
+    geometry = replace(_geometry(), overhang_m=2.0)
+    layout = replace(_layout(), barrier_left_m=0.25, barrier_width_m=0.25)
+    result = design_cantilever_slab(
+        geometry=geometry,
+        materials=_materials(),
+        live_loads=LiveLoads(
+            pedestrian=PedestrianLoad.mtc_sidewalk_default(),
+            vehicular=VehicleLoadModel.mtc_hl93_default(),
+        ),
+        layout=layout,
+    )
+
+    assert result.traffic_face_to_exterior_girder_m == pytest.approx(1.50)
+    assert any(effect.group == "LL_IM" for effect in result.load_effects)
+    assert result.vehicular_load_method.startswith("Cuchilla equivalente")
+
+
+def test_design_stops_when_traffic_face_to_girder_exceeds_knife_limit() -> None:
+    geometry = replace(_geometry(), overhang_m=2.50)
+    layout = replace(_layout(), barrier_left_m=0.25, barrier_width_m=0.25)
+
+    with pytest.raises(CantileverSlabApplicabilityError, match="D=2.000 m"):
+        design_cantilever_slab(
+            geometry=geometry,
+            materials=_materials(),
+            live_loads=LiveLoads(
+                pedestrian=PedestrianLoad.mtc_sidewalk_default(),
+                vehicular=VehicleLoadModel.mtc_hl93_default(),
+            ),
+            layout=layout,
+        )

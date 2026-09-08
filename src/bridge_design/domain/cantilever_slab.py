@@ -34,6 +34,10 @@ from bridge_design.validation.input_validators import require_non_negative, requ
 LoadGroup = str
 
 
+class CantileverSlabApplicabilityError(ValueError):
+    """Raised when the implemented overhang live-load method is not applicable."""
+
+
 @dataclass(frozen=True)
 class CantileverSlabParameters:
     """Design and detailing assumptions for the deck overhang."""
@@ -237,6 +241,8 @@ class CantileverSlabDesignResult:
     parameters: CantileverSlabParameters
     traffic_face_from_edge_m: float
     vehicular_line_from_edge_m: float
+    traffic_face_to_exterior_girder_m: float
+    vehicular_load_method: str
     applicability_notes: tuple[str, ...]
 
 
@@ -264,7 +270,14 @@ def design_cantilever_slab(
     from bridge_design.domain._cantilever_slab_loads import cantilever_load_effects
 
     params = parameters or CantileverSlabParameters()
-    effects, traffic_face, vehicular_line, notes = cantilever_load_effects(
+    (
+        effects,
+        traffic_face,
+        vehicular_line,
+        traffic_face_to_girder,
+        vehicular_load_method,
+        notes,
+    ) = cantilever_load_effects(
         geometry,
         materials,
         live_loads,
@@ -295,5 +308,7 @@ def design_cantilever_slab(
         parameters=params,
         traffic_face_from_edge_m=traffic_face,
         vehicular_line_from_edge_m=vehicular_line,
+        traffic_face_to_exterior_girder_m=traffic_face_to_girder,
+        vehicular_load_method=vehicular_load_method,
         applicability_notes=notes,
     )

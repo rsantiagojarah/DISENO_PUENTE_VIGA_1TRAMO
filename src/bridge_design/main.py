@@ -20,7 +20,10 @@ from bridge_design.cli.ascii_output import (
 )
 from bridge_design.cli.ascii_tables import boxed_table
 from bridge_design.domain.barrier import design_concrete_barrier
-from bridge_design.domain.cantilever_slab import design_cantilever_slab
+from bridge_design.domain.cantilever_slab import (
+    CantileverSlabApplicabilityError,
+    design_cantilever_slab,
+)
 from bridge_design.cli.input_prompts import collect_project_inputs
 from bridge_design.cli.yaml_inputs import project_inputs_from_yaml, project_yaml_template
 from bridge_design.cli.yaml_io import (
@@ -355,13 +358,17 @@ def run_bridge_design(project_inputs=None) -> None:
     barrier_report = format_barrier_design_result(barrier_result)
     print(barrier_report)
 
-    cantilever_result = design_cantilever_slab(
-        geometry=project_inputs.transverse_slab.geometry,
-        materials=project_inputs.materials,
-        live_loads=project_inputs.live_loads,
-        layout=project_inputs.transverse_slab.load_layout,
-        barrier_result=barrier_result,
-    )
+    try:
+        cantilever_result = design_cantilever_slab(
+            geometry=project_inputs.transverse_slab.geometry,
+            materials=project_inputs.materials,
+            live_loads=project_inputs.live_loads,
+            layout=project_inputs.transverse_slab.load_layout,
+            barrier_result=barrier_result,
+        )
+    except CantileverSlabApplicabilityError as exc:
+        print(f"DISENO DE LOSA EN VOLADIZO NO COMPLETADO: {exc}")
+        return
     cantilever_report = format_cantilever_slab_design_result(cantilever_result)
     print(cantilever_report)
     cantilever_selected = collect_cantilever_reinforcement_selection(cantilever_result)

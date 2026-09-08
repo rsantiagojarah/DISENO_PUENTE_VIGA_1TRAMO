@@ -1135,9 +1135,11 @@ def format_cantilever_slab_design_result(
         ),
         (
             f"Voladizo vehicular: cara trafico x={result.traffic_face_from_edge_m:.3f} m; "
-            f"cuchilla x={result.vehicular_line_from_edge_m:.3f} m; "
+            f"linea vehicular x={result.vehicular_line_from_edge_m:.3f} m; "
+            f"D cara-viga={result.traffic_face_to_exterior_girder_m:.3f} m; "
             f"IM={result.parameters.dynamic_load_allowance:.2f}."
         ),
+        f"Tratamiento vehicular: {result.vehicular_load_method}.",
         *audit_subtitle("5.B", "MOMENTOS DE FLEXION POR CARGAS - RAIZ EN EJE DE VIGA EXTERIOR", 108),
     ]
     lines.extend(_format_cantilever_load_effect_table(result.load_effects))
