@@ -184,6 +184,16 @@ def diaphragm_story(data: DeckReportData, styles) -> list:
             styles,
         ),
         formula_card(
+            "Acero longitudinal superficial Ask del diafragma",
+            "s <= min(dl/6, 300 mm); Ask por cara segun d_l y As/flexion",
+            "Se exige cuando d_l > 900 mm y se distribuye en ambas caras dentro de d_l/2 desde la cara traccionada.",
+            f"d_l={reinforcement.skin.effective_depth_cm:.2f} cm; d_l/2={reinforcement.skin.distribution_height_m:.3f} m; s max={reinforcement.skin.maximum_spacing_m:.3f} m",
+            f"Ask req={reinforcement.skin.required_area_cm2_m_per_face:.3f} cm2/m por cara",
+            "La armadura principal lateral solo se cuenta como Ask si se verifica explicitamente su ubicacion y compatibilidad.",
+            "MTC 2018 Art. 2.9.1.4.4.3; AASHTO LRFD 5.7.3.4.",
+            styles,
+        ),
+        formula_card(
             "Cortante del diafragma",
             "phi(Vc+Vs) >= Vu; Vs = Av fy dv/s",
             "Vu es la maxima envolvente absoluta de Resistencia I; Av/s se compara con el minimo.",
