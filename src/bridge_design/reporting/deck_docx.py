@@ -1188,12 +1188,12 @@ def _reactions(document: Document, data: DeckReportData) -> None:
         "Las reacciones por viga de la tabla siguiente corresponden a la posición de Mmax "
         "y no son máximos globales de apoyo. Se incluye tráfico nulo para efectos estabilizadores.",
     )
-    document.add_heading("8. Reacciones para el diseño de apoyos y estribos", level=1)
+    document.add_heading("8. Reacciones por viga para apoyos y cargas globales para estribos", level=1)
     _body(
         document,
-        "Las reacciones se obtienen directamente de los casos longitudinales resueltos. "
-        "Se presentan por viga y por acción, conservando su condición no factorizada para "
-        "que el módulo receptor forme la combinación requerida."
+        "La primera tabla presenta reacciones individuales por viga para el diseño de apoyos. "
+        "La tabla 8.1 presenta las acciones globales que deben transferirse al estribo. "
+        "Todas las magnitudes se muestran sin factor para que cada módulo receptor forme la combinación requerida."
     )
     rows = []
     for label, result, include_pl in (
@@ -1208,6 +1208,26 @@ def _reactions(document: Document, data: DeckReportData) -> None:
             left, right = _two_reactions(case.support_reactions_tn)
             rows.append((label, action, f"{left:.3f}", f"{right:.3f}"))
     _table(document, ("Viga", "Acción", "Apoyo izquierdo (Tn)", "Apoyo derecho (Tn)"), tuple(rows), widths=(38, 35, 47, 47))
+    document.add_heading("8.1 Cargas globales para el diseño de estribos", level=2)
+    _body(
+        document,
+        "Usar esta tabla para el estribo. DC, DW y PL se obtienen sumando las vigas del tablero. "
+        "LL+IM se obtiene por equilibrio global HL-93 y se reporta como envolvente independiente por apoyo. "
+        "Los máximos izquierdo y derecho no representan necesariamente un único posicionamiento simultáneo del vehículo."
+    )
+    global_rows, strength_row = _global_abutment_load_rows(data, live_cases)
+    _table(
+        document,
+        ("Acción", "R fijo (Tn)", "R móvil (Tn)", "q fijo (Tn/m)", "q móvil (Tn/m)"),
+        tuple(global_rows),
+        widths=(30, 31, 31, 33, 33),
+    )
+    _table(
+        document,
+        ("Combinación", "R fijo (Tn)", "R móvil (Tn)", "Criterio"),
+        (strength_row,),
+        widths=(35, 32, 32, 59),
+    )
     int_dc_l, _int_dc_r = _two_reactions(data.interior_result.dc.support_reactions_tn)
     ext_dc_l, _ext_dc_r = _two_reactions(data.exterior_result.dc.support_reactions_tn)
     _calc(
@@ -1223,6 +1243,29 @@ def _reactions(document: Document, data: DeckReportData) -> None:
         REF_DEAD_LOAD,
     )
     _comment(document, "Las reacciones de LL+IM son envolventes de carga móvil. No deben sumarse posiciones vehiculares incompatibles al usarlas en otra combinación.")
+
+
+def _global_abutment_load_rows(data: DeckReportData, live_cases) -> tuple[list[tuple[str, ...]], tuple[str, ...]]:
+    """Return global unfactored support loads and the Strength I envelope for abutments."""
+    width = data.project_inputs.transverse_slab.geometry.total_width_m
+    interior_count = max(data.project_inputs.interior_girder.girder_count - 2, 0)
+
+    def total(interior_case, exterior_case):
+        int_left, int_right = _two_reactions(interior_case.support_reactions_tn)
+        ext_left, ext_right = _two_reactions(exterior_case.support_reactions_tn)
+        return interior_count * int_left + 2 * ext_left, interior_count * int_right + 2 * ext_right
+
+    dc = total(data.interior_result.dc, data.exterior_result.dc)
+    dw = total(data.interior_result.dw, data.exterior_result.dw)
+    ext_pl = _two_reactions(data.exterior_result.pl.support_reactions_tn)
+    pl = (2 * ext_pl[0], 2 * ext_pl[1])
+    ll = (max(row.left_tn for row in live_cases), max(row.right_tn for row in live_cases))
+    service = tuple(sum(values) for values in zip(dc, dw, pl, ll))
+    strength = tuple(1.25 * dc[i] + 1.50 * dw[i] + 1.75 * pl[i] + 1.75 * ll[i] for i in (0, 1))
+    components = (("DC", dc), ("DW", dw), ("PL", pl), ("LL+IM", ll), ("Servicio I", service))
+    rows = [(label, f"{values[0]:.3f}", f"{values[1]:.3f}", f"{values[0] / width:.3f}", f"{values[1] / width:.3f}") for label, values in components]
+    strength_row = ("Resistencia I", f"{strength[0]:.3f}", f"{strength[1]:.3f}", "1.25DC + 1.50DW + 1.75PL + 1.75(LL+IM)")
+    return rows, strength_row
 
 
 def _conclusions(document: Document, data: DeckReportData) -> None:

@@ -214,14 +214,21 @@ def reactions_story(data: DeckReportData, styles) -> list:
         total = interior_count * ri + 2 * re
         rows.append((label, f"{ri:.3f}", f"{re:.3f}", f"{total:.3f}", f"{total / width:.3f}"))
     live_cases = project_live_reaction_cases(data.project_inputs)
-    live_max = max(row.left_tn for row in live_cases)
-    rows.append(("PLL+IM", "Global", "Global", f"{live_max:.3f}", f"{live_max / width:.3f}"))
+    live_left = max(row.left_tn for row in live_cases)
+    live_right = max(row.right_tn for row in live_cases)
+    rows.append(("PLL+IM", "Global", "Global", f"{live_left:.3f}", f"{live_left / width:.3f}"))
+    dc_pair = _global_pair(data.interior_result.dc, data.exterior_result.dc, interior_count)
+    dw_pair = _global_pair(data.interior_result.dw, data.exterior_result.dw, interior_count)
+    pl_ext = _support_pair(data.exterior_result.pl)
+    pl_pair = (2 * pl_ext[0], 2 * pl_ext[1])
+    service_pair = tuple(sum(values) for values in (dc_pair, dw_pair, pl_pair, (live_left, live_right)))
+    strength_pair = tuple(1.25 * dc_pair[i] + 1.50 * dw_pair[i] + 1.75 * pl_pair[i] + 1.75 * (live_left, live_right)[i] for i in (0, 1))
     return [
-        p("8. Reacciones para apoyos y estribos", styles["h1"]),
+        p("8. Reacciones por viga para apoyos y cargas globales para estribos", styles["h1"]),
         p(
-            "Las reacciones se reportan sin factor para que los modulos de apoyos y estribos "
-            "apliquen la combinacion correspondiente. Se suman dos vigas exteriores y las vigas "
-            "interiores restantes para cargas permanentes y PL. LL+IM proviene del equilibrio global por caso; incluir trafico nulo para efectos favorables.",
+            "Las reacciones por viga sirven para los apoyos. Para el estribo se usan las filas globales "
+            "de servicio y Resistencia I; LL+IM proviene del equilibrio global por caso. Los maximos "
+            "por apoyo no son necesariamente simultaneos.",
             styles["body"],
         ),
         formula_card(
@@ -241,12 +248,26 @@ def reactions_story(data: DeckReportData, styles) -> list:
             styles,
         ),
         Spacer(1, 3 * mm),
+        data_table(
+            ("Carga global para estribo", "R fijo", "R movil", "q fijo", "q movil"),
+            [
+                ("DC", f"{dc_pair[0]:.3f}", f"{dc_pair[1]:.3f}", f"{dc_pair[0] / width:.3f}", f"{dc_pair[1] / width:.3f}"),
+                ("DW", f"{dw_pair[0]:.3f}", f"{dw_pair[1]:.3f}", f"{dw_pair[0] / width:.3f}", f"{dw_pair[1] / width:.3f}"),
+                ("PL", f"{pl_pair[0]:.3f}", f"{pl_pair[1]:.3f}", f"{pl_pair[0] / width:.3f}", f"{pl_pair[1] / width:.3f}"),
+                ("LL+IM", f"{live_left:.3f}", f"{live_right:.3f}", f"{live_left / width:.3f}", f"{live_right / width:.3f}"),
+                ("Servicio I", f"{service_pair[0]:.3f}", f"{service_pair[1]:.3f}", f"{service_pair[0] / width:.3f}", f"{service_pair[1] / width:.3f}"),
+                ("Resistencia I", f"{strength_pair[0]:.3f}", f"{strength_pair[1]:.3f}", "—", "—"),
+            ],
+            [38 * mm, 29 * mm, 29 * mm, 30 * mm, 30 * mm],
+            styles,
+        ),
+        Spacer(1, 3 * mm),
         data_table(("Caso HL-93", "R fijo", "R movil", "Carga total"),
                    [(row.name, f"{row.left_tn:.3f}", f"{row.right_tn:.3f}", f"{row.total_load_tn:.3f}") for row in live_cases],
                    [66 * mm, 30 * mm, 30 * mm, 30 * mm], styles),
         p(
-            "Conclusión: el reporte conserva las acciones por naturaleza de carga. La adopcion "
-            "definitiva del apoyo y del estribo debe realizarse en sus comandos especializados.",
+            "Conclusión: la tabla por viga se usa para apoyos y la tabla global de servicio y "
+            "Resistencia I se usa para el diseño del estribo.",
             styles["body"],
         ),
     ]
@@ -258,3 +279,20 @@ def _maximum_reaction(case) -> float:
     if values and isinstance(values[0], tuple):
         return max(value for _, value in values)
     return max(values)
+
+
+def _support_pair(case) -> tuple[float, float]:
+    values = case.support_reactions_tn
+    if values and isinstance(values[0], tuple):
+        return float(values[0][1]), float(values[-1][1])
+    if not values:
+        return 0.0, 0.0
+    if len(values) == 1:
+        return float(values[0]), float(values[0])
+    return float(values[0]), float(values[-1])
+
+
+def _global_pair(interior_case, exterior_case, interior_count: int) -> tuple[float, float]:
+    interior = _support_pair(interior_case)
+    exterior = _support_pair(exterior_case)
+    return interior_count * interior[0] + 2 * exterior[0], interior_count * interior[1] + 2 * exterior[1]
