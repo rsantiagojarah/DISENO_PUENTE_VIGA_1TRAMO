@@ -1,6 +1,10 @@
 """Concrete deck overhang cantilever design."""
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bridge_design.domain.interior_collision import InteriorCollisionDesign
 
 from bridge_design.codes.mtc_2018 import (
     CRACK_CONTROL_REINFORCEMENT_REFERENCE,
@@ -261,6 +265,7 @@ class CantileverSlabDesignResult:
     traffic_face_to_exterior_girder_m: float
     vehicular_load_method: str
     applicability_notes: tuple[str, ...]
+    interior_collision: "InteriorCollisionDesign | None" = None
 
     @property
     def overall_ok(self) -> bool:
@@ -320,6 +325,45 @@ def design_cantilever_slab(
         (row for row in combinations if row.limit_state == "Resistencia"),
         key=lambda row: row.combined_moment_tn_m,
     )
+    base_start = layout.barrier_left_m
+    base_end = base_start + (barrier_result.geometry.base_width_m if barrier_result else layout.barrier_width_m)
+    web_outer = geometry.overhang_m - geometry.girder_width_m / 2.0
+    web_inner = geometry.overhang_m + geometry.girder_width_m / 2.0
+    if base_end <= web_outer + 1e-9:
+        location = "SOBRE VOLADIZO"
+    elif base_start >= web_inner - 1e-9:
+        location = "SOBRE LOSA INTERIOR"
+    elif base_start >= web_outer - 1e-9 and base_end <= web_inner + 1e-9:
+        location = "SOBRE VIGA"
+    else:
+        location = "BASE CRUZA ZONAS"
+    trace = (
+        f"Barrera: {location}; base x=[{base_start:.4f}, {base_end:.4f}] m; "
+        f"alma x=[{web_outer:.4f}, {web_inner:.4f}] m; "
+        f"seccion de calculo del voladizo: eje x={geometry.overhang_m:.4f} m."
+    )
+    notes = (*notes, trace)
+    interior_collision = None
+    if (barrier_result and location == "SOBRE LOSA INTERIOR"
+            and base_end <= geometry.support_positions_m[1] - geometry.girder_width_m / 2.0):
+        from bridge_design.domain.interior_collision import design_interior_collision
+        interior_collision = design_interior_collision(
+            geometry, materials, live_loads, layout, barrier_result, params)
+        notes = (*notes,
+            "Colision local sobre voladizo: NO APLICABLE. La transferencia a la losa interior "
+            "se calcula en el bloque siguiente; su armadura es independiente del voladizo.",
+            *interior_collision.report_lines())
+    elif barrier_result and location != "SOBRE VOLADIZO":
+        notes = (*notes,
+            "Colision local de barrera sobre voladizo: NO APLICABLE a esta geometria. "
+            "PENDIENTE: verificar transferencia de colision en losa interior/viga/conexion; "
+            "el acero calculado del voladizo cubre solo las acciones directas modeladas. "
+            "El conjunto NO esta aprobado.",
+            f"Demanda de barrera conservada: Ft={barrier_result.yield_line.demand_transverse_force_tn:.3f} Tn; "
+            f"Rw={barrier_result.yield_line.nominal_transverse_resistance_tn:.3f} Tn; "
+            f"Mc={barrier_result.flexure.mc_tn_m:.3f} Tn*m/m. "
+            f"Anclaje: {barrier_result.development.status}; dowel: {barrier_result.dowel.status}.",
+        )
     collision = (
         design_barrier_collision(
             barrier_result,
@@ -328,7 +372,7 @@ def design_cantilever_slab(
             traffic_face_m=traffic_face,
             girder_spacing_m=geometry.girder_spacing_m,
         )
-        if barrier_result
+        if barrier_result and location == "SOBRE VOLADIZO"
         else None
     )
     flexural = design_flexural_steel(geometry, materials, params, controlling, collision)
@@ -352,4 +396,5 @@ def design_cantilever_slab(
         traffic_face_to_exterior_girder_m=traffic_face_to_girder,
         vehicular_load_method=vehicular_load_method,
         applicability_notes=notes,
+        interior_collision=interior_collision,
     )

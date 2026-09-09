@@ -66,6 +66,28 @@ def test_mtc_deck_overhang_knife_load_converts_one_kip_per_ft() -> None:
     assert mtc_deck_overhang_knife_load_tn_m() == pytest.approx(1.488, abs=0.001)
 
 
+@pytest.mark.parametrize("start, classification, applied", [
+    (0.1, "SOBRE VOLADIZO", True),
+    (0.85, "SOBRE VIGA", False),
+    (1.7, "SOBRE LOSA INTERIOR", False),
+    (0.6, "BASE CRUZA ZONAS", False),
+])
+def test_collision_uses_complete_barrier_base(start, classification, applied):
+    geometry = replace(_geometry(), overhang_m=1.0, girder_width_m=0.5)
+    materials = _materials()
+    layout = replace(_layout(), barrier_left_m=start, barrier_width_m=0.375)
+    live = LiveLoads(PedestrianLoad.mtc_sidewalk_default(), VehicleLoadModel.mtc_hl93_default())
+    barrier = design_concrete_barrier(BarrierDesignInputs(), materials)
+    result = design_cantilever_slab(geometry, materials, live, layout, barrier)
+    assert any(classification in note for note in result.applicability_notes)
+    assert (result.barrier_collision is not None) == applied
+    if not applied:
+        baseline = design_cantilever_slab(geometry, materials, live, layout)
+        assert result.flexural_steel == baseline.flexural_steel
+        assert not result.overall_ok
+        assert any("Ft=" in note for note in result.applicability_notes)
+
+
 def test_cantilever_slab_design_returns_loads_steel_and_development() -> None:
     materials = _materials()
     result = design_cantilever_slab(
@@ -90,9 +112,10 @@ def test_cantilever_slab_design_returns_loads_steel_and_development() -> None:
     controlling = result.controlling_strength
     assert controlling.combination_name == "RESISTENCIA I"
     assert controlling.combined_moment_tn_m < 0.0
-    assert result.barrier_collision is not None
-    assert result.barrier_collision.design_moment_tn_m > controlling.design_moment_tn_m
-    assert result.flexural_steel.controlling_combination_name.startswith("EVENTO EXTREMO II")
+    assert result.barrier_collision is None
+    assert not result.overall_ok
+    assert any("PENDIENTE" in note for note in result.applicability_notes)
+    assert result.flexural_steel.controlling_combination_name == "RESISTENCIA I"
     assert result.flexural_steel.required_area_cm2_m > 0.0
     assert result.shear.combined_shear_tn > 0.0
     assert result.shear.phi_vc_tn > result.shear.combined_shear_tn

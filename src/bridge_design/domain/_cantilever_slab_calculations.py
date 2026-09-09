@@ -1,5 +1,7 @@
 """Internal detailing calculations for concrete deck overhang design."""
 
+from dataclasses import replace
+
 from bridge_design.codes.mtc_2018 import (
     FLEXURAL_STRENGTH_REFERENCE,
     TEMPERATURE_REINFORCEMENT_REFERENCE,
@@ -77,6 +79,23 @@ def combine_cantilever_moments(
 
 
 def design_flexural_steel(
+    geometry, materials, params, controlling, collision=None,
+):
+    """Envelope steel demands without mixing moment and tension across cases."""
+    candidates = [_design_flexural_case(geometry, materials, params, controlling)]
+    if collision is not None:
+        # B-B is the modeled root section; A-A belongs to the barrier interface.
+        case = next(c for c in collision.cases if c.name == "Caso 1 - seccion B-B")
+        compatible = replace(controlling,
+            combination_name="EVENTO EXTREMO II - colision barrera B-B",
+            combined_moment_tn_m=-case.moment_tn_m)
+        demand = replace(collision, design_moment_tn_m=case.moment_tn_m,
+                         axial_tension_tn_m=case.axial_tension_tn_m)
+        candidates.append(_design_flexural_case(geometry, materials, params, compatible, demand))
+    return max(candidates, key=lambda c: c.required_area_cm2_m)
+
+
+def _design_flexural_case(
     geometry: TransverseSlabGeometry,
     materials: MaterialProperties,
     params: CantileverSlabParameters,

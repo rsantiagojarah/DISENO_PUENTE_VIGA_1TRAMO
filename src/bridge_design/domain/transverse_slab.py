@@ -99,6 +99,15 @@ class PointLoad:
 
 
 @dataclass(frozen=True)
+class PointMoment:
+    """Concentrated couple, positive counterclockwise, in Tn*m."""
+
+    position_m: float
+    moment_tn_m: float
+    label: str
+
+
+@dataclass(frozen=True)
 class TransverseLoadLayout:
     """User-defined load placement inputs."""
 
@@ -313,11 +322,18 @@ def solve_load_case(
     point_loads: Iterable[PointLoad],
     critical_vehicle_position_m: float | None = None,
     vehicle_configuration: str | None = None,
+    *,
+    point_moments: Iterable[PointMoment] = (),
 ) -> LoadCaseAnalysis:
     """Solve one load case by Euler-Bernoulli beam stiffness matrices."""
     segments_tuple = tuple(segments)
     points_tuple = tuple(point_loads)
+    moments_tuple = tuple(point_moments)
+    for couple in moments_tuple:
+        if not 0.0 <= couple.position_m <= geometry.total_width_m:
+            raise ValueError("El momento concentrado debe estar dentro del tablero.")
     nodes = _analysis_nodes(geometry, segments_tuple, points_tuple)
+    nodes = _unique_sorted((*nodes, *(m.position_m for m in moments_tuple)))
     dof_count = len(nodes) * 2
     stiffness = [[0.0 for _ in range(dof_count)] for _ in range(dof_count)]
     force = [0.0 for _ in range(dof_count)]
@@ -351,6 +367,8 @@ def solve_load_case(
     for point_load in points_tuple:
         node_index = _node_index(nodes, point_load.position_m)
         force[2 * node_index] -= point_load.p_tn
+    for couple in moments_tuple:
+        force[2 * _node_index(nodes, couple.position_m) + 1] += couple.moment_tn_m
 
     constrained = {_node_index(nodes, support) * 2 for support in geometry.support_positions_m}
     free = [index for index in range(dof_count) if index not in constrained]
@@ -368,6 +386,15 @@ def solve_load_case(
         for support in geometry.support_positions_m
     )
     samples = _moment_samples(geometry, nodes, segments_tuple, points_tuple, support_reactions)
+    if moments_tuple:
+        # Keep both faces of the jump: averaging would erase the local demand.
+        samples = [
+            (x, moment - sum(m.moment_tn_m for m in moments_tuple
+                            if m.position_m < x or (side == "right" and m.position_m == x)))
+            for x, moment in samples
+            for side in (("left", "right") if any(m.position_m == x for m in moments_tuple)
+                         else ("right",))
+        ]
     max_positive = max(samples, key=lambda item: item[1])
     max_negative = min(samples, key=lambda item: item[1])
 

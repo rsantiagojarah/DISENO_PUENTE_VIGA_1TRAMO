@@ -141,13 +141,14 @@ def test_h18_collision_uses_capacity_and_adds_axial_steel():
     barrier = design_concrete_barrier(BarrierDesignInputs(), materials)
     result = design_cantilever_slab(_geometry(), materials,
                                    LiveLoads(PedestrianLoad.mtc_sidewalk_default(), VehicleLoadModel.mtc_hl93_default()),
-                                   _layout(), barrier)
+                                   replace(_layout(), barrier_left_m=0.1), barrier)
     collision = result.barrier_collision
     assert collision.transverse_force_tn >= barrier.yield_line.nominal_transverse_resistance_tn
     assert collision.collision_moment_tn_m >= barrier.flexure.mc_tn_m
     assert collision.axial_tension_tn_m == pytest.approx(collision.transverse_force_tn / collision.transfer_length_m)
     without_axial = design_flexural_steel(_geometry(), materials, result.parameters, result.controlling_strength,
-                                        replace(collision, axial_tension_tn_m=0))
+                                        replace(collision, axial_tension_tn_m=0,
+                                                cases=tuple(replace(c, axial_tension_tn_m=0) for c in collision.cases)))
     assert result.flexural_steel.required_area_cm2_m > without_axial.required_area_cm2_m
     assert collision.status == "OK"
     assert {case.name for case in collision.cases} == {

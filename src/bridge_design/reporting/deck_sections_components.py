@@ -121,6 +121,7 @@ def cantilever_story(data: DeckReportData, styles) -> list:
             styles,
         ),
     ]
+    story.extend(p(note, styles["body"]) for note in result.applicability_notes)
     if result.barrier_collision is not None:
         collision = result.barrier_collision
         story.append(formula_card(

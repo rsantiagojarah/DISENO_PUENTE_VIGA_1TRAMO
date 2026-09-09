@@ -1210,7 +1210,7 @@ def format_cantilever_slab_design_result(
         ]
     )
     if result.barrier_collision is None:
-        lines.append("No se evaluo colision de barrera porque no se recibio resultado de diseno de barrera.")
+        lines.append("Sin colision local aplicada al voladizo. Consultar geometria y verificaciones pendientes en las notas de aplicabilidad.")
     else:
         collision = result.barrier_collision
         lines.append(f"N simultanea={collision.axial_tension_tn_m:.3f} Tn/m; As incluye N/(phi*fy). {collision.status}: {collision.scope_note}")

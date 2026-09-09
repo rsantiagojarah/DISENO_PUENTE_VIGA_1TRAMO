@@ -1054,6 +1054,8 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
         REF_COMB,
     )
     collision = result.barrier_collision
+    for note in result.applicability_notes:
+        _comment(document, note)
     if collision is not None:
         _comment(document, f"N simultanea={collision.axial_tension_tn_m:.3f} Tn/m; As incluye N/(phi*fy). {collision.status}: {collision.scope_note}")
         _table(document, ("Caso", "M Tn.m/m", "N Tn/m", "V Tn/m", "Estado"),
@@ -1313,6 +1315,18 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
     rows.append(("Voladizo", "Conexion y todos los casos de colision",
                  "Casos 1/2/3 + yield-line/dowel/desarrollo",
                  collision.status if collision is not None else "FUERA DE ALCANCE"))
+    interior_collision = data.cantilever_result.interior_collision
+    if interior_collision is not None:
+        rows.append(("Losa interior", "Transferencia local de colision",
+                     "Horizontal + vertical; conexion por capacidad", interior_collision.status))
+        for face in interior_collision.faces:
+            rows.append(("Losa interior", f"Minimo por colision, cara {face.face}",
+                         _option_text(face.option), face.status))
+        _comment(document,
+            "Las alternativas de colision son minimos calculados, no una sustitucion automatica del acero "
+            "elegido para la losa. El armado definitivo debe cubrir ambas demandas por cara. "
+            "El estado de conexion por capacidad indicado aqui prevalece sobre la comprobacion "
+            "de anclaje reducido de la barrera aislada.")
     for label, option in data.diaphragm_selected:
         rows.append(("Diafragma", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
     _table(document, ("Elemento", "Función", "Refuerzo adoptado", "Estado"), tuple(rows), widths=(32, 62, 48, 25), font_size=7.6)

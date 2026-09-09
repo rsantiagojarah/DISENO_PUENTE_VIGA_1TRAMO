@@ -328,6 +328,7 @@ class BarrierDesignResult:
     development: DevelopmentLengthCheck
     geometry: BarrierGeometry = field(default_factory=BarrierGeometry)
     line_weight_kg_m: float = 0.0
+    impact_load: BarrierImpactLoad = field(default_factory=BarrierImpactLoad)
 
 
 def design_concrete_barrier(
@@ -341,6 +342,7 @@ def design_concrete_barrier(
     dowel = _dowel_check(inputs, materials, shear_transfer.contact_area_cm2_m)
     development = _development_length_check(inputs, materials, yield_line)
     return BarrierDesignResult(
+        impact_load=inputs.impact_load,
         flexure=flexure,
         yield_line=yield_line,
         shear_transfer=shear_transfer,
