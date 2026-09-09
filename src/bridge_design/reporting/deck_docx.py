@@ -1163,6 +1163,22 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
         _compliance_comment(temp, "La cuantía adoptada controla la fisuración por cambios volumétricos."),
         REF_TEMP,
     )
+    skin_option = reinforcement.skin.spacing_options.recommended
+    _calc(
+        document,
+        "Acero longitudinal superficial Ask del diafragma",
+        "Ask = min(0.012·(d_l − 30 in), As/flexión/4); s ≤ min(d_l/6, 300 mm)",
+        "Ask se distribuye por cada cara lateral dentro de d_l/2 desde la cara traccionada. "
+        "La exigencia aplica cuando d_l > 900 mm; si no, Ask req = 0.",
+        f"d_l = {reinforcement.skin.effective_depth_cm:.2f} cm; "
+        f"d_l/2 = {reinforcement.skin.distribution_height_m:.3f} m; "
+        f"Ask req = {reinforcement.skin.required_area_cm2_m_per_face:.3f} cm²/m por cara; "
+        f"s máx = {reinforcement.skin.maximum_spacing_m:.3f} m. "
+        f"Se adopta {_option_text(skin_option)}.",
+        "El acero principal ubicado en las caras laterales solo puede contarse como Ask si se verifica explícitamente su área, ubicación y compatibilidad.",
+        _compliance_comment(skin_option, "La disposición de Ask cumple el área por cara y la separación máxima."),
+        REF_CRACK,
+    )
     _calc(
         document,
         "Estribos del diafragma",

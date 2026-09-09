@@ -770,6 +770,19 @@ def format_diaphragm_design_result(
         ]
     )
     lines.extend(_format_spacing_case_table(reinforcement.temperature.spacing_options))
+    lines.extend(
+        [
+            *audit_subtitle("6.E", "ACERO LONGITUDINAL SUPERFICIAL ASK EN CARAS LATERALES (ART. 2.9.1.4.4.3)", 104),
+            (
+                f"dl={reinforcement.skin.effective_depth_cm:.2f} cm | "
+                f"zona de distribucion=dl/2={reinforcement.skin.distribution_height_m:.3f} m | "
+                f"As req por cara={reinforcement.skin.required_area_cm2_m_per_face:.3f} cm2/m | "
+                f"s max={reinforcement.skin.maximum_spacing_m:.3f} m."
+            ),
+            "La armadura se coloca en ambas caras laterales, desde la cara traccionada, dentro de la zona dl/2.",
+        ]
+    )
+    lines.extend(_format_spacing_case_table(reinforcement.skin.spacing_options))
     lines.extend(_format_diaphragm_shear_design_lines(reinforcement.shear))
     lines.extend(["=" * 104])
     return "\n".join(lines)

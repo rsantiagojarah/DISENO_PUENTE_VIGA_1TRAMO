@@ -25,6 +25,7 @@ from bridge_design.domain.interior_girder import (
     InteriorGirderReinforcementParameters,
     InteriorGirderShearDesign,
     LongitudinalPlacementCaseOptions,
+    SkinLongitudinalSteelDesign,
     WebTemperatureSteelDesign,
     _concrete_shear_resistance_tn,
     _effective_shear_depth_cm,
@@ -35,6 +36,7 @@ from bridge_design.domain.interior_girder import (
     _nominal_shear_upper_limit_tn,
     _required_shear_reinforcement_cm2_m,
     _sample_at,
+    _skin_reinforcement_requirements,
     generate_main_bar_placement_options,
 )
 from bridge_design.domain.load_combinations import LoadFactor
@@ -214,10 +216,11 @@ class DiaphragmFlexuralSteelDesign:
 
 @dataclass(frozen=True)
 class DiaphragmReinforcementDesign:
-    """Grouped diaphragm flexural, temperature and shear reinforcement."""
+    """Grouped diaphragm flexural, skin, temperature and shear reinforcement."""
 
     negative: DiaphragmFlexuralSteelDesign
     positive: DiaphragmFlexuralSteelDesign
+    skin: SkinLongitudinalSteelDesign
     temperature: WebTemperatureSteelDesign
     shear: InteriorGirderShearDesign
     parameters: InteriorGirderReinforcementParameters
@@ -444,9 +447,46 @@ def design_diaphragm_reinforcement(
             ),
         ),
     )
+    governing_flexural_area = max(negative.required_area_cm2, positive.required_area_cm2)
+    extreme_tension_depth_cm = (
+        geometry.height_m * 100.0
+        - params.concrete_cover_cm
+        - params.main_bar_diameter_cm / 2.0
+    )
+    (
+        skin_required,
+        skin_uncapped,
+        skin_distribution_height,
+        skin_required_total,
+        skin_maximum_total,
+        skin_maximum_spacing,
+    ) = _skin_reinforcement_requirements(
+        extreme_tension_depth_cm=extreme_tension_depth_cm,
+        required_flexural_area_cm2=governing_flexural_area,
+        configured_maximum_spacing_m=params.maximum_spacing_m,
+    )
+    skin = SkinLongitudinalSteelDesign(
+        effective_depth_cm=extreme_tension_depth_cm,
+        distribution_height_m=skin_distribution_height,
+        uncapped_required_area_cm2_m_per_face=skin_uncapped,
+        maximum_total_area_cm2_per_face=skin_maximum_total,
+        required_total_area_cm2_per_face=skin_required_total,
+        required_area_cm2_m_per_face=skin_required,
+        maximum_spacing_m=skin_maximum_spacing,
+        spacing_options=generate_spacing_options(
+            "Ask longitudinal diafragma por cara",
+            skin_required,
+            SpacingGrid(
+                step_m=params.spacing_step_m,
+                minimum_m=params.minimum_spacing_m,
+                maximum_m=skin_maximum_spacing,
+            ),
+        ),
+    )
     return DiaphragmReinforcementDesign(
         negative=negative,
         positive=positive,
+        skin=skin,
         temperature=temperature,
         shear=_design_diaphragm_shear(geometry, materials, analysis, params, positive),
         parameters=params,
