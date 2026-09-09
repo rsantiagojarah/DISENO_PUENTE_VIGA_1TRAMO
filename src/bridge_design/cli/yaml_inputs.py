@@ -401,7 +401,6 @@ def project_yaml_template() -> YamlMap:
     )
     span = 15.0
     diaphragm_positions = _default_diaphragm_positions(span, 3)
-    exterior_de = geometry.overhang_m - (layout.barrier_left_m + layout.barrier_width_m)
     data = _template_header("diseno-tablero")
     data.update(
         {
@@ -475,9 +474,7 @@ def project_yaml_template() -> YamlMap:
                 "paso_carga_movil_m": 0.10,
                 "paso_muestreo_momentos_m": 0.10,
             },
-            "viga_exterior": {
-                "de_alma_exterior_a_cara_interior_barrera_m": exterior_de,
-            },
+            "viga_exterior": {},
             "diafragma": {
                 "espesor_longitudinal_m": 0.25,
                 "altura_resistente_m": max(geometry.girder_total_height_m - 0.10, 0.10),
@@ -614,7 +611,6 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
         moving_load_step_m=float(_value(interior_data, "paso_carga_movil_m", 0.10)),
         moment_sample_step_m=float(_value(interior_data, "paso_muestreo_momentos_m", 0.10)),
     )
-    exterior_data = _section(data, "viga_exterior")
     exterior_tributary_width = geometry.overhang_m + geometry.girder_spacing_m / 2.0
     exterior_diaph = tuple(
         DiaphragmGeometry(
@@ -632,12 +628,11 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
         slab_thickness_m=geometry.slab_thickness_m,
         girder_total_height_m=geometry.girder_total_height_m,
         web_width_m=geometry.girder_width_m,
-        exterior_web_to_traffic_barrier_m=float(
-            _value(
-                exterior_data,
-                "de_alma_exterior_a_cara_interior_barrera_m",
-                geometry.overhang_m - (layout.barrier_left_m + layout.barrier_width_m),
-            )
+        # Derive the barrier-to-exterior-web distance from the single source
+        # of truth: transverse geometry and barrier location. Legacy YAML may
+        # still contain the old key, but it is intentionally ignored.
+        exterior_web_to_traffic_barrier_m=(
+            geometry.overhang_m - (layout.barrier_left_m + layout.barrier_width_m)
         ),
         sidewalk_width_m=layout.sidewalk_width_m,
         asphalt_tributary_width_m=exterior_asphalt_tributary_width_m(
