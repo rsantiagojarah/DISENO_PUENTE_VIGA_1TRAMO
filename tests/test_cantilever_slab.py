@@ -85,7 +85,11 @@ def test_collision_uses_complete_barrier_base(start, classification, applied):
         baseline = design_cantilever_slab(geometry, materials, live, layout)
         assert result.flexural_steel == baseline.flexural_steel
         assert not result.overall_ok
-        assert any("Ft=" in note for note in result.applicability_notes)
+        if classification == "SOBRE LOSA INTERIOR":
+            assert result.interior_collision is not None
+            assert not any("Ft=" in note for note in result.applicability_notes)
+        else:
+            assert any("Ft=" in note for note in result.applicability_notes)
 
 
 def test_cantilever_slab_design_returns_loads_steel_and_development() -> None:

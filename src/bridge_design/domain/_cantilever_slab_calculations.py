@@ -112,6 +112,7 @@ def _design_flexural_case(
     cracking_moment = mtc_cracking_moment_tn_m(
         geometry.strip_length_m * 100.0 * (geometry.slab_thickness_m * 100.0) ** 2.0 / 6.0,
         materials.concrete.compressive_strength_kg_cm2,
+        variability_factor=materials.steel.cracking_moment_factor,
     )
     minimum_moment = mtc_minimum_flexural_moment_tn_m(strength_moment, cracking_moment)
     # FHWA PSC example 4.10: As(M) + N/fy is a conservative combined
@@ -160,6 +161,8 @@ def _design_flexural_case(
         minimum_area_cm2_m=minimum_area,
         required_area_cm2_m=required,
         spacing_options=spacing_options,
+        cracking_moment_tn_m=cracking_moment,
+        minimum_capacity_moment_tn_m=minimum_moment,
         reference=FLEXURAL_STRENGTH_REFERENCE,
     )
 

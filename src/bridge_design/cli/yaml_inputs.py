@@ -417,6 +417,11 @@ def project_yaml_template() -> YamlMap:
                     "peso_especifico_tn_m3": 2.4,
                     "fc_kg_cm2": 280.0,
                 },
+                "acero": {
+                    "especificacion": "ASTM A615 Grado 60",
+                    "fy_kg_cm2": 4200.0,
+                    "modulo_elasticidad_kg_cm2": 2000000.0,
+                },
                 "asfalto": {
                     "peso_especifico_tn_m3": 2.2,
                     "espesor_m": 0.05,
@@ -503,6 +508,9 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
         steel=SteelProperties(
             yield_strength_kg_cm2=float(_value(steel, "fy_kg_cm2", 4200.0)),
             elastic_modulus_kg_cm2=float(_value(steel, "modulo_elasticidad_kg_cm2", 2000000.0)),
+            specification=str(
+                _value(steel, "especificacion", "ASTM A615 Grado 60")
+            ),
         ),
         asphalt=SurfaceLayerProperties(
             name="asfalto",

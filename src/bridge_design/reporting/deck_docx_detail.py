@@ -15,7 +15,11 @@ from bridge_design.codes.mtc_2018 import (
     mtc_interior_concrete_t_girder_live_load_distribution_factor,
     mtc_interior_concrete_t_girder_live_load_shear_distribution_factor,
 )
-from bridge_design.domain.interior_girder import FATIGUE_I_LOAD_FACTOR
+from bridge_design.domain.concrete_flexure import rectangular_flexural_response
+from bridge_design.domain.interior_girder import (
+    FATIGUE_I_LOAD_FACTOR,
+    t_beam_flexural_response,
+)
 from bridge_design.units.converters import m_to_ft, m_to_in
 
 
@@ -29,6 +33,7 @@ def flexural_as_min_trace(
     concrete,
     steel,
     option_text: str,
+    provided_area: float | None,
     compliance_comment: str,
 ) -> tuple[str, str, str, str, str]:
     """Return (formula, legend, substitution, result, comment) for flexure."""
@@ -38,11 +43,90 @@ def flexural_as_min_trace(
     required_area = getattr(design, "required_area_cm2_m", getattr(design, "required_area_cm2", 0.0))
     d = design.effective_depth_cm
     fy = steel.yield_strength_kg_cm2
+    es = steel.elastic_modulus_kg_cm2
     fc = concrete.compressive_strength_kg_cm2
-    a = strength_area * fy / (0.85 * fc * width) if strength_area > 0 else 0.0
     units = "cm²/m" if strip else "cm²"
-    phi_mn = 0.90 * strength_area * fy * (d - a / 2.0) / 100000.0 if strength_area > 0 else 0.0
     position_m = getattr(design, "position_m", 0.0)
+    cracking_moment = getattr(design, "cracking_moment_tn_m", 0.0)
+    minimum_capacity_moment = getattr(
+        design,
+        "minimum_capacity_moment_tn_m",
+        design.design_moment_tn_m,
+    )
+    gamma1 = steel.cracking_variability_gamma1
+    gamma3 = steel.cracking_yield_ratio_gamma3
+    fr = 2.01 * fc**0.5
+    section_modulus = (
+        cracking_moment * 100000.0 / (gamma1 * gamma3 * fr)
+        if cracking_moment > 0.0
+        else 0.0
+    )
+    multiplied_moment = 1.33 * design.design_moment_tn_m
+    mtc_minimum = min(multiplied_moment, cracking_moment)
+    target_moment = max(design.design_moment_tn_m, mtc_minimum)
+
+    def response(area: float):
+        if (
+            hasattr(design, "flange_width_cm")
+            and hasattr(design, "flange_thickness_cm")
+            and hasattr(design, "web_width_cm")
+        ):
+            return t_beam_flexural_response(
+                steel_area_cm2=area,
+                flange_width_cm=design.flange_width_cm,
+                flange_thickness_cm=design.flange_thickness_cm,
+                web_width_cm=design.web_width_cm,
+                effective_depth_cm=d,
+                concrete_strength_kg_cm2=fc,
+                steel_yield_kg_cm2=fy,
+                steel_elastic_modulus_kg_cm2=es,
+            )
+        return rectangular_flexural_response(
+            steel_area_cm2=area,
+            concrete_width_cm=width,
+            effective_depth_cm=d,
+            concrete_strength_kg_cm2=fc,
+            steel_yield_kg_cm2=fy,
+            steel_elastic_modulus_kg_cm2=es,
+        )
+
+    required_response = response(strength_area) if strength_area > 0.0 else None
+    provided = provided_area if provided_area is not None else required_area
+    provided_response = response(provided) if provided > 0.0 else None
+    epsilon_y = fy / es
+    required_phi = (
+        min(0.90, required_response.resistance_factor)
+        if required_response is not None
+        else 0.0
+    )
+    provided_phi = (
+        min(0.90, provided_response.resistance_factor)
+        if provided_response is not None
+        else 0.0
+    )
+    phi_mn = (
+        required_phi * required_response.nominal_moment_tn_m
+        if required_response is not None
+        else 0.0
+    )
+    provided_phi_mn = (
+        provided_phi * provided_response.nominal_moment_tn_m
+        if provided_response is not None
+        else 0.0
+    )
+    required_yields = (
+        required_response is not None
+        and required_response.steel_strain + 1e-12 >= epsilon_y
+    )
+    provided_yields = (
+        provided_response is not None
+        and provided_response.steel_strain + 1e-12 >= epsilon_y
+    )
+    provided_capacity_status = (
+        "CUMPLE"
+        if provided_phi_mn + 1e-9 >= target_moment
+        else "NO CUMPLE"
+    )
 
     if strip:
         rho = DEFAULT_SHRINKAGE_TEMPERATURE_RATIO
@@ -71,32 +155,88 @@ def flexural_as_min_trace(
         )
 
     formula = (
-        "a = As·fy/(0.85·f'c·b)  ;  φMn = φ·As·fy·(d − a/2)  ;  "
-        "As,req = max(As,res; As,min)"
+        "Mcr = γ3·γ1·fr·S  ;  Mmin = min(Mcr; 1.33·Mu)  ;  "
+        "Mobjetivo = max(Mu; Mmin)  ;  "
+        "εy = fy/Es  ;  εs = 0.003·(d − c)/c  ;  fs = min(Es·εs; fy)  ;  "
+        "φMn ≥ Mobjetivo  ;  As,req = max(As,res; As,min)"
     )
     legend = (
-        "a: bloque equivalente; As: acero a tracción; b: ancho resistente; d: peralte efectivo; "
-        "φ = 0.90; As,res: acero por resistencia φMn ≥ Mu; As,min: acero mínimo; "
+        "Mcr: momento de fisuración; γ1 = 1.60 para concreto no segmental; "
+        "γ3: relación de resistencias del acero, 0.67 para ASTM A615 Grado 60; "
+        "fr: módulo de rotura; S: módulo resistente de la sección bruta; "
+        "Mobjetivo: demanda que incorpora el mínimo resistente del MTC; "
+        "c: profundidad del eje neutro; a = β1·c: bloque equivalente; "
+        "εy: deformación de fluencia; εs: deformación del acero; "
+        "fs: esfuerzo compatible del acero; φ: factor determinado con εt, limitado a 0.90; "
+        "As,res: acero por resistencia φMn ≥ Mobjetivo; As,min: acero mínimo por cuantía; "
         + min_legend
     )
+    compatibility_lines = ""
+    if required_response is not None:
+        compatibility_lines = (
+            f"β1 = {required_response.compression_block_depth_cm / required_response.neutral_axis_depth_cm:.3f}\n"
+            f"a = {required_response.compression_block_depth_cm:.3f} cm\n"
+            f"c = a/β1 = {required_response.neutral_axis_depth_cm:.3f} cm\n"
+            f"εy = {fy:.0f} ÷ {es:.0f} = {epsilon_y:.6f}\n"
+            f"εs = 0.003·({d:.2f} − {required_response.neutral_axis_depth_cm:.3f})/"
+            f"{required_response.neutral_axis_depth_cm:.3f} = {required_response.steel_strain:.6f}\n"
+            f"fs = min({es:.0f}·{required_response.steel_strain:.6f}; {fy:.0f}) "
+            f"= {required_response.steel_stress_kg_cm2:.1f} kg/cm²: "
+            f"{'FLUYE' if required_yields else 'NO FLUYE'}\n"
+            f"εt = {required_response.extreme_tensile_strain:.6f}; "
+            f"φ = {required_phi:.3f}\n"
+            f"φMn(As,res) = {required_phi:.3f}·{required_response.nominal_moment_tn_m:.3f} "
+            f"= {phi_mn:.3f} Tn·m\n"
+        )
+    provided_lines = ""
+    if provided_response is not None:
+        provided_lines = (
+            f"As,prov = {provided:.3f} {units}\n"
+            f"a,prov = {provided_response.compression_block_depth_cm:.3f} cm\n"
+            f"c,prov = {provided_response.neutral_axis_depth_cm:.3f} cm\n"
+            f"εs,prov = {provided_response.steel_strain:.6f}: "
+            f"{'FLUYE' if provided_yields else 'NO FLUYE'}\n"
+            f"εt,prov = {provided_response.extreme_tensile_strain:.6f}; "
+            f"φprov = {provided_phi:.3f}\n"
+            f"φMn,prov = {provided_phi:.3f}·{provided_response.nominal_moment_tn_m:.3f} "
+            f"= {provided_phi_mn:.3f} Tn·m: {provided_capacity_status}\n"
+        )
     substitution = (
         f"Mu = {design.design_moment_tn_m:.3f} Tn·m\n"
+        f"Acero = {steel.specification}\n"
+        f"γ1 = {gamma1:.2f}; γ3 = {gamma3:.2f}; γ1·γ3 = {gamma1 * gamma3:.3f}\n"
+        f"fr = 2.01·√{fc:.1f} = {fr:.3f} kg/cm²\n"
+        f"S = {section_modulus:.1f} cm³\n"
+        f"Mcr = {gamma3:.2f}·{gamma1:.2f}·{fr:.3f}·{section_modulus:.1f}/100000 "
+        f"= {cracking_moment:.3f} Tn·m\n"
+        f"1.33·Mu = 1.33·{design.design_moment_tn_m:.3f} = {multiplied_moment:.3f} Tn·m\n"
+        f"Mmin = min({cracking_moment:.3f}; {multiplied_moment:.3f}) = {mtc_minimum:.3f} Tn·m\n"
+        f"Mobjetivo = max({design.design_moment_tn_m:.3f}; {mtc_minimum:.3f}) "
+        f"= {minimum_capacity_moment:.3f} Tn·m\n"
         f"x = {position_m:.3f} m\n"
         f"d = {d:.2f} cm\n"
         f"b = {width:.2f} cm\n"
         f"fy = {fy:.0f} kg/cm²\n"
         f"f'c = {fc:.1f} kg/cm²\n"
         f"As,res = {strength_area:.3f} {units}\n"
-        f"a = {strength_area:.3f}·{fy:.0f}/(0.85·{fc:.1f}·{width:.2f}) = {a:.3f} cm\n"
-        f"φMn = 0.90·{strength_area:.3f}·{fy:.0f}·({d:.2f} − {a:.3f}/2)/100000 = {phi_mn:.3f} Tn·m\n"
+        f"{compatibility_lines}"
+        f"{provided_lines}"
         f"{min_lines}"
     )
     result = (
         f"As,res = {strength_area:.3f} {units}; As,min = {minimum_area:.3f} {units}; "
         f"As,req = max({strength_area:.3f}; {minimum_area:.3f}) = {required_area:.3f} {units}. "
-        f"Se adopta {option_text}."
+        f"Se adopta {option_text}. La armadura adoptada desarrolla "
+        f"φMn = {provided_phi_mn:.3f} Tn·m frente a Mobjetivo = "
+        f"{target_moment:.3f} Tn·m: {provided_capacity_status}."
     )
-    return formula, legend, substitution, result, compliance_comment
+    compatibility_comment = (
+        f"{compliance_comment} La compatibilidad confirma que el acero requerido "
+        f"{'fluye' if required_yields else 'no fluye'} y que el acero adoptado "
+        f"{'fluye' if provided_yields else 'no fluye'}; el factor φ se obtiene de εt. "
+        f"El mínimo resistente usa {steel.specification}."
+    )
+    return formula, legend, substitution, result, compatibility_comment
 
 
 def crack_control_trace(crack, *, slab_thickness_cm: float | None = None) -> tuple[str, str, str, str, str]:

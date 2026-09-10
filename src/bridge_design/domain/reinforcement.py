@@ -37,12 +37,14 @@ from bridge_design.validation.input_validators import require_non_negative, requ
 def mtc_cracking_moment_tn_m(
     section_modulus_cm3: float,
     concrete_strength_kg_cm2: float,
-    variability_factor: float = 1.10,
+    variability_factor: float = 1.60 * 0.67,
 ) -> float:
     """Return Mcr for a nonprestressed normal-weight concrete section.
 
     This is the nonprestressed, monolithic form of MTC 2.9.1.4.4.2:
-    ``Mcr = gamma * fr * S``, with ``fr = 2.01*sqrt(fc')`` in kgf/cm2.
+    ``Mcr = gamma1*gamma3*fr*S``, with ``fr = 2.01*sqrt(fc')`` in
+    kgf/cm2. The default is ASTM A615 Grade 60: ``gamma1=1.60`` and
+    ``gamma3=0.67``.
     """
     require_positive(section_modulus_cm3, "modulo resistente")
     require_positive(concrete_strength_kg_cm2, "f'c")
@@ -270,6 +272,7 @@ def _design_flexural_steel(
     cracking_moment = mtc_cracking_moment_tn_m(
         strip_width_cm * gross_depth_cm**2.0 / 6.0,
         materials.concrete.compressive_strength_kg_cm2,
+        variability_factor=materials.steel.cracking_moment_factor,
     )
     minimum_moment = mtc_minimum_flexural_moment_tn_m(
         abs(row.combined_moment_tn_m), cracking_moment

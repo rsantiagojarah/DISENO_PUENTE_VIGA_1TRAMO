@@ -195,6 +195,11 @@ def girder_story(data: DeckReportData, styles, *, exterior: bool) -> list:
         + (f"1.75({strength.pl_moment_tn_m:.3f}) + " if exterior else "")
         + f"1.75({strength.ll_im_moment_tn_m:.3f})"
     )
+    initial_effective_depth_cm = (
+        geometry.total_t_section_depth_m * 100.0
+        - reinforcement.parameters.concrete_cover_cm
+        - reinforcement.parameters.main_bar_diameter_cm / 2.0
+    )
     story = [
         p(f"{'4' if exterior else '3'}. {name}", styles["h1"]),
         p(
@@ -202,6 +207,24 @@ def girder_story(data: DeckReportData, styles, *, exterior: bool) -> list:
             "con la carga de carril; en cada estacion se retiene el mayor efecto. Los factores de "
             "distribucion convierten la accion del carril en demanda de la viga analizada.",
             styles["body"],
+        ),
+        formula_card(
+            f"Peralte resistente de la {name.lower()}",
+            "h=hbajo+tlosa; d=h-rec-db/2",
+            "hbajo: altura de concreto de la viga bajo la losa; tlosa: espesor de losa; "
+            "rec: recubrimiento; db: diametro supuesto de la barra principal; "
+            "d: peralte efectivo inicial.",
+            f"h={geometry.girder_total_height_m:.3f}+{geometry.slab_thickness_m:.3f}="
+            f"{geometry.total_t_section_depth_m:.3f} m; "
+            f"d={geometry.total_t_section_depth_m * 100.0:.2f}-"
+            f"{reinforcement.parameters.concrete_cover_cm:.2f}-"
+            f"{reinforcement.parameters.main_bar_diameter_cm:.3f}/2="
+            f"{initial_effective_depth_cm:.2f} cm",
+            f"d inicial={initial_effective_depth_cm:.2f} cm; "
+            f"d adoptado según el centroide de las capas={main.effective_depth_cm:.2f} cm",
+            "El peso propio del alma usa hbajo; la losa se contabiliza separadamente.",
+            "MTC 2018 2.9.4.2; AASHTO LRFD 5.7.3.",
+            styles,
         ),
         formula_card(
             f"Momento ultimo - {name.lower()}",

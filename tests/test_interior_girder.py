@@ -10,6 +10,7 @@ from bridge_design.domain.interior_girder import (
     _skin_reinforcement_requirements,
     design_interior_girder_reinforcement,
     solve_interior_girder_design,
+    t_beam_flexural_response,
     t_beam_flexural_steel_area_cm2,
     review_interior_girder_crack_control,
     combine_interior_girder_moments,
@@ -108,6 +109,26 @@ def test_t_beam_flexural_area_returns_positive_area() -> None:
     assert neutral_axis > 0.0
 
 
+def test_t_beam_response_reports_yield_and_tension_control() -> None:
+    response = t_beam_flexural_response(
+        steel_area_cm2=85.0,
+        flange_width_cm=256.0,
+        flange_thickness_cm=20.0,
+        web_width_cm=50.0,
+        effective_depth_cm=96.24,
+        concrete_strength_kg_cm2=280.0,
+        steel_yield_kg_cm2=4200.0,
+        steel_elastic_modulus_kg_cm2=2_000_000.0,
+    )
+
+    assert response.compression_block_depth_cm == pytest.approx(5.859375)
+    assert response.steel_stress_kg_cm2 == pytest.approx(4200.0)
+    assert response.steel_strain == pytest.approx(0.038883648)
+    assert response.extreme_tensile_strain > 0.005
+    assert response.resistance_factor == pytest.approx(0.90)
+    assert 0.90 * response.nominal_moment_tn_m == pytest.approx(299.806)
+
+
 def test_t_beam_rejects_incompatible_overreinforced_solution() -> None:
     with pytest.raises(ValueError, match="capacidad compatible"):
         t_beam_flexural_steel_area_cm2(
@@ -189,6 +210,10 @@ def test_interior_girder_solves_loads_combinations_and_reinforcement() -> None:
     reactions = dict(analysis.truck_ll_im.support_reactions_tn)
     assert round(reactions["Fijo"], 3) == 19.765
     assert round(reactions["Movil"], 3) == 22.702
+    maximum_reactions = dict(analysis.ll_im_envelope.maximum_support_reactions_tn)
+    assert maximum_reactions["Fijo"] == pytest.approx(maximum_reactions["Movil"])
+    assert round(maximum_reactions["Fijo"], 3) == 31.146
+    assert maximum_reactions["Fijo"] > max(reactions.values())
 
     combined = combine_interior_girder_moments(analysis)
     strength = next(row for row in combined if row.combination_name == "RESISTENCIA I")

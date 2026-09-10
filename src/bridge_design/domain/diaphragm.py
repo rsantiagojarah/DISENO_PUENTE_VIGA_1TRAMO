@@ -68,7 +68,12 @@ SHEAR_SAMPLE_STEP_M = 0.05
 
 @dataclass(frozen=True)
 class DiaphragmBeamGeometry:
-    """Geometry and load-transfer assumptions for a transverse diaphragm beam."""
+    """Geometry and load-transfer assumptions for a transverse diaphragm beam.
+
+    ``height_m`` is the diaphragm depth below the deck slab.  The structural
+    depth is therefore ``height_m + slab_thickness_m`` for the monolithic
+    rectangular section considered by this model.
+    """
 
     girder_spacing_m: float
     girder_count: int
@@ -84,7 +89,7 @@ class DiaphragmBeamGeometry:
         require_positive(self.girder_spacing_m, "S diafragma")
         require_non_negative(self.deck_overhang_m, "volado de losa")
         require_positive(self.thickness_m, "espesor longitudinal de diafragma")
-        require_positive(self.height_m, "altura de diafragma")
+        require_positive(self.height_m, "altura de diafragma bajo losa")
         require_positive(self.slab_thickness_m, "espesor de losa")
         require_positive(self.vehicle_step_m, "paso vehicular diafragma")
         if self.girder_count < 2:
@@ -118,9 +123,14 @@ class DiaphragmBeamGeometry:
         return self.thickness_m
 
     @property
+    def total_depth_m(self) -> float:
+        """Return depth from the slab top to the diaphragm bottom."""
+        return self.slab_thickness_m + self.height_m
+
+    @property
     def total_t_section_depth_m(self) -> float:
         """Return total diaphragm depth for existing shear helpers."""
-        return self.height_m
+        return self.total_depth_m
 
 
 @dataclass(frozen=True)
@@ -212,6 +222,8 @@ class DiaphragmFlexuralSteelDesign:
     minimum_area_cm2: float
     required_area_cm2: float
     placement_options: LongitudinalPlacementCaseOptions
+    cracking_moment_tn_m: float = 0.0
+    minimum_capacity_moment_tn_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -232,7 +244,7 @@ def diaphragm_geometry_from_transverse(
     height_m: float | None = None,
     load_tributary_length_m: float | None = None,
 ) -> DiaphragmBeamGeometry:
-    """Create diaphragm geometry from the transverse bridge geometry."""
+    """Create diaphragm geometry; ``height_m`` is the depth below the slab."""
     return DiaphragmBeamGeometry(
         girder_spacing_m=transverse.girder_spacing_m,
         girder_count=transverse.girder_count,
@@ -449,7 +461,7 @@ def design_diaphragm_reinforcement(
     )
     governing_flexural_area = max(negative.required_area_cm2, positive.required_area_cm2)
     extreme_tension_depth_cm = (
-        geometry.height_m * 100.0
+        geometry.total_depth_m * 100.0
         - params.concrete_cover_cm
         - params.main_bar_diameter_cm / 2.0
     )
@@ -749,12 +761,17 @@ def _design_flexural_steel(
     params: InteriorGirderReinforcementParameters,
 ) -> DiaphragmFlexuralSteelDesign:
     section_width_cm = geometry.thickness_m * 100.0
-    effective_depth_cm = geometry.height_m * 100.0 - params.concrete_cover_cm - params.main_bar_diameter_cm / 2.0
+    effective_depth_cm = (
+        geometry.total_depth_m * 100.0
+        - params.concrete_cover_cm
+        - params.main_bar_diameter_cm / 2.0
+    )
     require_positive(effective_depth_cm, f"d {label}")
-    gross_depth_cm = geometry.height_m * 100.0
+    gross_depth_cm = geometry.total_depth_m * 100.0
     cracking_moment = mtc_cracking_moment_tn_m(
         section_width_cm * gross_depth_cm**2.0 / 6.0,
         materials.concrete.compressive_strength_kg_cm2,
+        variability_factor=materials.steel.cracking_moment_factor,
     )
     minimum_moment = mtc_minimum_flexural_moment_tn_m(
         abs(row.combined_moment_tn_m), cracking_moment
@@ -814,6 +831,8 @@ def _design_flexural_steel(
         minimum_area_cm2=minimum_area,
         required_area_cm2=required_area,
         placement_options=placement_options,
+        cracking_moment_tn_m=cracking_moment,
+        minimum_capacity_moment_tn_m=minimum_moment,
     )
 
 
@@ -908,7 +927,7 @@ def _as_transverse_geometry(geometry: DiaphragmBeamGeometry) -> TransverseSlabGe
         girder_spacing_m=geometry.girder_spacing_m,
         overhang_m=geometry.deck_overhang_m,
         girder_count=geometry.girder_count,
-        slab_thickness_m=geometry.height_m,
+        slab_thickness_m=geometry.slab_thickness_m,
         girder_total_height_m=geometry.height_m,
         girder_width_m=geometry.thickness_m,
         strip_length_m=geometry.thickness_m,

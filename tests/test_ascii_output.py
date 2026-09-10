@@ -1,9 +1,15 @@
 import pytest
 
 from bridge_design.cli.ascii_output import (
+    _format_main_placement_table,
+    _format_shear_option_table,
+    _format_spacing_case_table,
     format_abutment_reaction_summary,
+    format_exterior_girder_analysis_result,
+    format_interior_girder_analysis_result,
     format_transverse_load_location_schemes,
 )
+from bridge_design.cli.abutment_ascii_output import _format_spacing_option_table
 from bridge_design.domain.barrier import BarrierDesignInputs
 from bridge_design.domain.diaphragm import diaphragm_geometry_from_transverse
 from bridge_design.domain.exterior_girder import (
@@ -14,6 +20,9 @@ from bridge_design.domain.exterior_girder import (
 from bridge_design.domain.interior_girder import (
     DiaphragmGeometry,
     InteriorGirderGeometry,
+    LongitudinalBarPlacementOption,
+    LongitudinalPlacementCaseOptions,
+    ShearStirrupOption,
     solve_interior_girder_design,
 )
 from bridge_design.domain.loads import LiveLoads, PedestrianLoad, VehicleLoadModel
@@ -25,6 +34,11 @@ from bridge_design.domain.materials import (
     SurfaceLayerProperties,
 )
 from bridge_design.domain.project_inputs import ProjectInputs
+from bridge_design.domain.rebar_catalog import (
+    ReinforcementCaseOptions,
+    ReinforcementSpacingOption,
+    ReinforcingBar,
+)
 from bridge_design.domain.transverse_slab import (
     TransverseLoadLayout,
     TransverseSlabDesignInputs,
@@ -112,6 +126,106 @@ def _project_inputs() -> ProjectInputs:
             load_tributary_length_m=0.25,
         ),
     )
+
+
+def test_girder_reports_develop_total_and_effective_depths() -> None:
+    project_inputs = _project_inputs()
+    interior = solve_interior_girder_design(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        live_loads=project_inputs.live_loads,
+    )
+    exterior = solve_exterior_girder_design(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        live_loads=project_inputs.live_loads,
+    )
+
+    interior_output = format_interior_girder_analysis_result(interior, project_inputs)
+    exterior_output = format_exterior_girder_analysis_result(exterior, project_inputs)
+
+    assert "Peralte resistente de la viga interior:" in interior_output
+    assert "Peralte resistente de la viga exterior:" in exterior_output
+    assert "h = 1.200 + 0.200 = 1.400 m" in interior_output
+    assert "h = 1.200 + 0.200 = 1.400 m" in exterior_output
+    assert "d inicial = 140.00 - 5.00 - 2.540/2 = 133.73 cm" in interior_output
+    assert "d inicial = 140.00 - 5.00 - 2.540/2 = 133.73 cm" in exterior_output
+
+
+def test_steel_spacing_tables_only_show_compliant_options() -> None:
+    options = ReinforcementCaseOptions(
+        label="Acero de prueba",
+        required_area_cm2_m=5.0,
+        options=(
+            ReinforcementSpacingOption(101, ReinforcingBar("A", 1.0, 1.0), 0.075, 5.0, 10.0, True),
+            ReinforcementSpacingOption(102, ReinforcingBar("B", 1.0, 1.0), 0.125, 5.0, 8.0, True),
+            ReinforcementSpacingOption(103, ReinforcingBar("C", 1.0, 1.0), 0.15, 5.0, 4.0, False),
+        ),
+    )
+
+    slab_table = "\n".join(_format_spacing_case_table(options))
+    abutment_table = "\n".join(_format_spacing_option_table(options))
+
+    for table in (slab_table, abutment_table):
+        assert "101" in table
+        assert "102" in table
+        assert "103" not in table
+
+
+def test_main_steel_table_only_shows_compliant_options() -> None:
+    def option(item: int, spacing_cm: float, compliant: bool) -> LongitudinalBarPlacementOption:
+        return LongitudinalBarPlacementOption(
+            item=item,
+            bar_label='1"',
+            bar_area_cm2=5.0,
+            bar_diameter_cm=2.54,
+            bar_count=4,
+            layers=1,
+            bars_per_layer=4,
+            required_area_cm2=15.0,
+            provided_area_cm2=20.0,
+            clear_spacing_cm=spacing_cm,
+            is_compliant=compliant,
+        )
+
+    table = "\n".join(
+        _format_main_placement_table(
+            LongitudinalPlacementCaseOptions(
+                "Acero principal",
+                15.0,
+                (option(201, 5.0, True), option(202, 10.01, True), option(203, 12.0, False)),
+            )
+        )
+    )
+
+    assert "201" in table
+    assert "202" in table
+    assert "203" not in table
+
+
+def test_stirrup_table_only_shows_compliant_options() -> None:
+    def option(item: int, spacing_m: float, compliant: bool) -> ShearStirrupOption:
+        return ShearStirrupOption(
+            item=item,
+            bar_label='3/8"',
+            bar_area_cm2=0.71,
+            legs=2,
+            spacing_m=spacing_m,
+            required_av_cm2_m=5.0,
+            provided_av_cm2_m=6.0,
+            phi_vn_tn=20.0,
+            is_compliant=compliant,
+        )
+
+    table = "\n".join(
+        _format_shear_option_table(
+            (option(301, 0.075, True), option(302, 0.125, True), option(303, 0.15, False))
+        )
+    )
+
+    assert "301" in table
+    assert "302" in table
+    assert "303" not in table
 
 
 def test_transverse_report_shows_all_admissible_lane_counts():

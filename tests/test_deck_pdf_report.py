@@ -62,9 +62,21 @@ def test_deck_command_generates_detailed_word_memory_automatically(tmp_path) -> 
     assert "m:oMath" in xml
     assert "m:f" in xml
     assert "Cargas permanentes distribuidas sobre la viga" in xml
+    assert "Peralte resistente de la viga principal interior" in xml
+    assert "Peralte resistente de la viga principal exterior" in xml
+    assert "Máx. apoyo izquierdo (Tn)" in xml
+    assert "envolventes locales independientes de reacción máxima" in xml
+    assert "31.146" in xml
+    assert "21.963" in xml
     assert "Vn,max" in xml
     assert "φVn,max" in xml
     assert "0.25 f'c bv dv" in xml
+    assert "Resistencia nominal por líneas de fluencia" in xml
+    assert "resistencia flexional de la pared como voladizo respecto de su base" in xml
+    assert "ASTM A615 Grado 60" in xml
+    assert "Mobjetivo" in xml
+    assert "FLUYE" in xml
+    assert "La compatibilidad confirma que el acero requerido fluye" in xml
     assert "Arial Narrow" in styles
     assert 'w:sz w:val="22"' in styles
     assert 'w:sz w:val="44"' in xml
@@ -86,10 +98,18 @@ def test_deck_command_generates_detailed_word_memory_automatically(tmp_path) -> 
     ]
     assert "E₊ = 0.660 + 0.55·S" in equation_lines
     assert "E₋ = 1.220 + 0.25·S" in equation_lines
+    assert equation_lines.count("h = 1.200 + 0.200 = 1.400 m") >= 2
+    assert sum(line.startswith("d = 140.00 − 5.00 − 2.540") and line.endswith("= 133.73 cm") for line in equation_lines) >= 2
     assert any(line.startswith("E₊ = 0.660 + 0.55·2.100") for line in equation_lines)
     assert any(line.startswith("E₋ = 1.220 + 0.25·2.100") for line in equation_lines)
     assert not any("E₊" in line and "E₋" in line for line in equation_lines)
     assert any("min[67; 3840/" in line for line in equation_lines)
+    assert "Rw = 2·[k·Mb + k·Mw + Mc·Lc²/H](2·Lc − Lt)" in equation_lines
+    assert any(line.startswith("Rw = 2·[8·") and line.endswith("= 28.232 Tn") for line in equation_lines)
+    assert any(line.startswith("Mcr = γ3·γ1·fr·S") for line in equation_lines)
+    assert any(line.startswith("1.33·Mu = 1.33·") for line in equation_lines)
+    assert any(line.startswith("εy = 4200 ÷ 2000000") for line in equation_lines)
+    assert any("εs,prov" in line and "FLUYE" in line for line in equation_lines)
 
 
 def test_cancelled_save_dialog_does_not_write_a_report(monkeypatch, tmp_path) -> None:

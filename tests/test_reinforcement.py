@@ -69,9 +69,19 @@ def test_mtc_minimum_flexural_capacity_uses_cracking_moment() -> None:
         concrete_strength_kg_cm2=280.0,
     )
 
-    assert cracking == pytest.approx(2.466, abs=0.002)
+    assert cracking == pytest.approx(2.404, abs=0.002)
     assert mtc_minimum_flexural_moment_tn_m(2.0, cracking) == pytest.approx(cracking)
     assert mtc_minimum_flexural_moment_tn_m(2.0, 4.0) == pytest.approx(2.66)
+
+
+def test_grade_60_steel_declares_mtc_cracking_factors() -> None:
+    a615 = SteelProperties(specification="ASTM A615 Grado 60")
+    a706 = SteelProperties(specification="ASTM A706 Grado 60")
+
+    assert a615.cracking_variability_gamma1 == pytest.approx(1.60)
+    assert a615.cracking_yield_ratio_gamma3 == pytest.approx(0.67)
+    assert a615.cracking_moment_factor == pytest.approx(1.072)
+    assert a706.cracking_moment_factor == pytest.approx(1.20)
 
 
 def test_reinforcing_bar_catalog_contains_project_bars() -> None:

@@ -67,6 +67,41 @@ def _layout() -> TransverseLoadLayout:
     )
 
 
+def test_diaphragm_height_is_below_slab_and_total_depth_includes_slab() -> None:
+    from bridge_design.domain.diaphragm import _dc_segments
+
+    geometry = replace(
+        _geometry(),
+        thickness_m=0.35,
+        height_m=0.80,
+        slab_thickness_m=0.20,
+        load_tributary_length_m=0.35,
+    )
+
+    assert geometry.total_depth_m == pytest.approx(1.00)
+    assert geometry.total_t_section_depth_m == pytest.approx(1.00)
+
+    self_and_slab = _dc_segments(geometry, _materials(), _layout())[0].q_tn_m
+    expected = 2.4 * 0.35 * 0.80 + 2.4 * 0.20 * 0.35
+    assert self_and_slab == pytest.approx(expected)
+
+    analysis = solve_diaphragm_design(
+        geometry,
+        _materials(),
+        LiveLoads(
+            pedestrian=PedestrianLoad.mtc_sidewalk_default(),
+            vehicular=VehicleLoadModel.mtc_hl93_default(),
+        ),
+        _layout(),
+    )
+    reinforcement = design_diaphragm_reinforcement(
+        geometry, _materials(), analysis
+    )
+
+    assert reinforcement.skin.effective_depth_cm == pytest.approx(94.205)
+    assert reinforcement.skin.required_area_cm2_m_per_face > 0.0
+
+
 def test_diaphragm_solves_loads_combinations_flexure_temperature_and_shear() -> None:
     analysis = solve_diaphragm_design(
         geometry=_geometry(),

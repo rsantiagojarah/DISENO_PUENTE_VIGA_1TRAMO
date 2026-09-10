@@ -139,10 +139,138 @@ def cantilever_story(data: DeckReportData, styles) -> list:
             tuple((case.name, f"{case.moment_tn_m:.3f}", f"{case.axial_tension_tn_m:.3f}", f"{case.vertical_force_tn_m:.3f}", case.status) for case in collision.cases),
             [57 * mm, 27 * mm, 27 * mm, 27 * mm, 25 * mm], styles,
         ))
+    elif result.interior_collision is not None:
+        story.extend(_interior_collision_story(result.interior_collision, styles))
+    return story
+
+
+def _interior_collision_story(collision, styles) -> list:
+    story = [
+        p("Transferencia de colision a la losa interior", styles["h2"]),
+        formula_card(
+            "Demanda transmitida por la barrera",
+            "F=max(Ft,Rw); L=Lc+2H; N=F/L; Minterfaz=Mc max(1,Ft/Rw)",
+            "Ft: fuerza de ensayo; Rw: resistencia de lineas de fluencia; N: traccion por metro.",
+            f"F={collision.horizontal_force_tn:.3f} Tn; L={collision.transfer_length_m:.3f} m; "
+            f"N={collision.horizontal_force_tn/collision.transfer_length_m:.3f} Tn/m",
+            f"Minterfaz={collision.interface_moment_tn_m_m:.3f} Tn.m/m",
+            "Las acciones horizontal y vertical se analizan independientemente en ambos bordes de las dos barreras.",
+            "MTC 2018 2.4.3.5.1.2, Tabla 2.4.3.6.3-1 y 2.4.5.3.",
+            styles,
+        ),
+        data_table(
+            ("Caso independiente", "x", "M", "Fv", "N"),
+            tuple(
+                (
+                    case.name,
+                    f"{case.position_m:.3f}",
+                    f"{case.applied_moment_tn_m_m:.3f}",
+                    f"{case.applied_vertical_tn_m:.3f}",
+                    f"{case.axial_tension_tn_m:.3f}",
+                )
+                for case in collision.cases
+            ),
+            [74 * mm, 21 * mm, 25 * mm, 25 * mm, 25 * mm],
+            styles,
+        ),
+    ]
+    reaction_headers = (
+        "Caso",
+        *(label for label, _ in collision.cases[0].reactions_tn_m),
+        "Err F",
+        "Err M",
+    )
+    reaction_width = 112 * mm / (len(reaction_headers) - 1)
+    story.append(
+        data_table(
+            reaction_headers,
+            tuple(
+                (
+                    case.name,
+                    *(f"{reaction:.3f}" for _, reaction in case.reactions_tn_m),
+                    f"{case.vertical_equilibrium_error_tn_m:.1e}",
+                    f"{case.moment_equilibrium_error_tn_m_m:.1e}",
+                )
+                for case in collision.cases
+            ),
+            [58 * mm] + [reaction_width] * (len(reaction_headers) - 1),
+            styles,
+        )
+    )
+    story.extend(
+        [
+            p("Acero transversal requerido por colision", styles["h2"]),
+            data_table(
+                ("Cara", "Caso gobernante", "x", "M", "N", "gDC", "gDW"),
+                tuple(
+                    (
+                        face.face,
+                        face.case_name,
+                        f"{face.position_m:.3f}",
+                        f"{face.moment_tn_m_m:.3f}",
+                        f"{face.tension_tn_m:.3f}",
+                        f"{face.dc_factor:.2f}",
+                        f"{face.dw_factor:.2f}",
+                    )
+                    for face in collision.faces
+                ),
+                [20 * mm, 62 * mm, 18 * mm, 20 * mm, 20 * mm, 15 * mm, 15 * mm],
+                styles,
+            ),
+            data_table(
+                ("Cara", "As req", "Acero", "As prov", "ld req", "ld disp", "Estado"),
+                tuple(
+                    (
+                        face.face,
+                        f"{face.option.required_area_cm2_m:.3f}" if face.option else "-",
+                        f"{face.option.bar.label} @ {face.option.spacing_m:.3f} m" if face.option else "Sin opcion",
+                        f"{face.option.provided_area_cm2_m:.3f}" if face.option else "-",
+                        f"{face.development_length_m:.3f} m",
+                        f"{face.development_available_m:.3f} m",
+                        face.status,
+                    )
+                    for face in collision.faces
+                ),
+                [20 * mm, 22 * mm, 37 * mm, 23 * mm, 24 * mm, 24 * mm, 20 * mm],
+                styles,
+            ),
+            formula_card(
+                "Cortante de la franja interior",
+                "phi Vc = phi 0.265 beta sqrt(f'c) b dv",
+                "beta: factor general con traccion; b=100 cm; dv: peralte efectivo de corte.",
+                f"Vu={collision.shear_demand_tn_m:.3f} Tn/m; beta={collision.shear_beta:.3f}",
+                f"phi Vc={collision.shear_capacity_tn_m:.3f} Tn/m: {collision.shear_status}",
+                "La comprobacion corresponde a cortante sin estribos en la franja local.",
+                "Manual de Puentes MTC 2018, Art. 2.9.1.5.6.",
+                styles,
+            ),
+            data_table(
+                ("Control de conexion", "Demanda", "Capacidad", "Estado"),
+                tuple(
+                    (
+                        check.control,
+                        f"{check.demand:.3f} {check.unit}",
+                        f"{check.capacity:.3f} {check.unit}",
+                        check.status,
+                    )
+                    for check in collision.connection_checks
+                ),
+                [65 * mm, 38 * mm, 42 * mm, 25 * mm],
+                styles,
+            ),
+            p(
+                f"Resultado local: {collision.status}. Conexion barrera-losa: "
+                f"{collision.connection_status}.",
+                styles["h2"],
+            ),
+        ]
+    )
+    story.extend(p(note, styles["small"]) for note in collision.notes)
     return story
 
 
 def diaphragm_story(data: DeckReportData, styles) -> list:
+    geometry = data.project_inputs.diaphragm
     result = data.diaphragm_result
     reinforcement = data.diaphragm_reinforcement
     rows = combine_diaphragm_moments(result)
@@ -153,12 +281,26 @@ def diaphragm_story(data: DeckReportData, styles) -> list:
         p("7. Diafragmas", styles["h1"]),
         p(
             "El diafragma se analiza transversalmente entre vigas con voladizos extremos. Las "
+            "alturas ingresadas corresponden al concreto bajo la losa y el peralte resistente "
+            "incluye el espesor de la losa monolitica. Las "
             "cargas permanentes y peatonales actuan en su ubicacion fisica; las ruedas se desplazan "
             "en ambos sentidos, de izquierda a derecha y de derecha a izquierda, invirtiendo "
             "fisicamente su disposicion transversal dentro del carril. Cada posicion se resuelve "
             "estructuralmente y se adopta la envolvente de uno o dos carriles que controla cada "
             "estacion; no se refleja artificialmente el resultado grafico.",
             styles["body"],
+        ),
+        formula_card(
+            "Peralte resistente del diafragma",
+            "h=hbajo+tlosa; d=h-rec-db/2",
+            "hbajo: altura bajo la losa; tlosa: espesor de losa; d: peralte efectivo inicial.",
+            f"h={geometry.height_m:.3f}+{geometry.slab_thickness_m:.3f}="
+            f"{geometry.total_depth_m:.3f} m",
+            f"b={geometry.thickness_m:.3f} m; d adoptado="
+            f"{reinforcement.positive.effective_depth_cm:.2f} cm",
+            "El peso adicional usa hbajo y la losa se contabiliza separadamente.",
+            "Convencion geometrica del modelo de diafragma monolitico.",
+            styles,
         ),
         formula_card(
             "Envolvente de momentos del diafragma",
@@ -173,7 +315,7 @@ def diaphragm_story(data: DeckReportData, styles) -> list:
     ]
     story.extend(moment_shear_pair(result, title="Diafragma", include_pl=True, transverse=True))
     story.append(p("Figura 7.1. Envolventes factorizadas empleadas en el diseno del diafragma.", styles["caption"]))
-    story.extend([
+    story.append(
         formula_card(
             "Acero a flexion del diafragma",
             "phi As fy[d-As fy/(2*0.85 f'c b)] >= |Mu|",
@@ -183,17 +325,33 @@ def diaphragm_story(data: DeckReportData, styles) -> list:
             "Se conservan barras continuas y se detallan ambas caras según el signo de la envolvente.",
             "MTC 2018 2.9.4.2; AASHTO LRFD 5.7.3.",
             styles,
-        ),
-        formula_card(
-            "Acero longitudinal superficial Ask del diafragma",
-            "s <= min(dl/6, 300 mm); Ask por cara segun d_l y As/flexion",
-            "Se exige cuando d_l > 900 mm y se distribuye en ambas caras dentro de d_l/2 desde la cara traccionada.",
-            f"d_l={reinforcement.skin.effective_depth_cm:.2f} cm; d_l/2={reinforcement.skin.distribution_height_m:.3f} m; s max={reinforcement.skin.maximum_spacing_m:.3f} m",
-            f"Ask req={reinforcement.skin.required_area_cm2_m_per_face:.3f} cm2/m por cara",
-            "La armadura principal lateral solo se cuenta como Ask si se verifica explicitamente su ubicacion y compatibilidad.",
-            "MTC 2018 Art. 2.9.1.4.4.3; AASHTO LRFD 5.7.3.4.",
-            styles,
-        ),
+        )
+    )
+    if reinforcement.skin.required_area_cm2_m_per_face > 0.0:
+        story.append(
+            formula_card(
+                "Acero longitudinal superficial Ask del diafragma",
+                "s <= min(dl/6, 300 mm); Ask por cara segun d_l y As/flexion",
+                "Se exige cuando d_l > 900 mm y se distribuye en ambas caras dentro de d_l/2 desde la cara traccionada.",
+                f"d_l={reinforcement.skin.effective_depth_cm:.2f} cm; "
+                f"d_l/2={reinforcement.skin.distribution_height_m:.3f} m; "
+                f"s max={reinforcement.skin.maximum_spacing_m:.3f} m",
+                f"Ask req={reinforcement.skin.required_area_cm2_m_per_face:.3f} cm2/m por cara",
+                "La armadura principal lateral solo se cuenta como Ask si se verifica explicitamente su ubicacion y compatibilidad.",
+                "MTC 2018 Art. 2.9.1.4.4.3; AASHTO LRFD 5.7.3.4.",
+                styles,
+            )
+        )
+    else:
+        story.append(
+            p(
+                f"Ask del diafragma: NO APLICA porque d_l="
+                f"{reinforcement.skin.effective_depth_cm:.2f} cm <= 90.00 cm. "
+                "El acero lateral por temperatura se verifica independientemente.",
+                styles["body"],
+            )
+        )
+    story.append(
         formula_card(
             "Cortante del diafragma",
             "phi(Vc+Vs) >= Vu; Vs = Av fy dv/s",
@@ -203,8 +361,8 @@ def diaphragm_story(data: DeckReportData, styles) -> list:
             "Los estribos se eligen en la grilla del proyecto y su separacion se redondea hacia abajo.",
             "MTC 2018 2.9.5; AASHTO LRFD 5.8.",
             styles,
-        ),
-    ])
+        )
+    )
     return story
 
 
@@ -227,7 +385,18 @@ def reactions_story(data: DeckReportData, styles) -> list:
     live_cases = project_live_reaction_cases(data.project_inputs)
     live_left = max(row.left_tn for row in live_cases)
     live_right = max(row.right_tn for row in live_cases)
-    rows.append(("PLL+IM", "Global", "Global", f"{live_left:.3f}", f"{live_left / width:.3f}"))
+    local_live_interior = _maximum_reaction(data.interior_result.ll_im_envelope)
+    local_live_exterior = _maximum_reaction(data.exterior_result.ll_im_envelope)
+    rows.append(
+        (
+            "PLL+IM local máx.",
+            f"{local_live_interior:.3f}",
+            f"{local_live_exterior:.3f}",
+            "No sumar",
+            "—",
+        )
+    )
+    rows.append(("PLL+IM global", "—", "—", f"{live_left:.3f}", f"{live_left / width:.3f}"))
     dc_pair = _global_pair(data.interior_result.dc, data.exterior_result.dc, interior_count)
     dw_pair = _global_pair(data.interior_result.dw, data.exterior_result.dw, interior_count)
     pl_ext = _support_pair(data.exterior_result.pl)
@@ -237,9 +406,10 @@ def reactions_story(data: DeckReportData, styles) -> list:
     return [
         p("8. Reacciones por viga para apoyos y cargas globales para estribos", styles["h1"]),
         p(
-            "Las reacciones por viga sirven para los apoyos. Para el estribo se usan las filas globales "
-            "de servicio y Resistencia I; LL+IM proviene del equilibrio global por caso. Los maximos "
-            "por apoyo no son necesariamente simultaneos.",
+            "Las reacciones máximas locales por viga sirven para los apoyos. En LL+IM cada extremo "
+            "se maximiza independientemente con IM y gV; por simetría ambos extremos tienen la misma "
+            "envolvente, aunque corresponden a posiciones vehiculares reflejadas. Para el estribo se "
+            "usan las filas globales de servicio y Resistencia I, obtenidas por equilibrio global.",
             styles["body"],
         ),
         formula_card(
@@ -278,7 +448,8 @@ def reactions_story(data: DeckReportData, styles) -> list:
                    [66 * mm, 30 * mm, 30 * mm, 30 * mm], styles),
         p(
             "Conclusión: la tabla por viga se usa para apoyos y la tabla global de servicio y "
-            "Resistencia I se usa para el diseño del estribo.",
+            "Resistencia I se usa para el diseño del estribo. Las máximas LL+IM locales no se suman "
+            "entre vigas porque no corresponden a un único posicionamiento simultáneo.",
             styles["body"],
         ),
     ]
@@ -286,7 +457,7 @@ def reactions_story(data: DeckReportData, styles) -> list:
 
 def _maximum_reaction(case) -> float:
     """Return the largest reaction from scalar or (position, reaction) storage."""
-    values = case.support_reactions_tn
+    values = case.maximum_support_reactions_tn or case.support_reactions_tn
     if values and isinstance(values[0], tuple):
         return max(value for _, value in values)
     return max(values)

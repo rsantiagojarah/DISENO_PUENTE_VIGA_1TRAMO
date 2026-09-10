@@ -19,6 +19,7 @@ from bridge_design.codes.mtc_2018 import (
 from bridge_design.domain.concrete_flexure import (
     CONCRETE_ULTIMATE_STRAIN,
     DEFAULT_STEEL_ELASTIC_MODULUS_KG_CM2,
+    RectangularFlexuralResponse,
     mtc_beta1,
     mtc_flexural_resistance_factor,
 )
@@ -72,7 +73,11 @@ SHEAR_DESIGN_REFERENCE = (
 
 @dataclass(frozen=True)
 class DiaphragmGeometry:
-    """One diaphragm modeled as a concentrated DC load on the interior girder."""
+    """One diaphragm modeled as a concentrated DC load on the interior girder.
+
+    ``height_m`` is the net concrete depth below the deck slab so the slab
+    volume, already included in the distributed DC load, is not counted twice.
+    """
 
     position_m: float
     thickness_m: float
@@ -82,7 +87,7 @@ class DiaphragmGeometry:
     def __post_init__(self) -> None:
         require_non_negative(self.position_m, "ubicacion de diafragma")
         require_positive(self.thickness_m, "espesor longitudinal de diafragma")
-        require_positive(self.height_m, "altura de diafragma")
+        require_positive(self.height_m, "altura de diafragma bajo losa")
         require_positive(self.tributary_width_m, "ancho tributario de diafragma")
 
 
@@ -165,6 +170,7 @@ class LongitudinalLoadCaseAnalysis:
     shear_samples_tn: tuple[tuple[float, float], ...] = ()
     max_shear_tn: float = 0.0
     max_shear_position_m: float = 0.0
+    maximum_support_reactions_tn: tuple[tuple[str, float], ...] = ()
     critical_vehicle_position_m: float | None = None
     vehicle_configuration: str | None = None
     dynamic_load_allowance: float | None = None
@@ -331,6 +337,8 @@ class MainGirderSteelDesign:
     required_area_cm2: float
     neutral_axis_block_depth_cm: float
     placement_options: LongitudinalPlacementCaseOptions
+    cracking_moment_tn_m: float = 0.0
+    minimum_capacity_moment_tn_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -647,6 +655,7 @@ def design_interior_girder_reinforcement(
     cracking_moment = mtc_cracking_moment_tn_m(
         gross_inertia_cm4 / max(total_depth_cm - gross_centroid_cm, 1e-9),
         materials.concrete.compressive_strength_kg_cm2,
+        variability_factor=materials.steel.cracking_moment_factor,
     )
     minimum_moment = mtc_minimum_flexural_moment_tn_m(
         abs(strength_row.combined_moment_tn_m), cracking_moment
@@ -727,6 +736,8 @@ def design_interior_girder_reinforcement(
             required_area_cm2=required_area,
             neutral_axis_block_depth_cm=neutral_axis,
             placement_options=placement_options,
+            cracking_moment_tn_m=cracking_moment,
+            minimum_capacity_moment_tn_m=minimum_moment,
         ),
         temperature=WebTemperatureSteelDesign(
             ratio=params.shrinkage_temperature_ratio,
@@ -1059,6 +1070,97 @@ def fatigue_reinforcing_bar_stress_range_limit_kg_cm2(
     return ksi_to_kg_cm2(max(24.0 - 20.0 * fmin_ksi / fy_ksi, 0.0))
 
 
+def t_beam_flexural_response(
+    steel_area_cm2: float,
+    flange_width_cm: float,
+    flange_thickness_cm: float,
+    web_width_cm: float,
+    effective_depth_cm: float,
+    concrete_strength_kg_cm2: float,
+    steel_yield_kg_cm2: float,
+    steel_elastic_modulus_kg_cm2: float = DEFAULT_STEEL_ELASTIC_MODULUS_KG_CM2,
+    extreme_tension_depth_cm: float | None = None,
+) -> RectangularFlexuralResponse:
+    """Return the strain-compatible response of a singly reinforced T section."""
+    require_positive(steel_area_cm2, "As")
+    require_positive(flange_width_cm, "bf")
+    require_positive(flange_thickness_cm, "hf")
+    require_positive(web_width_cm, "bw")
+    require_positive(effective_depth_cm, "d")
+    require_positive(concrete_strength_kg_cm2, "f'c")
+    require_positive(steel_yield_kg_cm2, "fy")
+    require_positive(steel_elastic_modulus_kg_cm2, "Es")
+    tension_depth = (
+        effective_depth_cm
+        if extreme_tension_depth_cm is None
+        else extreme_tension_depth_cm
+    )
+    require_positive(tension_depth, "dt")
+    if tension_depth < effective_depth_cm:
+        raise ValueError("dt no debe ser menor que ds.")
+    beta1 = mtc_beta1(concrete_strength_kg_cm2)
+
+    def equilibrium(c_cm: float) -> float:
+        a_cm = beta1 * c_cm
+        flange_depth = min(a_cm, flange_thickness_cm)
+        flange_width_extra = max(flange_width_cm - web_width_cm, 0.0)
+        compression = 0.85 * concrete_strength_kg_cm2 * (
+            web_width_cm * a_cm + flange_width_extra * flange_depth
+        )
+        steel_strain = CONCRETE_ULTIMATE_STRAIN * (
+            effective_depth_cm - c_cm
+        ) / c_cm
+        steel_stress = min(
+            steel_yield_kg_cm2,
+            max(steel_elastic_modulus_kg_cm2 * steel_strain, 0.0),
+        )
+        return compression - steel_area_cm2 * steel_stress
+
+    lower = effective_depth_cm * 1.0e-12
+    upper = effective_depth_cm * (1.0 - 1.0e-12)
+    for _ in range(100):
+        mid = (lower + upper) / 2.0
+        if equilibrium(mid) < 0.0:
+            lower = mid
+        else:
+            upper = mid
+    c_cm = (lower + upper) / 2.0
+    a_cm = beta1 * c_cm
+    flange_depth = min(a_cm, flange_thickness_cm)
+    flange_width_extra = max(flange_width_cm - web_width_cm, 0.0)
+    c_web = 0.85 * concrete_strength_kg_cm2 * web_width_cm * a_cm
+    c_flange = (
+        0.85
+        * concrete_strength_kg_cm2
+        * flange_width_extra
+        * flange_depth
+    )
+    steel_strain = CONCRETE_ULTIMATE_STRAIN * (
+        effective_depth_cm - c_cm
+    ) / c_cm
+    steel_stress = min(
+        steel_yield_kg_cm2,
+        max(steel_elastic_modulus_kg_cm2 * steel_strain, 0.0),
+    )
+    extreme_strain = max(
+        CONCRETE_ULTIMATE_STRAIN * (tension_depth - c_cm) / c_cm,
+        0.0,
+    )
+    nominal_moment = (
+        c_web * (effective_depth_cm - a_cm / 2.0)
+        + c_flange * (effective_depth_cm - flange_depth / 2.0)
+    ) / 100000.0
+    return RectangularFlexuralResponse(
+        neutral_axis_depth_cm=c_cm,
+        compression_block_depth_cm=a_cm,
+        steel_strain=steel_strain,
+        steel_stress_kg_cm2=steel_stress,
+        extreme_tensile_strain=extreme_strain,
+        resistance_factor=mtc_flexural_resistance_factor(extreme_strain),
+        nominal_moment_tn_m=nominal_moment,
+    )
+
+
 def t_beam_flexural_steel_area_cm2(
     design_moment_tn_m: float,
     flange_width_cm: float,
@@ -1290,6 +1392,7 @@ def _solve_static_longitudinal_case(
         shear_samples_tn=shear_samples,
         max_shear_tn=abs(maximum_shear[1]),
         max_shear_position_m=maximum_shear[0],
+        maximum_support_reactions_tn=(("Fijo", reaction_left), ("Movil", reaction_right)),
         min_moment_samples_tn_m=samples,
         max_shear_samples_tn=shear_samples,
         min_shear_samples_tn=shear_samples,
@@ -1409,6 +1512,7 @@ def _solve_moving_vehicle_case(
     critical_config = ""
     critical_before_g = 0.0
     critical_reactions = (0.0, 0.0)
+    maximum_support_reactions = [0.0, 0.0]
     moment_g = (
         _live_load_moment_distribution_factor(geometry)
         if moment_distribution_factor_g is None
@@ -1427,11 +1531,16 @@ def _solve_moving_vehicle_case(
             axles_tn,
         ):
             vehicle_length = axle_offsets[-1]
-            for base in _moving_vehicle_bases(
-                span_m=geometry.span_length_m,
-                vehicle_length_m=vehicle_length,
-                step_m=geometry.moving_load_step_m,
-            ):
+            vehicle_bases = set(
+                _moving_vehicle_bases(
+                    span_m=geometry.span_length_m,
+                    vehicle_length_m=vehicle_length,
+                    step_m=geometry.moving_load_step_m,
+                )
+            )
+            vehicle_bases.update(-offset for offset in axle_offsets)
+            vehicle_bases.update(geometry.span_length_m - offset for offset in axle_offsets)
+            for base in sorted(vehicle_bases):
                 axles = tuple(
                     (base + offset, load * (1.0 + impact_factor))
                     for offset, load in zip(axle_offsets, axle_loads)
@@ -1441,6 +1550,18 @@ def _solve_moving_vehicle_case(
                     geometry.span_length_m,
                     lane_load_tn_m,
                     axles,
+                )
+                scaled_reactions = (
+                    shear_g * reactions[0],
+                    shear_g * reactions[1],
+                )
+                maximum_support_reactions[0] = max(
+                    maximum_support_reactions[0],
+                    scaled_reactions[0],
+                )
+                maximum_support_reactions[1] = max(
+                    maximum_support_reactions[1],
+                    scaled_reactions[1],
                 )
                 reaction_left = reactions[0]
                 for index, (x, current) in enumerate(samples):
@@ -1469,10 +1590,7 @@ def _solve_moving_vehicle_case(
                         critical_position = base
                         critical_config = _configuration_label(name, spacing_set, direction)
                         critical_before_g = before_g
-                        critical_reactions = (
-                            shear_g * reactions[0],
-                            shear_g * reactions[1],
-                        )
+                        critical_reactions = scaled_reactions
     moment_samples = _symmetrized_envelope_samples(tuple(samples), geometry.span_length_m)
     min_moment_samples = _symmetrized_envelope_samples(
         tuple(min_samples),
@@ -1498,6 +1616,10 @@ def _solve_moving_vehicle_case(
         shear_samples_tn=shear_samples_tuple,
         max_shear_tn=maximum_shear[1],
         max_shear_position_m=maximum_shear[0],
+        maximum_support_reactions_tn=(
+            ("Fijo", maximum_support_reactions[0]),
+            ("Movil", maximum_support_reactions[1]),
+        ),
         critical_vehicle_position_m=critical_position,
         vehicle_configuration=critical_config,
         dynamic_load_allowance=impact_factor,
@@ -1558,6 +1680,19 @@ def _combine_live_load_cases(
     maximum = max(samples, key=lambda item: item[1])
     maximum_shear = max(shear_samples, key=lambda item: item[1])
     source = truck if truck.max_positive_moment_tn_m >= tandem.max_positive_moment_tn_m else tandem
+    truck_support_maxima = dict(
+        truck.maximum_support_reactions_tn or truck.support_reactions_tn
+    )
+    tandem_support_maxima = dict(
+        tandem.maximum_support_reactions_tn or tandem.support_reactions_tn
+    )
+    maximum_support_reactions = tuple(
+        (
+            label,
+            max(truck_support_maxima.get(label, 0.0), tandem_support_maxima.get(label, 0.0)),
+        )
+        for label in ("Fijo", "Movil")
+    )
     return LongitudinalLoadCaseAnalysis(
         name="LL+IM - envolvente camion/tandem + carril",
         max_positive_moment_tn_m=maximum[1],
@@ -1568,6 +1703,7 @@ def _combine_live_load_cases(
         shear_samples_tn=tuple(shear_samples),
         max_shear_tn=maximum_shear[1],
         max_shear_position_m=maximum_shear[0],
+        maximum_support_reactions_tn=maximum_support_reactions,
         dynamic_load_allowance=source.dynamic_load_allowance,
         distribution_factor_g=source.distribution_factor_g,
         shear_distribution_factor_g=source.shear_distribution_factor_g,

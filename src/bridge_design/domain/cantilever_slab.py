@@ -139,6 +139,8 @@ class CantileverFlexuralSteelDesign:
     minimum_area_cm2_m: float
     required_area_cm2_m: float
     spacing_options: ReinforcementCaseOptions
+    cracking_moment_tn_m: float = 0.0
+    minimum_capacity_moment_tn_m: float = 0.0
     reference: str = FLEXURAL_STRENGTH_REFERENCE
 
 
@@ -351,8 +353,7 @@ def design_cantilever_slab(
             geometry, materials, live_loads, layout, barrier_result, params)
         notes = (*notes,
             "Colision local sobre voladizo: NO APLICABLE. La transferencia a la losa interior "
-            "se calcula en el bloque siguiente; su armadura es independiente del voladizo.",
-            *interior_collision.report_lines())
+            "se calcula en el bloque siguiente; su armadura es independiente del voladizo.")
     elif barrier_result and location != "SOBRE VOLADIZO":
         notes = (*notes,
             "Colision local de barrera sobre voladizo: NO APLICABLE a esta geometria. "

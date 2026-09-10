@@ -144,7 +144,9 @@ def collect_material_properties() -> MaterialProperties:
     steel = SteelProperties(
         yield_strength_kg_cm2=4200.0,
         elastic_modulus_kg_cm2=2000000.0,
+        specification="ASTM A615 Grado 60",
     )
+    print("Especificacion del acero de refuerzo [ASTM A615 Grado 60]: ASTM A615 Grado 60")
     print("fy - Esfuerzo de fluencia del acero (kg/cm2) [4200]: 4200")
     print("Es - Modulo de elasticidad del acero (kg/cm2) [2000000]: 2000000")
 
@@ -318,7 +320,7 @@ def collect_interior_girder_geometry(
                 ),
                 thickness_m=prompt_float("  Espesor longitudinal", "m", 0.25),
                 height_m=prompt_float(
-                    "  Altura",
+                    "  Altura de concreto bajo la losa",
                     "m",
                     max(transverse_geometry.girder_total_height_m - 0.10, 0.10),
                 ),
@@ -419,7 +421,7 @@ def collect_diaphragm_beam_geometry(
         else max(transverse_geometry.girder_total_height_m - 0.10, 0.10)
     )
     thickness = prompt_float("Espesor longitudinal del diafragma", "m", default_thickness)
-    height = prompt_float("Altura resistente del diafragma", "m", default_height)
+    height = prompt_float("Altura del diafragma bajo la losa", "m", default_height)
     tributary = prompt_float(
         "Longitud tributaria longitudinal para cargas sobre diafragma",
         "m",

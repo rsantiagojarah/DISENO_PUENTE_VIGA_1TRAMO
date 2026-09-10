@@ -418,6 +418,7 @@ def design_exterior_girder_reinforcement(
     cracking_moment = mtc_cracking_moment_tn_m(
         gross_inertia_cm4 / max(gross_depth_cm - gross_centroid_cm, 1e-9),
         materials.concrete.compressive_strength_kg_cm2,
+        variability_factor=materials.steel.cracking_moment_factor,
     )
     minimum_moment = mtc_minimum_flexural_moment_tn_m(
         abs(strength_row.combined_moment_tn_m), cracking_moment
@@ -528,6 +529,8 @@ def design_exterior_girder_reinforcement(
             required_area_cm2=required_area,
             neutral_axis_block_depth_cm=neutral_axis,
             placement_options=placement_options,
+            cracking_moment_tn_m=cracking_moment,
+            minimum_capacity_moment_tn_m=minimum_moment,
         ),
         temperature=WebTemperatureSteelDesign(
             ratio=params.shrinkage_temperature_ratio,

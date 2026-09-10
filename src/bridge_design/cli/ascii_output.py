@@ -49,6 +49,7 @@ from bridge_design.domain.interior_girder import (
     design_interior_girder_reinforcement,
     design_interior_girder_shear,
 )
+from bridge_design.domain.interior_collision import InteriorCollisionDesign
 from bridge_design.domain.project_inputs import ProjectInputs
 from bridge_design.domain.transverse_patterns import TransverseLaneGeometryError, validate_lane_geometry
 from bridge_design.domain.rebar_catalog import (
@@ -135,8 +136,9 @@ def format_input_summary(project_inputs: ProjectInputs) -> str:
         f"Ancho tributario interior            : {project_inputs.interior_girder.tributary_width_m:10.3f} m",
         f"g carga viva                         : {project_inputs.interior_girder.live_load_distribution_factor_g:10.3f}",
         f"Diafragmas interiores                : {len(project_inputs.interior_girder.diaphragms):10d}",
-        f"Diafragma b x h                      : {project_inputs.diaphragm.thickness_m:5.3f} x "
+        f"Diafragma b x h bajo losa            : {project_inputs.diaphragm.thickness_m:5.3f} x "
         f"{project_inputs.diaphragm.height_m:5.3f} m",
+        f"Diafragma peralte total h            : {project_inputs.diaphragm.total_depth_m:10.3f} m",
         f"Diafragma long. tributaria cargas    : {project_inputs.diaphragm.load_tributary_length_m:10.3f} m",
         "-" * 60,
         "VIGA PRINCIPAL EXTERIOR",
@@ -723,7 +725,8 @@ def format_diaphragm_design_result(
         "Modelo: viga transversal continua apoyada en los ejes de vigas principales.",
         (
             f"Ancho total={geometry.total_width_m:.3f} m | S={geometry.girder_spacing_m:.3f} m | "
-            f"vigas={geometry.girder_count} | b={geometry.thickness_m:.3f} m | h={geometry.height_m:.3f} m."
+            f"vigas={geometry.girder_count} | b={geometry.thickness_m:.3f} m | "
+            f"h bajo losa={geometry.height_m:.3f} m | h total={geometry.total_depth_m:.3f} m."
         ),
         (
             f"Longitud tributaria cargas={geometry.load_tributary_length_m:.3f} m | "
@@ -771,8 +774,15 @@ def format_diaphragm_design_result(
     )
     lines.extend(_format_spacing_case_table(reinforcement.temperature.spacing_options))
     lines.extend(
-        [
-            *audit_subtitle("6.E", "ACERO LONGITUDINAL SUPERFICIAL ASK EN CARAS LATERALES (ART. 2.9.1.4.4.3)", 104),
+        audit_subtitle(
+            "6.E",
+            "ACERO LONGITUDINAL SUPERFICIAL ASK EN CARAS LATERALES (ART. 2.9.1.4.4.3)",
+            104,
+        )
+    )
+    if reinforcement.skin.required_area_cm2_m_per_face > 0.0:
+        lines.extend(
+            [
             (
                 f"dl={reinforcement.skin.effective_depth_cm:.2f} cm | "
                 f"zona de distribucion=dl/2={reinforcement.skin.distribution_height_m:.3f} m | "
@@ -780,9 +790,15 @@ def format_diaphragm_design_result(
                 f"s max={reinforcement.skin.maximum_spacing_m:.3f} m."
             ),
             "La armadura se coloca en ambas caras laterales, desde la cara traccionada, dentro de la zona dl/2.",
-        ]
-    )
-    lines.extend(_format_spacing_case_table(reinforcement.skin.spacing_options))
+            ]
+        )
+        lines.extend(_format_spacing_case_table(reinforcement.skin.spacing_options))
+    else:
+        lines.append(
+            f"dl={reinforcement.skin.effective_depth_cm:.2f} cm <= 90.00 cm | "
+            "Estado=NO APLICA. No se requiere Ask; la armadura lateral por temperatura "
+            "se verifica independientemente."
+        )
     lines.extend(_format_diaphragm_shear_design_lines(reinforcement.shear))
     lines.extend(["=" * 104])
     return "\n".join(lines)
@@ -1211,6 +1227,8 @@ def format_cantilever_slab_design_result(
     )
     if result.barrier_collision is None:
         lines.append("Sin colision local aplicada al voladizo. Consultar geometria y verificaciones pendientes en las notas de aplicabilidad.")
+        if result.interior_collision is not None:
+            lines.extend(_format_interior_collision_lines(result.interior_collision))
     else:
         collision = result.barrier_collision
         lines.append(f"N simultanea={collision.axial_tension_tn_m:.3f} Tn/m; As incluye N/(phi*fy). {collision.status}: {collision.scope_note}")
@@ -1273,6 +1291,141 @@ def format_cantilever_slab_design_result(
         lines.extend(f"- {note}" for note in result.applicability_notes)
     lines.append("=" * 108)
     return "\n".join(lines)
+
+
+def _format_interior_collision_lines(
+    collision: InteriorCollisionDesign,
+) -> list[str]:
+    lines = [
+        *audit_subtitle(
+            "5.F.1",
+            "TRANSFERENCIA DE COLISION A LOSA INTERIOR - FRANJA TRANSVERSAL DE 1.0 m",
+            108,
+        ),
+        (
+            f"Ft=max(Ft ensayo,Rw)={collision.horizontal_force_tn:.3f} Tn; "
+            f"L transferencia={collision.transfer_length_m:.3f} m; "
+            f"N=Ft/L={collision.horizontal_force_tn / collision.transfer_length_m:.3f} Tn/m; "
+            f"M interfaz={collision.interface_moment_tn_m_m:.3f} Tn*m/m."
+        ),
+    ]
+    lines.extend(
+        boxed_table(
+            ("Caso independiente", "x", "M aplicado", "Fv", "N"),
+            (
+                (
+                    case.name,
+                    f"{case.position_m:.3f}",
+                    f"{case.applied_moment_tn_m_m:.3f}",
+                    f"{case.applied_vertical_tn_m:.3f}",
+                    f"{case.axial_tension_tn_m:.3f}",
+                )
+                for case in collision.cases
+            ),
+            aligns=("left", "right", "right", "right", "right"),
+            title="Casos de Evento Extremo II",
+            max_width=108,
+        )
+    )
+    reaction_headers = (
+        "Caso",
+        *(label for label, _ in collision.cases[0].reactions_tn_m),
+        "Err F",
+        "Err M",
+    )
+    lines.extend(
+        boxed_table(
+            reaction_headers,
+            (
+                (
+                    case.name,
+                    *(f"{reaction:.3f}" for _, reaction in case.reactions_tn_m),
+                    f"{case.vertical_equilibrium_error_tn_m:.2e}",
+                    f"{case.moment_equilibrium_error_tn_m_m:.2e}",
+                )
+                for case in collision.cases
+            ),
+            aligns=("left",) + ("right",) * (len(reaction_headers) - 1),
+            title="Reacciones verticales incrementales por viga (Tn/m)",
+            max_width=108,
+        )
+    )
+    lines.extend(
+        boxed_table(
+            ("Cara", "Caso gobernante", "x", "M", "N", "gDC", "gDW"),
+            (
+                (
+                    face.face,
+                    face.case_name,
+                    f"{face.position_m:.3f}",
+                    f"{face.moment_tn_m_m:.3f}",
+                    f"{face.tension_tn_m:.3f}",
+                    f"{face.dc_factor:.2f}",
+                    f"{face.dw_factor:.2f}",
+                )
+                for face in collision.faces
+            ),
+            aligns=("left", "left", "right", "right", "right", "right", "right"),
+            title="Demandas gobernantes de acero transversal",
+            max_width=108,
+        )
+    )
+    lines.extend(
+        boxed_table(
+            ("Cara", "As req", "Acero adoptado", "As prov", "ld req", "ld disp", "Estado"),
+            (
+                (
+                    face.face,
+                    f"{face.option.required_area_cm2_m:.3f}" if face.option else "-",
+                    f'{face.option.bar.label} @ {face.option.spacing_m:.3f} m' if face.option else "-",
+                    f"{face.option.provided_area_cm2_m:.3f}" if face.option else "-",
+                    f"{face.development_length_m:.3f}",
+                    f"{face.development_available_m:.3f}",
+                    face.status,
+                )
+                for face in collision.faces
+            ),
+            aligns=("left", "right", "center", "right", "right", "right", "center"),
+            title="Acero transversal requerido por colision",
+            max_width=108,
+        )
+    )
+    lines.extend(
+        boxed_table(
+            ("Control", "Demanda", "Capacidad", "Estado"),
+            (
+                (
+                    check.control,
+                    f"{check.demand:.3f} {check.unit}",
+                    f"{check.capacity:.3f} {check.unit}",
+                    check.status,
+                )
+                for check in collision.connection_checks
+            ),
+            aligns=("left", "right", "right", "center"),
+            title="Conexion barrera-losa",
+            max_width=108,
+        )
+    )
+    lines.extend(
+        boxed_table(
+            ("Verificacion", "Demanda", "Capacidad", "beta", "Estado"),
+            (
+                (
+                    "Cortante sin estribos",
+                    f"{collision.shear_demand_tn_m:.3f} Tn/m",
+                    f"{collision.shear_capacity_tn_m:.3f} Tn/m",
+                    f"{collision.shear_beta:.3f}",
+                    collision.shear_status,
+                ),
+            ),
+            aligns=("left", "right", "right", "right", "center"),
+            title=f"Resultado local: {collision.status}",
+            max_width=108,
+        )
+    )
+    lines.extend(f"Nota: {note}" for note in collision.notes)
+    return lines
 
 
 def _format_combined_moment_row(row: CombinedMomentResult) -> str:
@@ -1554,6 +1707,11 @@ def format_interior_girder_analysis_result(
         materials=project_inputs.materials,
         analysis=result,
     )
+    initial_effective_depth_cm = (
+        geometry.total_t_section_depth_m * 100.0
+        - reinforcement.parameters.concrete_cover_cm
+        - reinforcement.parameters.main_bar_diameter_cm / 2.0
+    )
     lines = [
         "",
         *audit_block_title("2", "DISENO DE VIGAS INTERIORES", 104),
@@ -1564,7 +1722,21 @@ def format_interior_girder_analysis_result(
         ),
         (
             f"Seccion T: bf={geometry.tributary_width_m:.3f} m, hf={geometry.slab_thickness_m:.3f} m, "
-            f"bw={geometry.web_width_m:.3f} m, h alma={geometry.girder_total_height_m:.3f} m."
+            f"bw={geometry.web_width_m:.3f} m, hbajo={geometry.girder_total_height_m:.3f} m, "
+            f"h total={geometry.total_t_section_depth_m:.3f} m."
+        ),
+        "Peralte resistente de la viga interior:",
+        "h = hbajo + tlosa; d = h - rec - db/2",
+        (
+            f"h = {geometry.girder_total_height_m:.3f} + {geometry.slab_thickness_m:.3f} = "
+            f"{geometry.total_t_section_depth_m:.3f} m"
+        ),
+        (
+            f"d inicial = {geometry.total_t_section_depth_m * 100.0:.2f} - "
+            f"{reinforcement.parameters.concrete_cover_cm:.2f} - "
+            f"{reinforcement.parameters.main_bar_diameter_cm:.3f}/2 = "
+            f"{initial_effective_depth_cm:.2f} cm; "
+            f"d adoptado por capas = {reinforcement.main.effective_depth_cm:.2f} cm."
         ),
         *audit_subtitle("2.A", "DIAFRAGMAS MODELADOS COMO CARGAS DC CONCENTRADAS", 104),
     ]
@@ -1826,6 +1998,11 @@ def format_exterior_girder_analysis_result(
         combine_exterior_girder_shears(geometry, result, reinforcement.parameters),
         key=lambda item: item.combined_shear_tn,
     )
+    initial_effective_depth_cm = (
+        geometry.total_t_section_depth_m * 100.0
+        - reinforcement.parameters.concrete_cover_cm
+        - reinforcement.parameters.main_bar_diameter_cm / 2.0
+    )
     lines = [
         "",
         *audit_block_title("3", "DISENO DE VIGAS EXTERIORES", 104),
@@ -1839,6 +2016,24 @@ def format_exterior_girder_analysis_result(
         (
             f"Cargas DC exteriores: losa tributaria, alma, vereda={geometry.sidewalk_tributary_width_m:.3f} m, "
             "baranda, barrera y diafragmas. DW usa solo el ancho tributario de asfalto."
+        ),
+        (
+            f"Seccion T: bf={geometry.tributary_width_m:.3f} m, hf={geometry.slab_thickness_m:.3f} m, "
+            f"bw={geometry.web_width_m:.3f} m, hbajo={geometry.girder_total_height_m:.3f} m, "
+            f"h total={geometry.total_t_section_depth_m:.3f} m."
+        ),
+        "Peralte resistente de la viga exterior:",
+        "h = hbajo + tlosa; d = h - rec - db/2",
+        (
+            f"h = {geometry.girder_total_height_m:.3f} + {geometry.slab_thickness_m:.3f} = "
+            f"{geometry.total_t_section_depth_m:.3f} m"
+        ),
+        (
+            f"d inicial = {geometry.total_t_section_depth_m * 100.0:.2f} - "
+            f"{reinforcement.parameters.concrete_cover_cm:.2f} - "
+            f"{reinforcement.parameters.main_bar_diameter_cm:.3f}/2 = "
+            f"{initial_effective_depth_cm:.2f} cm; "
+            f"d adoptado por capas = {reinforcement.main.effective_depth_cm:.2f} cm."
         ),
         *audit_subtitle("3.A", "MOMENTOS DE FLEXION POR CARGAS SIN FACTOR", 104),
     ]
@@ -2282,7 +2477,7 @@ def _format_interior_reinforcement_option_tables(
 def _format_main_placement_table(case_options) -> list[str]:
     rows = []
     for option in case_options.options:
-        if option.is_compliant or option.is_recommended or option.bar_count in (2, 4, 6, 8, 10, 12, 16, 20, 24):
+        if option.is_compliant:
             rows.append(
                 (
                     option.item,
@@ -2455,6 +2650,8 @@ def _format_shear_section_limit(shear: InteriorGirderShearDesign) -> str:
 def _format_shear_option_table(options) -> list[str]:
     rows = []
     for option in options:
+        if not option.is_compliant:
+            continue
         state = "OK" if option.is_compliant else "NO"
         use = "REC" if option.is_recommended else ""
         rows.append(

@@ -47,11 +47,32 @@ class SteelProperties:
 
     yield_strength_kg_cm2: float = 4200.0
     elastic_modulus_kg_cm2: float = 2000000.0
+    specification: str = "ASTM A615 Grado 60"
     reference: str = STEEL_REFERENCE
 
     def __post_init__(self) -> None:
         require_positive(self.yield_strength_kg_cm2, "fy")
         require_positive(self.elastic_modulus_kg_cm2, "Es")
+        if self.specification not in ("ASTM A615 Grado 60", "ASTM A706 Grado 60"):
+            raise ValueError(
+                "La especificacion del acero debe ser ASTM A615 Grado 60 "
+                "o ASTM A706 Grado 60."
+            )
+
+    @property
+    def cracking_variability_gamma1(self) -> float:
+        """Return MTC gamma1 for nonsegmental concrete construction."""
+        return 1.60
+
+    @property
+    def cracking_yield_ratio_gamma3(self) -> float:
+        """Return MTC gamma3 for the declared Grade 60 reinforcement."""
+        return 0.67 if self.specification == "ASTM A615 Grado 60" else 0.75
+
+    @property
+    def cracking_moment_factor(self) -> float:
+        """Return gamma1*gamma3 for nonprestressed monolithic members."""
+        return self.cracking_variability_gamma1 * self.cracking_yield_ratio_gamma3
 
 
 @dataclass(frozen=True)

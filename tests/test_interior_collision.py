@@ -76,9 +76,18 @@ def test_report_contains_demands_steel_reactions_and_real_status():
     from bridge_design.cli.ascii_output import format_cantilever_slab_design_result
     _, result, _ = _result()
     text = format_cantilever_slab_design_result(result)
-    for expected in ("TRANSFERENCIA DE COLISION A LOSA INTERIOR", "Acero transversal superior",
-                     "Acero transversal inferior", "Residuos equilibrio", "minimo TOTAL", "ld=", "Resultado local:"):
+    for expected in (
+        "TRANSFERENCIA DE COLISION A LOSA INTERIOR",
+        "Acero transversal requerido por colision",
+        "Reacciones verticales incrementales",
+        "As req",
+        "ld req",
+        "Conexion barrera-losa",
+        "Resultado local:",
+    ):
         assert expected in text
+    applicability = text.split("Notas de aplicabilidad:", 1)[1]
+    assert "EEII horizontal" not in applicability
 
 
 def test_unknown_level_is_rejected_instead_of_assuming_tl4():
@@ -109,11 +118,11 @@ def test_word_and_pdf_sections_include_interior_transfer():
     _configure_document(document)
     _cantilever(document, data)
     text = document._element.xml
-    assert "TRANSFERENCIA DE COLISION A LOSA INTERIOR" in text
-    assert "Anclaje de dowel por capacidad" in text
-    assert "Acero transversal inferior" in text
+    assert "Transferencia local a la losa interior" in text
+    assert "Control" in text
+    assert "Acero transversal por colisión" in text
     # Use the production style factory rather than mocking report paragraphs.
     story = cantilever_story(data, pdf_style.report_styles())
     paragraphs = " ".join(getattr(item, "text", "") for item in story)
-    assert "TRANSFERENCIA DE COLISION A LOSA INTERIOR" in paragraphs
-    assert "Anclaje de dowel por capacidad" in paragraphs
+    assert "Transferencia de colision a la losa interior" in paragraphs
+    assert "Acero transversal requerido por colision" in paragraphs

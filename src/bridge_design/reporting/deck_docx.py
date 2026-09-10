@@ -342,6 +342,7 @@ def _general_basis(document: Document, data: DeckReportData) -> None:
             ("Peso específico del concreto", "γc", f"{concrete.specific_weight_tn_m3:.3f} Tn/m³"),
             ("Resistencia del concreto", "f'c", f"{concrete.compressive_strength_kg_cm2:.1f} kg/cm²"),
             ("Módulo del concreto", "Ec", f"{concrete.elastic_modulus_kg_cm2:,.0f} kg/cm²"),
+            ("Especificación del acero", "—", steel.specification),
             ("Fluencia del acero", "fy", f"{steel.yield_strength_kg_cm2:,.0f} kg/cm²"),
             ("Módulo del acero", "Es", f"{steel.elastic_modulus_kg_cm2:,.0f} kg/cm²"),
         ),
@@ -646,11 +647,36 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
             ("Luz L", f"{geometry.span_length_m:.3f} m"),
             ("Separación S", f"{geometry.girder_spacing_m:.3f} m"),
             ("Alma bw", f"{geometry.web_width_m:.3f} m"),
-            ("Peralte total T", f"{geometry.total_t_section_depth_m:.3f} m"),
+            ("Altura de viga bajo losa", f"{geometry.girder_total_height_m:.3f} m"),
+            ("Espesor de losa", f"{geometry.slab_thickness_m:.3f} m"),
+            ("Peralte resistente total h", f"{geometry.total_t_section_depth_m:.3f} m"),
             ("Factor g de momento", f"{analysis.distribution_factor_g:.5f}"),
             ("Factor g de cortante", f"{analysis.shear_distribution_factor_g:.5f}"),
         ),
         widths=(105, 62),
+    )
+    initial_effective_depth_cm = (
+        geometry.total_t_section_depth_m * 100.0
+        - reinforcement.parameters.concrete_cover_cm
+        - reinforcement.parameters.main_bar_diameter_cm / 2.0
+    )
+    _calc(
+        document,
+        f"Peralte resistente de la {label.lower()}",
+        "h = hbajo + tlosa; d = h − rec − db/2",
+        "hbajo: altura de concreto de la viga bajo la losa; tlosa: espesor de losa monolítica; "
+        "rec: recubrimiento; db: diámetro supuesto de la barra principal; "
+        "d: peralte efectivo inicial.",
+        f"h = {geometry.girder_total_height_m:.3f} + {geometry.slab_thickness_m:.3f} = "
+        f"{geometry.total_t_section_depth_m:.3f} m\n"
+        f"d = {geometry.total_t_section_depth_m * 100.0:.2f} − "
+        f"{reinforcement.parameters.concrete_cover_cm:.2f} − "
+        f"{reinforcement.parameters.main_bar_diameter_cm:.3f}/2 = "
+        f"{initial_effective_depth_cm:.2f} cm.",
+        f"El peralte efectivo inicial es d={initial_effective_depth_cm:.2f} cm. "
+        f"Con el centroide de las capas adoptadas se utiliza d={reinforcement.main.effective_depth_cm:.2f} cm.",
+        "El peso propio del alma usa hbajo; el peso de la losa se contabiliza separadamente.",
+        REF_FLEX,
     )
     vehicle = inputs.live_loads.vehicular
     if exterior:
@@ -966,7 +992,36 @@ def _barrier(document: Document, data: DeckReportData) -> None:
         "Lc = Lt/2 + √[(Lt/2)² + k·H·(Mb + Mw)/Mc]",
         "Lt: longitud de distribución del impacto; H: altura; Mb, Mw y Mc: resistencias flexionales; k = 8 para impacto interior.",
         f"Lc = {impact.distribution_length_m:.3f}/2 + √[({impact.distribution_length_m:.3f}/2)² + {multiplier:.0f}·{geom.height_m:.3f}·({geom.top_additional_moment_tn_m:.3f}+{flex.mw_tn_m:.3f})/{flex.mc_tn_m:.3f}] = {yl.critical_length_m:.3f} m.",
-        f"Con Lc se obtiene Rw = {yl.nominal_transverse_resistance_tn:.3f} Tn frente a Ft = {yl.demand_transverse_force_tn:.3f} Tn: {yl.resistance_status}.",
+        f"La longitud crítica del mecanismo de líneas de fluencia es Lc = {yl.critical_length_m:.3f} m.",
+        "Lc delimita el tramo de barrera que participa en el mecanismo resistente al impacto.",
+        REF_BARRIER,
+    )
+    _calc(
+        document,
+        "Resistencia nominal por líneas de fluencia",
+        "Rw = 2·[k·Mb + k·Mw + Mc·Lc²/H]/(2·Lc − Lt)",
+        "Rw: resistencia transversal nominal de la barrera; "
+        "Mb: resistencia flexional adicional del elemento superior; "
+        "Mw: resistencia flexional de la pared alrededor de su eje vertical; "
+        "Mc: resistencia flexional de la pared como voladizo respecto de su base; "
+        "Lc: longitud crítica del mecanismo; "
+        "Lt: longitud de distribución del impacto; "
+        "H: altura de la barrera; "
+        "k: coeficiente del patrón de impacto, igual a 8 para un tramo interior y 1 para un extremo o junta.",
+        f"k = {multiplier:.0f}\n"
+        f"Mb = {geom.top_additional_moment_tn_m:.3f} Tn·m\n"
+        f"Mw = {flex.mw_tn_m:.3f} Tn·m\n"
+        f"Mc = {flex.mc_tn_m:.3f} Tn·m/m\n"
+        f"Lc = {yl.critical_length_m:.3f} m\n"
+        f"Lt = {impact.distribution_length_m:.3f} m\n"
+        f"H = {geom.height_m:.3f} m\n"
+        f"Rw = 2·[{multiplier:.0f}·{geom.top_additional_moment_tn_m:.3f} + "
+        f"{multiplier:.0f}·{flex.mw_tn_m:.3f} + "
+        f"{flex.mc_tn_m:.3f}·({yl.critical_length_m:.3f})²/{geom.height_m:.3f}]"
+        f"/[2·{yl.critical_length_m:.3f} − {impact.distribution_length_m:.3f}] "
+        f"= {yl.nominal_transverse_resistance_tn:.3f} Tn.",
+        f"Rw = {yl.nominal_transverse_resistance_tn:.3f} Tn frente a "
+        f"Ft = {yl.demand_transverse_force_tn:.3f} Tn: {yl.resistance_status}.",
         _status_comment(yl.resistance_status, "La resistencia transversal del mecanismo supera la demanda de impacto."),
         REF_BARRIER,
     )
@@ -1056,6 +1111,7 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
     collision = result.barrier_collision
     for note in result.applicability_notes:
         _comment(document, note)
+    document.add_heading("6.2 Colisión y transferencia de la barrera", level=2)
     if collision is not None:
         _comment(document, f"N simultanea={collision.axial_tension_tn_m:.3f} Tn/m; As incluye N/(phi*fy). {collision.status}: {collision.scope_note}")
         _table(document, ("Caso", "M Tn.m/m", "N Tn/m", "V Tn/m", "Estado"),
@@ -1075,7 +1131,14 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
             col_comment,
             "Manual de Puentes MTC 2018, Art. 2.4.3.5.1.2; mecanismo y transferencia de barrera: Rodríguez Serquén.",
         )
-    document.add_heading("6.2 Flexión y acero adoptado", level=2)
+    elif result.interior_collision is not None:
+        _interior_collision_docx(document, result.interior_collision)
+    else:
+        _comment(
+            document,
+            "No existe una verificación local de colisión aplicable a la posición declarada de la barrera.",
+        )
+    document.add_heading("6.3 Flexión y acero adoptado", level=2)
     _flexural_calc(document, "Acero superior en la raíz", flex, option, data.project_inputs.materials.concrete, data.project_inputs.materials.steel, strip=True)
     _calc(
         document,
@@ -1087,7 +1150,7 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
         _compliance_comment(temperature, "La disposición se mantiene en la dirección secundaria del voladizo."),
         REF_TEMP,
     )
-    document.add_heading("6.3 Cortante, fisuración y desarrollo", level=2)
+    document.add_heading("6.4 Cortante, fisuración y desarrollo", level=2)
     shear = result.shear
     sh_formula, sh_legend, sh_sub, sh_result, sh_comment = detail.cantilever_shear_trace(shear)
     _calc(
@@ -1120,6 +1183,130 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
     )
 
 
+def _interior_collision_docx(document: Document, collision) -> None:
+    document.add_heading("6.2.1 Transferencia local a la losa interior", level=3)
+    _calc(
+        document,
+        "Demanda transmitida por la barrera",
+        "F = max(Ft,Rw); L = Lc + 2H; N = F/L; Minterfaz = Mc·max(1,Ft/Rw)",
+        "Ft: fuerza de ensayo; Rw: resistencia por líneas de fluencia; L: longitud de transferencia; N: tracción por metro.",
+        f"F={collision.horizontal_force_tn:.3f} Tn; L={collision.transfer_length_m:.3f} m; "
+        f"N={collision.horizontal_force_tn/collision.transfer_length_m:.3f} Tn/m; "
+        f"Minterfaz={collision.interface_moment_tn_m_m:.3f} Tn·m/m.",
+        "Las acciones horizontal y vertical se aplican independientemente en ambos bordes de cada barrera.",
+        "La demanda se distribuye mediante una franja elástica continua de losa de 1.0 m apoyada en los ejes de las vigas.",
+        "MTC 2018, Arts. 2.4.3.5.1.2 y 2.4.5.3; Tabla 2.4.3.6.3-1.",
+    )
+    _table(
+        document,
+        ("Caso independiente", "x", "M aplicado", "Fv", "N"),
+        tuple(
+            (
+                case.name,
+                f"{case.position_m:.3f}",
+                f"{case.applied_moment_tn_m_m:.3f}",
+                f"{case.applied_vertical_tn_m:.3f}",
+                f"{case.axial_tension_tn_m:.3f}",
+            )
+            for case in collision.cases
+        ),
+        widths=(82, 21, 27, 24, 24),
+        font_size=7.6,
+    )
+    reaction_headers = (
+        "Caso",
+        *(label for label, _ in collision.cases[0].reactions_tn_m),
+        "Err F",
+        "Err M",
+    )
+    _table(
+        document,
+        reaction_headers,
+        tuple(
+            (
+                case.name,
+                *(f"{reaction:.3f}" for _, reaction in case.reactions_tn_m),
+                f"{case.vertical_equilibrium_error_tn_m:.1e}",
+                f"{case.moment_equilibrium_error_tn_m_m:.1e}",
+            )
+            for case in collision.cases
+        ),
+        widths=(58,) + (17,) * (len(reaction_headers) - 1),
+        font_size=7.0,
+    )
+    document.add_heading("6.2.2 Acero transversal por colisión", level=3)
+    _table(
+        document,
+        ("Cara", "Caso gobernante", "x", "M", "N", "γDC", "γDW"),
+        tuple(
+            (
+                face.face,
+                face.case_name,
+                f"{face.position_m:.3f}",
+                f"{face.moment_tn_m_m:.3f}",
+                f"{face.tension_tn_m:.3f}",
+                f"{face.dc_factor:.2f}",
+                f"{face.dw_factor:.2f}",
+            )
+            for face in collision.faces
+        ),
+        widths=(22, 70, 20, 22, 22, 18, 18),
+        font_size=7.4,
+    )
+    _table(
+        document,
+        ("Cara", "As requerido", "Acero adoptado", "As provisto", "ld requerido", "ld disponible", "Estado"),
+        tuple(
+            (
+                face.face,
+                f"{face.option.required_area_cm2_m:.3f}" if face.option else "—",
+                f"{face.option.bar.label} @ {face.option.spacing_m:.3f} m" if face.option else "Sin opción",
+                f"{face.option.provided_area_cm2_m:.3f}" if face.option else "—",
+                f"{face.development_length_m:.3f} m",
+                f"{face.development_available_m:.3f} m",
+                face.status,
+            )
+            for face in collision.faces
+        ),
+        widths=(22, 26, 40, 27, 28, 29, 24),
+        font_size=7.4,
+    )
+    document.add_heading("6.2.3 Cortante y conexión barrera–losa", level=3)
+    _calc(
+        document,
+        "Cortante de la franja interior",
+        "φVc = φ·0.265·β·√f'c·b·dv",
+        "β: factor del procedimiento general con tracción; b=100 cm; dv: peralte efectivo de corte.",
+        f"Vu={collision.shear_demand_tn_m:.3f} Tn/m; β={collision.shear_beta:.3f}; "
+        f"φVc={collision.shear_capacity_tn_m:.3f} Tn/m.",
+        f"Vu={collision.shear_demand_tn_m:.3f} Tn/m ≤ φVc={collision.shear_capacity_tn_m:.3f} Tn/m: "
+        f"{collision.shear_status}.",
+        _status_comment(collision.shear_status, "La franja interior satisface el control de cortante sin estribos."),
+        "Manual de Puentes MTC 2018, Art. 2.9.1.5.6.",
+    )
+    _table(
+        document,
+        ("Control", "Demanda", "Capacidad disponible", "Estado"),
+        tuple(
+            (
+                check.control,
+                f"{check.demand:.3f} {check.unit}",
+                f"{check.capacity:.3f} {check.unit}",
+                check.status,
+            )
+            for check in collision.connection_checks
+        ),
+        widths=(58, 39, 48, 30),
+        font_size=8.0,
+    )
+    _comment(
+        document,
+        f"Resultado local: {collision.status}. Conexión barrera–losa: {collision.connection_status}.",
+    )
+    for note in collision.notes:
+        _comment(document, note)
+
+
 def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> None:
     geometry = data.project_inputs.diaphragm
     result = data.diaphragm_result
@@ -1132,6 +1319,8 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
     _body(
         document,
         "El diafragma se analiza transversalmente como viga continua entre vigas principales. "
+        "La altura ingresada corresponde al concreto bajo la losa; el peralte resistente total "
+        "incluye el espesor de la losa monolítica. "
         "Las cargas permanentes y peatonales permanecen fijas; las líneas de ruedas se ubican "
         "desde ambos accesos físicos al tablero y se combinan en una única envolvente superior e inferior."
     )
@@ -1142,10 +1331,25 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
         (
             ("Longitud transversal", f"{geometry.total_width_m:.3f} m"),
             ("Separación entre apoyos", f"{geometry.girder_spacing_m:.3f} m"),
-            ("Sección", f"{geometry.thickness_m:.3f} × {geometry.height_m:.3f} m"),
+            ("Espesor longitudinal b", f"{geometry.thickness_m:.3f} m"),
+            ("Altura bajo losa", f"{geometry.height_m:.3f} m"),
+            ("Espesor de losa", f"{geometry.slab_thickness_m:.3f} m"),
+            ("Peralte resistente total h", f"{geometry.total_depth_m:.3f} m"),
             ("Paso vehicular", f"{geometry.vehicle_step_m:.3f} m"),
         ),
         widths=(105, 62),
+    )
+    _calc(
+        document,
+        "Peralte resistente del diafragma",
+        "h = hbajo + tlosa; d = h − rec − db/2",
+        "hbajo: altura de concreto del diafragma bajo la losa; tlosa: espesor de losa monolítica; d: peralte efectivo inicial.",
+        f"h = {geometry.height_m:.3f} + {geometry.slab_thickness_m:.3f} = "
+        f"{geometry.total_depth_m:.3f} m; d = {reinforcement.positive.effective_depth_cm:.2f} cm.",
+        f"Se adopta una sección resistente rectangular de b={geometry.thickness_m:.3f} m y "
+        f"h={geometry.total_depth_m:.3f} m.",
+        "El peso propio adicional del diafragma utiliza solo hbajo; la losa se contabiliza separadamente.",
+        REF_DEAD_LOAD,
     )
     for row, title in ((positive, "Momento positivo crítico"), (negative, "Momento negativo crítico")):
         _moment_combination_calc(document, title, row, include_pl=True)
@@ -1166,21 +1370,29 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
         REF_TEMP,
     )
     skin_option = reinforcement.skin.spacing_options.recommended
-    _calc(
-        document,
-        "Acero longitudinal superficial Ask del diafragma",
-        "Ask = min(0.012·(d_l − 30 in), As/flexión/4); s ≤ min(d_l/6, 300 mm)",
-        "Ask se distribuye por cada cara lateral dentro de d_l/2 desde la cara traccionada. "
-        "La exigencia aplica cuando d_l > 900 mm; si no, Ask req = 0.",
-        f"d_l = {reinforcement.skin.effective_depth_cm:.2f} cm; "
-        f"d_l/2 = {reinforcement.skin.distribution_height_m:.3f} m; "
-        f"Ask req = {reinforcement.skin.required_area_cm2_m_per_face:.3f} cm²/m por cara; "
-        f"s máx = {reinforcement.skin.maximum_spacing_m:.3f} m. "
-        f"Se adopta {_option_text(skin_option)}.",
-        "El acero principal ubicado en las caras laterales solo puede contarse como Ask si se verifica explícitamente su área, ubicación y compatibilidad.",
-        _compliance_comment(skin_option, "La disposición de Ask cumple el área por cara y la separación máxima."),
-        REF_CRACK,
-    )
+    if reinforcement.skin.required_area_cm2_m_per_face > 0.0:
+        _calc(
+            document,
+            "Acero longitudinal superficial Ask del diafragma",
+            "Ask = min(0.012·(d_l − 30 in), As/flexión/4); s ≤ min(d_l/6, 300 mm)",
+            "Ask se distribuye por cada cara lateral dentro de d_l/2 desde la cara traccionada. "
+            "La exigencia aplica cuando d_l > 900 mm.",
+            f"d_l = {reinforcement.skin.effective_depth_cm:.2f} cm; "
+            f"d_l/2 = {reinforcement.skin.distribution_height_m:.3f} m; "
+            f"Ask req = {reinforcement.skin.required_area_cm2_m_per_face:.3f} cm²/m por cara; "
+            f"s máx = {reinforcement.skin.maximum_spacing_m:.3f} m. "
+            f"Se adopta {_option_text(skin_option)}.",
+            "El acero principal ubicado en las caras laterales solo puede contarse como Ask si se verifica explícitamente su área, ubicación y compatibilidad.",
+            _compliance_comment(skin_option, "La disposición de Ask cumple el área por cara y la separación máxima."),
+            REF_CRACK,
+        )
+    else:
+        _comment(
+            document,
+            f"Acero longitudinal superficial Ask: NO APLICA porque d_l="
+            f"{reinforcement.skin.effective_depth_cm:.2f} cm ≤ 90.00 cm. "
+            "El acero lateral por temperatura se verifica independientemente.",
+        )
     _calc(
         document,
         "Estribos del diafragma",
@@ -1203,13 +1415,16 @@ def _reactions(document: Document, data: DeckReportData) -> None:
     _comment(
         document,
         "LL+IM para estribos procede de estos casos globales por equilibrio. "
-        "Las reacciones por viga de la tabla siguiente corresponden a la posición de Mmax "
-        "y no son máximos globales de apoyo. Se incluye tráfico nulo para efectos estabilizadores.",
+        "Las tablas longitudinales anteriores conservan las reacciones asociadas a Mmax; "
+        "la tabla de apoyos siguiente usa envolventes locales independientes de reacción máxima. "
+        "Se incluye tráfico nulo para efectos estabilizadores.",
     )
     document.add_heading("8. Reacciones por viga para apoyos y cargas globales para estribos", level=1)
     _body(
         document,
         "La primera tabla presenta reacciones individuales por viga para el diseño de apoyos. "
+        "En LL+IM se maximiza independientemente la reacción de cada extremo mediante su línea de influencia, "
+        "incluyendo IM y el factor de distribución de cortante gV. "
         "La tabla 8.1 presenta las acciones globales que deben transferirse al estribo. "
         "Todas las magnitudes se muestran sin factor para que cada módulo receptor forme la combinación requerida."
     )
@@ -1223,9 +1438,22 @@ def _reactions(document: Document, data: DeckReportData) -> None:
             cases.append(("PL", result.pl))
         cases.append(("LL+IM", result.ll_im_envelope))
         for action, case in cases:
-            left, right = _two_reactions(case.support_reactions_tn)
+            if action == "LL+IM":
+                left, right = _maximum_support_reaction_pair(case)
+            else:
+                left, right = _two_reactions(case.support_reactions_tn)
             rows.append((label, action, f"{left:.3f}", f"{right:.3f}"))
-    _table(document, ("Viga", "Acción", "Apoyo izquierdo (Tn)", "Apoyo derecho (Tn)"), tuple(rows), widths=(38, 35, 47, 47))
+    _table(
+        document,
+        ("Viga", "Acción", "Máx. apoyo izquierdo (Tn)", "Máx. apoyo derecho (Tn)"),
+        tuple(rows),
+        widths=(38, 35, 47, 47),
+    )
+    _comment(
+        document,
+        "Los máximos LL+IM izquierdo y derecho ocurren en posiciones vehiculares reflejadas y no son simultáneos. "
+        "En un puente simétrico sus magnitudes deben coincidir.",
+    )
     document.add_heading("8.1 Cargas globales para el diseño de estribos", level=2)
     _body(
         document,
@@ -1255,7 +1483,7 @@ def _reactions(document: Document, data: DeckReportData) -> None:
         "nint, next: número de vigas interior y exterior; Rviga: reacción no factorizada por apoyo; "
         "q: carga lineal para el modelo de estribo por franja.",
         f"Ejemplo DC en apoyo izquierdo: Rint = {int_dc_l:.3f} Tn/viga; Rext = {ext_dc_l:.3f} Tn/viga. "
-        f"Las reacciones de LL+IM ya incluyen g y el IM del caso vehicular; no se vuelve a aplicar g al transferirlas.",
+        f"Las máximas reacciones locales de LL+IM ya incluyen gV y el IM; no se vuelve a aplicar ninguno al transferirlas.",
         "El estribo combina estas acciones con sus factores LRFD propios; aquí sólo se entregan valores sin factor.",
         "No deben sumarse posiciones vehiculares incompatibles al formar otra envolvente fuera de este módulo.",
         REF_DEAD_LOAD,
@@ -1312,10 +1540,17 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
     for label, option in data.cantilever_selected:
         rows.append(("Voladizo", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
     collision = data.cantilever_result.barrier_collision
+    interior_collision = data.cantilever_result.interior_collision
+    collision_status = (
+        collision.status
+        if collision is not None
+        else "NO APLICA - BARRERA EN LOSA INTERIOR"
+        if interior_collision is not None
+        else "PENDIENTE"
+    )
     rows.append(("Voladizo", "Conexion y todos los casos de colision",
                  "Casos 1/2/3 + yield-line/dowel/desarrollo",
-                 collision.status if collision is not None else "FUERA DE ALCANCE"))
-    interior_collision = data.cantilever_result.interior_collision
+                 collision_status))
     if interior_collision is not None:
         rows.append(("Losa interior", "Transferencia local de colision",
                      "Horizontal + vertical; conexion por capacidad", interior_collision.status))
@@ -1348,12 +1583,20 @@ def _references(document: Document) -> None:
 
 
 def _flexural_calc(document, title, design, option, concrete, steel, *, strip: bool) -> None:
+    provided_area = None
+    if option is not None:
+        provided_area = getattr(
+            option,
+            "provided_area_cm2_m",
+            getattr(option, "provided_area_cm2", None),
+        )
     formula, legend, substitution, result, comment = detail.flexural_as_min_trace(
         strip=strip,
         design=design,
         concrete=concrete,
         steel=steel,
         option_text=_option_text(option),
+        provided_area=provided_area,
         compliance_comment=_compliance_comment(
             option,
             "La resistencia provista es mayor o igual que la demanda y se respeta el mínimo reglamentario.",
@@ -1944,6 +2187,11 @@ def _two_reactions(reactions) -> tuple[float, float]:
     if len(values) == 1:
         return values[0], values[0]
     return values[0], values[-1]
+
+
+def _maximum_support_reaction_pair(case) -> tuple[float, float]:
+    reactions = case.maximum_support_reactions_tn or case.support_reactions_tn
+    return _two_reactions(reactions)
 
 
 def _field(paragraph, instruction: str) -> None:

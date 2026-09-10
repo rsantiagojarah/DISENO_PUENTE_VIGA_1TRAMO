@@ -59,6 +59,17 @@ class InteriorCollisionFace:
 
 
 @dataclass(frozen=True)
+class InteriorCollisionConnectionCheck:
+    """One capacity check for the barrier-to-deck connection."""
+
+    control: str
+    demand: float
+    capacity: float
+    unit: str
+    status: str
+
+
+@dataclass(frozen=True)
 class InteriorCollisionDesign:
     cases: tuple[InteriorCollisionCase, ...]
     faces: tuple[InteriorCollisionFace, ...]
@@ -69,6 +80,7 @@ class InteriorCollisionDesign:
     shear_capacity_tn_m: float
     shear_beta: float
     shear_status: str
+    connection_checks: tuple[InteriorCollisionConnectionCheck, ...]
     connection_status: str
     status: str
     notes: tuple[str, ...]
@@ -217,22 +229,45 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
     connection_ok = (barrier.yield_line.resistance_status == "OK"
                      and barrier.shear_transfer.nominal_shear_tn_m >= n
                      and barrier.dowel.status == "OK" and hook.available_length_cm >= hook_capacity_ld)
+    connection_checks = (
+        InteriorCollisionConnectionCheck(
+            "Lineas de fluencia",
+            barrier.yield_line.demand_transverse_force_tn,
+            barrier.yield_line.nominal_transverse_resistance_tn,
+            "Tn",
+            barrier.yield_line.resistance_status,
+        ),
+        InteriorCollisionConnectionCheck(
+            "Friccion barrera-losa",
+            n,
+            barrier.shear_transfer.nominal_shear_tn_m,
+            "Tn/m",
+            "OK" if barrier.shear_transfer.nominal_shear_tn_m + 1e-9 >= n else "NO CUMPLE",
+        ),
+        InteriorCollisionConnectionCheck(
+            "Acero de dowels",
+            barrier.dowel.required_avf_cm2_m,
+            barrier.dowel.provided_avf_cm2_m,
+            "cm2/m",
+            barrier.dowel.status,
+        ),
+        InteriorCollisionConnectionCheck(
+            "Desarrollo de dowel",
+            hook_capacity_ld,
+            hook.available_length_cm,
+            "cm",
+            "OK" if hook.available_length_cm + 1e-9 >= hook_capacity_ld else "NO CUMPLE",
+        ),
+    )
     connection = "OK" if connection_ok else "NO CUMPLE"
     status = "OK" if connection_ok and shear_status == "OK" and all(f.status == "OK" for f in faces) else "NO CUMPLE"
     return InteriorCollisionDesign(tuple(cases), faces, force, length, moment, vu, capacity, beta,
-        shear_status, connection, status, (
+        shear_status, connection_checks, connection, status, (
             "Casos horizontales y verticales independientes; gamma CT=1.0; DC=0.90/1.25, DW=0.65/1.50. "
             "La colision de barrera no se combina con LL/PL; el armado ordinario de Resistencia y Servicio se conserva.",
             "Armadura indicada: minimo TOTAL por colision en cada cara de la losa interior. Adoptar la MAYOR "
             "demanda entre este bloque y el diseno ordinario de la misma cara, no sumar areas. "
             "Disponer barras continuas con el anclaje indicado hacia ambos bordes; no agregar esta area al voladizo.",
-            "N se conserva integro sin dispersion; M incluye la capacidad Mc. Se evalua la aplicacion en ambas caras "
-            "de la base y ambas barreras por separado. Fv/Lv segun nivel de ensayo del MTC.",
-            f"Anclaje de dowel por capacidad, sin reduccion por exceso: ld requerido={hook_capacity_ld:.2f} cm; "
-            f"disponible declarado={hook.available_length_cm:.2f} cm. Friccion: demanda={n:.3f}, "
-            f"resistencia nominal={barrier.shear_transfer.nominal_shear_tn_m:.3f} Tn/m.",
-            "Corte sin estribos: beta del procedimiento general con traccion; agregado=0 conservador. "
-            "Las reacciones tabuladas son solo incrementos de colision de una franja de 1 m, no cargas totales del puente.",
             "Alcance: transferencia LOCAL barrera-losa y demandas verticales hacia vigas calculadas. "
             "La distribucion horizontal entre vigas, diafragmas y apoyos requiere el modelo global en planta; "
             "este resultado local no certifica ese sistema.",

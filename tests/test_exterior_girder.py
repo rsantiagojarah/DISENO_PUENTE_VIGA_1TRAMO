@@ -115,6 +115,10 @@ def test_exterior_girder_solves_loads_strength_flexure_and_shear() -> None:
     reactions = dict(analysis.truck_ll_im.support_reactions_tn)
     assert round(reactions["Fijo"], 3) == 14.513
     assert round(reactions["Movil"], 3) == 16.670
+    maximum_reactions = dict(analysis.ll_im_envelope.maximum_support_reactions_tn)
+    assert maximum_reactions["Fijo"] == pytest.approx(maximum_reactions["Movil"])
+    assert round(maximum_reactions["Fijo"], 3) == 22.871
+    assert maximum_reactions["Fijo"] > max(reactions.values())
 
     combined = combine_exterior_girder_moments(analysis)
     strength = next(row for row in combined if row.combination_name == "RESISTENCIA I")
