@@ -436,6 +436,63 @@ class FootingWidthRecommendation:
 
 
 @dataclass(frozen=True)
+class HeelWeightBreakdown:
+    """Unfactored heel free-body weights and arms about the stem back face."""
+
+    heel_start_m: float
+    heel_length_m: float
+    effective_heel_m: float
+    step_width_m: float
+    stem_height_m: float
+    gamma_concrete_tn_m3: float
+    gamma_soil_tn_m3: float
+    live_surcharge_height_m: float
+    footing_weight_tn_m: float
+    footing_arm_m: float
+    soil_rect_tn_m: float
+    soil_triangle_tn_m: float
+    soil_step_tn_m: float
+    soil_weight_tn_m: float
+    soil_arm_m: float
+    lsy_tn_m: float
+    lsy_arm_m: float
+    seat_concrete_weight_tn_m: float
+    seat_concrete_moment_tn_m_m: float
+
+
+@dataclass(frozen=True)
+class HeelStateDemand:
+    """Factored heel moment and shear for one stability state."""
+
+    downward_moment_tn_m_m: float
+    downward_shear_tn_m: float
+    soil_reaction_tn_m: float
+    soil_moment_tn_m_m: float
+    moment_tn_m_m: float
+    shear_tn_m: float
+    q_start_tn_m2: float
+    q_end_tn_m2: float
+    extra_loads: tuple[tuple[str, float, float], ...]
+
+
+@dataclass(frozen=True)
+class ToeStateDemand:
+    """Factored toe moment and shear for one stability state."""
+
+    downward_pressure_tn_m2: float
+    reaction_moment_tn_m_m: float
+    moment_tn_m_m: float
+    critical_distance_m: float
+    shear_length_m: float
+    shear_reaction_tn_m: float
+    shear_downward_tn_m: float
+    shear_tn_m: float
+    q_toe_tn_m2: float
+    q_face_tn_m2: float
+    q_crit_tn_m2: float
+
+
+@dataclass(frozen=True)
 class PassiveKeyResult:
     """Passive resistance from shear key."""
 
@@ -2843,11 +2900,22 @@ def _upper_concrete_weight_and_arm(inputs: AbutmentInputs) -> tuple[float, float
     return weight, arm
 
 
-def _heel_design_demands(inputs: AbutmentInputs, state: StabilityStateResult) -> tuple[float, float]:
+def _footing_structural_states(
+    result: "AbutmentDesignResult",
+) -> tuple[tuple[str, StabilityStateResult], ...]:
+    """Return labeled stability states used in the heel/toe structural envelope."""
+    condition = "Muro puro" if result.inputs.is_pure_wall else "Sin puente"
+    rows = [(condition, state) for state in result.without_bridge[:2]]
+    rows.extend((condition, state) for state in result.extreme_seismic_without_bridge)
+    if not result.inputs.is_pure_wall:
+        rows.extend(("Con puente", state) for state in result.with_bridge[:2])
+        rows.extend(("Con puente", state) for state in result.extreme_seismic_with_bridge)
+    return tuple(rows)
+
+
+def _heel_weight_breakdown(inputs: AbutmentInputs) -> HeelWeightBreakdown:
+    """Return unfactored heel weights and arms about the stem back face."""
     g = inputs.geometry
-    factors = state.load_factors
-    if factors is None:
-        raise ValueError("El caso de zapata debe conservar sus factores de carga.")
     gamma_concrete = inputs.materials.concrete_unit_weight_kg_m3 / 1000.0
     gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     h = g.stem_height_above_footing_m
@@ -2858,7 +2926,7 @@ def _heel_design_demands(inputs: AbutmentInputs, state: StabilityStateResult) ->
     soil_triangle = b_step * g.backwall_taper_height_m / 2.0 * gamma_soil
     soil_step = b_step * (h - g.seat_block_height_m - g.backwall_drop_m - g.backwall_taper_height_m) * gamma_soil
     soil_weight = soil_rect + soil_triangle + soil_step
-    soil_arm = (
+    soil_arm = 0.0 if soil_weight <= 1e-12 else (
         soil_rect * (b_step + h_heel / 2.0)
         + soil_triangle * (b_step / 3.0)
         + soil_step * (b_step / 2.0)
@@ -2868,37 +2936,125 @@ def _heel_design_demands(inputs: AbutmentInputs, state: StabilityStateResult) ->
         h_eq = equivalent_vehicular_surcharge_height_m(g.retained_height_m)
     lsy = h_heel * h_eq * gamma_soil
     lsy += inputs.soil.pedestrian_surcharge_tn_m2 * h_heel
-    lsy_arm = h_heel / 2.0 + b_step
-    moment = (
-        factors.dc * footing_weight * (h_heel + b_step) / 2.0
-        + factors.ev * soil_weight * soil_arm
-        + factors.ls_vertical * lsy * lsy_arm
+    concrete_area = b_step * (g.backwall_drop_m + g.backwall_taper_height_m / 2.0)
+    concrete_first = b_step**2 * (g.backwall_drop_m / 2.0 + g.backwall_taper_height_m / 6.0)
+    wall_width = min(b_step, g.seat_wall_width_m)
+    concrete_area += wall_width * g.seat_block_height_m
+    concrete_first += wall_width * g.seat_block_height_m * (b_step - wall_width / 2.0)
+    if inputs.is_pure_wall:
+        concrete_area = 0.0
+        concrete_first = 0.0
+    return HeelWeightBreakdown(
+        heel_start_m=g.toe_length_m + g.lower_stem_thickness_m,
+        heel_length_m=g.heel_length_m,
+        effective_heel_m=h_heel,
+        step_width_m=b_step,
+        stem_height_m=h,
+        gamma_concrete_tn_m3=gamma_concrete,
+        gamma_soil_tn_m3=gamma_soil,
+        live_surcharge_height_m=h_eq,
+        footing_weight_tn_m=footing_weight,
+        footing_arm_m=(h_heel + b_step) / 2.0,
+        soil_rect_tn_m=soil_rect,
+        soil_triangle_tn_m=soil_triangle,
+        soil_step_tn_m=soil_step,
+        soil_weight_tn_m=soil_weight,
+        soil_arm_m=soil_arm,
+        lsy_tn_m=lsy,
+        lsy_arm_m=h_heel / 2.0 + b_step,
+        seat_concrete_weight_tn_m=gamma_concrete * concrete_area,
+        seat_concrete_moment_tn_m_m=gamma_concrete * concrete_first,
     )
-    shear = factors.dc * footing_weight + factors.ev * soil_weight + factors.ls_vertical * lsy
-    heel_start = g.toe_length_m + g.lower_stem_thickness_m
+
+
+def _heel_state_demand(inputs: AbutmentInputs, state: StabilityStateResult) -> HeelStateDemand:
+    """Return the factored heel free-body for one stability state."""
+    factors = state.load_factors
+    if factors is None:
+        raise ValueError("El caso de zapata debe conservar sus factores de carga.")
+    weights = _heel_weight_breakdown(inputs)
+    g = inputs.geometry
+    moment = (
+        factors.dc * weights.footing_weight_tn_m * weights.footing_arm_m
+        + factors.ev * weights.soil_weight_tn_m * weights.soil_arm_m
+        + factors.ls_vertical * weights.lsy_tn_m * weights.lsy_arm_m
+    )
+    shear = (
+        factors.dc * weights.footing_weight_tn_m
+        + factors.ev * weights.soil_weight_tn_m
+        + factors.ls_vertical * weights.lsy_tn_m
+    )
+    extra_loads: list[tuple[str, float, float]] = []
     if not inputs.is_pure_wall:
-        # Concrete projecting over the heel belongs to the same free body.
-        concrete_area = b_step * (g.backwall_drop_m + g.backwall_taper_height_m / 2.0)
-        concrete_first = b_step**2 * (g.backwall_drop_m / 2.0 + g.backwall_taper_height_m / 6.0)
-        wall_width = min(b_step, g.seat_wall_width_m)
-        concrete_area += wall_width * g.seat_block_height_m
-        concrete_first += wall_width * g.seat_block_height_m * (b_step - wall_width / 2.0)
-        shear += factors.dc * gamma_concrete * concrete_area
-        moment += factors.dc * gamma_concrete * concrete_first
+        shear += factors.dc * weights.seat_concrete_weight_tn_m
+        moment += factors.dc * weights.seat_concrete_moment_tn_m_m
         for component in state.vertical_components:
-            if component.name.startswith(("PDC", "PDW", "PPL", "PLL")) and component.arm_m > heel_start:
+            if component.name.startswith(("PDC", "PDW", "PPL", "PLL")) and component.arm_m > weights.heel_start_m:
                 factor = {"DC": factors.dc, "DW": factors.dw, "LL": factors.ll}[component.load_type]
                 load = factor * component.value_tn_m
+                arm = component.arm_m - weights.heel_start_m
+                extra_loads.append((component.name, load, arm))
                 shear += load
-                moment += load * (component.arm_m - heel_start)
+                moment += load * arm
     soil_reaction, soil_reaction_moment = _contact_pressure_resultant_over_interval(
         g,
         state,
-        heel_start,
+        weights.heel_start_m,
         g.footing_width_m,
-        heel_start,
+        weights.heel_start_m,
     )
-    return moment - soil_reaction_moment, shear - soil_reaction
+    return HeelStateDemand(
+        downward_moment_tn_m_m=moment,
+        downward_shear_tn_m=shear,
+        soil_reaction_tn_m=soil_reaction,
+        soil_moment_tn_m_m=soil_reaction_moment,
+        moment_tn_m_m=moment - soil_reaction_moment,
+        shear_tn_m=shear - soil_reaction,
+        q_start_tn_m2=_contact_pressure_tn_m2_at_x(g, state, weights.heel_start_m),
+        q_end_tn_m2=_contact_pressure_tn_m2_at_x(g, state, g.footing_width_m),
+        extra_loads=tuple(extra_loads),
+    )
+
+
+def _heel_design_demands(inputs: AbutmentInputs, state: StabilityStateResult) -> tuple[float, float]:
+    demand = _heel_state_demand(inputs, state)
+    return demand.moment_tn_m_m, demand.shear_tn_m
+
+
+def _toe_state_demand(
+    inputs: AbutmentInputs,
+    state: StabilityStateResult,
+    effective_depth_cm: float,
+) -> ToeStateDemand:
+    """Return the factored toe free-body for one stability state."""
+    g = inputs.geometry
+    toe = g.toe_length_m
+    factors = state.load_factors
+    if factors is None:
+        raise ValueError("El caso de zapata debe conservar sus factores de carga.")
+    downward = (
+        factors.dc * g.footing_thickness_m * inputs.materials.concrete_unit_weight_kg_m3
+        + factors.ev * max(g.front_soil_depth_m - g.footing_thickness_m, 0.0) * inputs.materials.soil_unit_weight_kg_m3
+    ) / 1000.0
+    _, reaction_moment = _contact_pressure_resultant_over_interval(g, state, 0.0, toe, toe)
+    moment = -reaction_moment - downward * toe**2 / 2.0
+    critical_distance_m = min(effective_depth_cm / 100.0, toe)
+    length = max(toe - critical_distance_m, 0.0)
+    reaction, _ = _contact_pressure_resultant_over_interval(g, state, 0.0, length, toe)
+    shear_downward = downward * length
+    return ToeStateDemand(
+        downward_pressure_tn_m2=downward,
+        reaction_moment_tn_m_m=reaction_moment,
+        moment_tn_m_m=moment,
+        critical_distance_m=critical_distance_m,
+        shear_length_m=length,
+        shear_reaction_tn_m=reaction,
+        shear_downward_tn_m=shear_downward,
+        shear_tn_m=reaction - shear_downward,
+        q_toe_tn_m2=_contact_pressure_tn_m2_at_x(g, state, 0.0),
+        q_face_tn_m2=_contact_pressure_tn_m2_at_x(g, state, toe),
+        q_crit_tn_m2=_contact_pressure_tn_m2_at_x(g, state, length),
+    )
 
 
 def _toe_design_demands(
@@ -2906,22 +3062,8 @@ def _toe_design_demands(
     state: StabilityStateResult,
     effective_depth_cm: float,
 ) -> tuple[float, float]:
-    g = inputs.geometry
-    toe = g.toe_length_m
-    factors = state.load_factors
-    if factors is None:
-        raise ValueError("El caso de zapata debe conservar sus factores de carga.")
-    downward = (factors.dc * g.footing_thickness_m * inputs.materials.concrete_unit_weight_kg_m3
-                + factors.ev * max(g.front_soil_depth_m - g.footing_thickness_m, 0.0) * inputs.materials.soil_unit_weight_kg_m3) / 1000.0
-    _, reaction_moment = _contact_pressure_resultant_over_interval(g, state, 0.0, toe, toe)
-    moment = -reaction_moment - downward * toe**2 / 2.0
-    # Iterative capacity refinements can reduce the critical shear section; use
-    # d initially, matching the workbook order within a small tolerance.
-    critical_distance_m = min(effective_depth_cm / 100.0, toe)
-    length = max(toe - critical_distance_m, 0.0)
-    reaction, _ = _contact_pressure_resultant_over_interval(g, state, 0.0, length, toe)
-    shear = reaction - downward * length
-    return moment, shear
+    demand = _toe_state_demand(inputs, state, effective_depth_cm)
+    return demand.moment_tn_m_m, demand.shear_tn_m
 
 
 def _service_moments(

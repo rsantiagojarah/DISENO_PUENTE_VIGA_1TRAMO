@@ -13,6 +13,7 @@ from bridge_design.domain.abutment import (
     AbutmentSecondaryReinforcementCase,
     AbutmentStemReinforcementCut,
     DEFAULT_MAX_AGGREGATE_SIZE_IN,
+    HeelStateDemand,
     LoadComponent,
     LoadFactors,
     REF_SEISMIC_PAPIR,
@@ -23,12 +24,17 @@ from bridge_design.domain.abutment import (
     STEEL_ELASTIC_MODULUS_KG_CM2,
     StabilityStateResult,
     StructuralDesignCase,
+    ToeStateDemand,
     _bar_by_label,
     _cover_for_case,
+    _footing_structural_states,
     _footing_temperature_result,
+    _heel_state_demand,
+    _heel_weight_breakdown,
     _section_depth_cm,
     _stem_design_demands,
     _stem_temperature_result,
+    _toe_state_demand,
     _upper_concrete_weight_and_arm,
     abutment_load_factors,
     equivalent_vehicular_surcharge_height_m,
@@ -585,57 +591,235 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
     return formula, legend, substitution, result_text, comment
 
 
+def _footing_envelope_label(result: AbutmentDesignResult) -> str:
+    if result.inputs.is_pure_wall:
+        return "los estados de Resistencia I y las dos combinaciones sísmicas aplicables al muro"
+    return "los estados con y sin puente y las dos combinaciones sísmicas"
+
+
+def _heel_envelope(
+    result: AbutmentDesignResult,
+) -> tuple[tuple[str, StabilityStateResult, HeelStateDemand], ...]:
+    return tuple(
+        (condition, state, _heel_state_demand(result.inputs, state))
+        for condition, state in _footing_structural_states(result)
+    )
+
+
+def _toe_envelope(
+    result: AbutmentDesignResult,
+    effective_depth_cm: float,
+) -> tuple[tuple[str, StabilityStateResult, ToeStateDemand], ...]:
+    return tuple(
+        (condition, state, _toe_state_demand(result.inputs, state, effective_depth_cm))
+        for condition, state in _footing_structural_states(result)
+    )
+
+
+def _state_short_name(state: StabilityStateResult) -> str:
+    combo = state.seismic_papir_combination
+    if combo:
+        return f"Extremo I ({combo})"
+    return state.name
+
+
+def _tension_face_comment(m_min: float, m_max: float, *, superior_label: str, inferior_label: str) -> str:
+    if m_min >= -1e-9:
+        return f"M ≥ 0 en todos los estados: tracción en {superior_label}."
+    if m_max <= 1e-9:
+        return f"M ≤ 0 en todos los estados: tracción en {inferior_label}."
+    return (
+        f"La envolvente cambia de signo: tracción en {superior_label} y en {inferior_label}."
+    )
+
+
+def heel_envelope_table_rows(
+    result: AbutmentDesignResult,
+) -> tuple[tuple[str, ...], ...]:
+    rows: list[tuple[str, ...]] = []
+    for condition, state, demand in _heel_envelope(result):
+        rows.append(
+            (
+                condition,
+                _state_short_name(state),
+                state.contact_type,
+                f"{demand.downward_shear_tn_m:.3f}",
+                f"{demand.soil_reaction_tn_m:.3f}",
+                f"{demand.shear_tn_m:.3f}",
+                f"{demand.downward_moment_tn_m_m:.3f}",
+                f"{demand.soil_moment_tn_m_m:.3f}",
+                f"{demand.moment_tn_m_m:.3f}",
+            )
+        )
+    return tuple(rows)
+
+
+def toe_envelope_table_rows(
+    result: AbutmentDesignResult,
+    effective_depth_cm: float,
+) -> tuple[tuple[str, ...], ...]:
+    rows: list[tuple[str, ...]] = []
+    for condition, state, demand in _toe_envelope(result, effective_depth_cm):
+        rows.append(
+            (
+                condition,
+                _state_short_name(state),
+                state.contact_type,
+                f"{demand.q_toe_tn_m2:.3f}",
+                f"{demand.q_face_tn_m2:.3f}",
+                f"{demand.downward_pressure_tn_m2:.3f}",
+                f"{demand.moment_tn_m_m:.3f}",
+                f"{demand.shear_tn_m:.3f}",
+            )
+        )
+    return tuple(rows)
+
+
 def heel_toe_demand_trace(
     result: AbutmentDesignResult,
     case: StructuralDesignCase,
 ) -> tuple[str, str, str, str, str] | None:
+    envelope_label = _footing_envelope_label(result)
     if case.name == "Zapata - talon superior":
-        envelope_label = (
-            "los estados de Resistencia I y las dos combinaciones sísmicas aplicables al muro"
-            if result.inputs.is_pure_wall
-            else "los estados con y sin puente y las dos combinaciones sísmicas"
+        weights = _heel_weight_breakdown(result.inputs)
+        envelope = _heel_envelope(result)
+        moment_row = max(envelope, key=lambda item: abs(item[2].moment_tn_m_m))
+        shear_row = max(envelope, key=lambda item: abs(item[2].shear_tn_m))
+        moments = tuple(item[2].moment_tn_m_m for item in envelope)
+        m_min, m_max = min(moments), max(moments)
+        condition, state, demand = moment_row
+        factors = state.load_factors
+        if factors is None:
+            raise ValueError("El estado estructural debe conservar sus factores de carga.")
+        extra_lines = []
+        if weights.seat_concrete_weight_tn_m > 1e-9:
+            extra_lines.append(
+                f"WDC,cajuela = {weights.seat_concrete_weight_tn_m:.3f} Tn/m; "
+                f"MDC,cajuela = {weights.seat_concrete_moment_tn_m_m:.3f} Tn·m/m"
+            )
+        for name, load, arm in demand.extra_loads:
+            extra_lines.append(f"{name} sobre talón = {load:.3f} Tn/m a {arm:.3f} m de la cara")
+        extra_block = ("\n" + "\n".join(extra_lines)) if extra_lines else ""
+        shear_note = (
+            f"El cortante máximo es del mismo estado."
+            if shear_row[1] is state
+            else (
+                f"El cortante máximo corresponde a {shear_row[0]} / {_state_short_name(shear_row[1])}: "
+                f"V = {shear_row[2].shear_tn_m:.3f} Tn/m."
+            )
         )
         formula = (
-            f"Mu = |Σ(γi·Wi·xi) − Msuelo| ; Vu = |Σ(γi·Wi) − Vsuelo| ; "
-            f"envolvente sobre {envelope_label}"
+            "Mu = |Σ(γi·Wi·xi) − Msuelo| ; Vu = |Σ(γi·Wi) − Vsuelo| ; "
+            "Mu,des = max|M| ; Vu,des = max|V|"
         )
         legend = (
-            "Wi: pesos de zapata/relleno/LSy sobre el talón; Msuelo, Vsuelo: resultante de la "
-            "presión de contacto bajo el talón en cada estado."
+            "Wi: pesos de zapata, relleno, LSy y concreto de cajuela sobre el talón; "
+            "xi: brazo desde la cara posterior de la pantalla; "
+            "Msuelo, Vsuelo: resultante de la presión de contacto bajo el talón; "
+            f"la envolvente recorre {envelope_label}."
         )
         substitution = (
-            f"Mu gobernante = {case.controlling_moment_tn_m_m:.3f} Tn·m/m\n"
-            f"Vu gobernante = {case.shear_demand_tn_m:.3f} Tn/m\n"
-            f"M con signo: {case.signed_moment_envelope_tn_m_m}; cada peso y reaccion usa los factores de su propio caso."
+            f"x0 = Lp + ep = {weights.heel_start_m:.3f} m; "
+            f"Ltalón = {weights.heel_length_m:.3f} m; "
+            f"h_heel = {weights.effective_heel_m:.3f} m; t2 = {weights.step_width_m:.3f} m\n"
+            f"h = {weights.stem_height_m:.3f} m; γc = {weights.gamma_concrete_tn_m3:.3f} Tn/m³; "
+            f"γs = {weights.gamma_soil_tn_m3:.3f} Tn/m³; heq = {weights.live_surcharge_height_m:.3f} m\n"
+            f"Wzap = {weights.heel_length_m:.3f}·D·γc = {weights.footing_weight_tn_m:.3f} Tn/m; "
+            f"xzap = {weights.footing_arm_m:.3f} m\n"
+            f"WEV = {weights.soil_rect_tn_m:.3f} + {weights.soil_triangle_tn_m:.3f} + "
+            f"{weights.soil_step_tn_m:.3f} = {weights.soil_weight_tn_m:.3f} Tn/m; "
+            f"xEV = {weights.soil_arm_m:.3f} m\n"
+            f"WLS = {weights.lsy_tn_m:.3f} Tn/m; xLS = {weights.lsy_arm_m:.3f} m"
+            f"{extra_block}\n"
+            f"Estado gobernante de Mu: {condition} / {_state_short_name(state)}\n"
+            f"γDC = {factors.dc:.2f}; γEV = {factors.ev:.2f}; γLS = {factors.ls_vertical:.2f}; "
+            f"γDW = {factors.dw:.2f}; γLL = {factors.ll:.2f}\n"
+            f"ΣγW = {demand.downward_shear_tn_m:.3f} Tn/m; "
+            f"ΣγW·x = {demand.downward_moment_tn_m_m:.3f} Tn·m/m\n"
+            f"Contacto {state.contact_type}; q(x0) = {demand.q_start_tn_m2:.3f} Tn/m²; "
+            f"q(B) = {demand.q_end_tn_m2:.3f} Tn/m²\n"
+            f"Vsuelo = {demand.soil_reaction_tn_m:.3f} Tn/m; "
+            f"Msuelo = {demand.soil_moment_tn_m_m:.3f} Tn·m/m\n"
+            f"M = {demand.downward_moment_tn_m_m:.3f} − {demand.soil_moment_tn_m_m:.3f} "
+            f"= {demand.moment_tn_m_m:.3f} Tn·m/m\n"
+            f"V = {demand.downward_shear_tn_m:.3f} − {demand.soil_reaction_tn_m:.3f} "
+            f"= {demand.shear_tn_m:.3f} Tn/m\n"
+            f"{shear_note}\n"
+            f"Envolvente con signo: Mmín = {m_min:.3f} Tn·m/m; Mmáx = {m_max:.3f} Tn·m/m\n"
+            f"Mu,des = max|M| = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; "
+            f"Vu,des = max|V| = {case.shear_demand_tn_m:.3f} Tn/m"
         )
         result_text = (
             f"Para el talón Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m y "
             f"Vu = {case.shear_demand_tn_m:.3f} Tn/m."
         )
-        comment = case.notes or (
-            f"Envolvente de {envelope_label}."
+        comment = (
+            _tension_face_comment(m_min, m_max, superior_label="cara superior", inferior_label="cara inferior")
+            + " Mu y Vu de diseño pueden provenir de estados distintos."
         )
         return formula, legend, substitution, result_text, comment
     if case.name == "Zapata - puntera inferior":
         g = result.inputs.geometry
         d_m = case.effective_depth_cm / 100.0
+        envelope = _toe_envelope(result, case.effective_depth_cm)
+        moment_row = max(envelope, key=lambda item: abs(item[2].moment_tn_m_m))
+        shear_row = max(envelope, key=lambda item: abs(item[2].shear_tn_m))
+        moments = tuple(item[2].moment_tn_m_m for item in envelope)
+        m_min, m_max = min(moments), max(moments)
+        condition, state, demand = moment_row
+        factors = state.load_factors
+        if factors is None:
+            raise ValueError("El estado estructural debe conservar sus factores de carga.")
+        shear_note = (
+            "El cortante máximo es del mismo estado."
+            if shear_row[1] is state
+            else (
+                f"El cortante máximo corresponde a {shear_row[0]} / {_state_short_name(shear_row[1])}: "
+                f"V = {shear_row[2].shear_tn_m:.3f} Tn/m."
+            )
+        )
         formula = (
-            "M = integral[(qsuelo-qdescendente)·brazo dx]; V = integral[qsuelo-qdescendente dx]"
+            "M = −Msuelo − qdesc·Lp²/2 ; V = Vsuelo(0→Lp−d) − qdesc·(Lp−d) ; "
+            "Mu,des = max|M| ; Vu,des = max|V|"
         )
         legend = (
-            "Lp: longitud de puntera; qmax: presión en el borde de puntera; qcara: presión en la "
-            "cara del muro; qcrit: presión a distancia d de la cara; d: peralte efectivo."
+            "Lp: longitud de puntera; qdesc: peso factorizado de zapata y relleno frontal; "
+            "Msuelo: momento de la presión de contacto respecto de la cara del muro; "
+            "d: peralte efectivo de la sección crítica de corte; "
+            f"la envolvente recorre {envelope_label}."
         )
         substitution = (
-            f"Lp = {g.toe_length_m:.3f} m; d = {d_m:.3f} m\n"
-            f"Mu gobernante = {case.controlling_moment_tn_m_m:.3f} Tn·m/m\n"
-            f"Vu gobernante = {case.shear_demand_tn_m:.3f} Tn/m"
+            f"Lp = {g.toe_length_m:.3f} m; d = {d_m:.3f} m; Lp−d = {demand.shear_length_m:.3f} m\n"
+            f"Estado gobernante de Mu: {condition} / {_state_short_name(state)}\n"
+            f"γDC = {factors.dc:.2f}; γEV = {factors.ev:.2f}\n"
+            f"qdesc = {demand.downward_pressure_tn_m2:.3f} Tn/m²\n"
+            f"Contacto {state.contact_type}; qpunta = {demand.q_toe_tn_m2:.3f} Tn/m²; "
+            f"qcara = {demand.q_face_tn_m2:.3f} Tn/m²; qcrit = {demand.q_crit_tn_m2:.3f} Tn/m²\n"
+            f"Msuelo = {demand.reaction_moment_tn_m_m:.3f} Tn·m/m\n"
+            f"M = −({demand.reaction_moment_tn_m_m:.3f}) − {demand.downward_pressure_tn_m2:.3f}·"
+            f"{g.toe_length_m:.3f}²/2 = {demand.moment_tn_m_m:.3f} Tn·m/m\n"
+            f"Vsuelo(0→Lp−d) = {demand.shear_reaction_tn_m:.3f} Tn/m; "
+            f"qdesc·(Lp−d) = {demand.shear_downward_tn_m:.3f} Tn/m\n"
+            f"V = {demand.shear_reaction_tn_m:.3f} − {demand.shear_downward_tn_m:.3f} "
+            f"= {demand.shear_tn_m:.3f} Tn/m\n"
+            f"{shear_note}\n"
+            f"Envolvente con signo: Mmín = {m_min:.3f} Tn·m/m; Mmáx = {m_max:.3f} Tn·m/m\n"
+            f"Mu,des = max|M| = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; "
+            f"Vu,des = max|V| = {case.shear_demand_tn_m:.3f} Tn/m"
         )
         result_text = (
             f"Para la puntera Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m y "
             f"Vu = {case.shear_demand_tn_m:.3f} Tn/m."
         )
-        comment = case.notes or "Envolvente con diagrama de contacto adoptado."
+        comment = (
+            _tension_face_comment(
+                m_min,
+                m_max,
+                superior_label="cara superior",
+                inferior_label="cara inferior (puntera)",
+            )
+            + " Mu y Vu de diseño pueden provenir de estados distintos."
+        )
         return formula, legend, substitution, result_text, comment
     if case.name == "Diente de concreto":
         formula = "Mu,diente = f(pp,sup, pp,inf, hd) ; Vu asociado al empuje pasivo del dentellón"

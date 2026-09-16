@@ -31,6 +31,14 @@ def test_abutment_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "Presión admisible factorizada" in xml
     assert "Límite de excentricidad" in xml
     assert "Origen de Mu y Vu" in xml
+    assert "Wzap" in xml
+    assert "Vsuelo" in xml
+    assert "Msuelo" in xml
+    assert "Envolvente con signo" in xml
+    assert "Mu,des" in xml
+    assert "max|M|" in xml
+    assert "M con signo:" not in xml
+    assert "ΣγW" in xml
     assert "As,R" in xml
     assert "φ(εt)" in xml
     assert "2.7.1.1.4.2a" in xml
@@ -118,6 +126,11 @@ def test_pure_wall_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "acciones del tablero" not in xml.lower()
     assert "acciones de superestructura" not in xml.lower()
     assert "Fuerza inercial del muro y combinaciones MTC PAE/PIR" in xml
+    assert "Wzap" in xml
+    assert "Vsuelo" in xml
+    assert "Envolvente con signo" in xml
+    assert "Muro puro" in xml
+    assert "M con signo:" not in xml
     assert "PEQ superestructura" not in xml
     assert "2.9.1.4.5.8" in xml
     assert "As,adic" in xml

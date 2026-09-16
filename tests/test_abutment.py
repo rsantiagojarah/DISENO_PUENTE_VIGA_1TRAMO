@@ -694,6 +694,21 @@ def test_default_structural_design_matches_reference_workbook() -> None:
     assert result.key_design.shear_status == "OK"
 
 
+def test_heel_state_demand_matches_structural_envelope() -> None:
+    from bridge_design.domain.abutment import _footing_structural_states, _heel_state_demand
+
+    result = solve_abutment_design()
+    demands = [
+        _heel_state_demand(result.inputs, state)
+        for _, state in _footing_structural_states(result)
+    ]
+    moments = [item.moment_tn_m_m for item in demands]
+    shears = [item.shear_tn_m for item in demands]
+    assert result.heel_design.signed_moment_envelope_tn_m_m == pytest.approx((min(moments), max(moments)))
+    assert result.heel_design.controlling_moment_tn_m_m == pytest.approx(max(map(abs, moments)))
+    assert result.heel_design.shear_demand_tn_m == pytest.approx(max(map(abs, shears)))
+
+
 def test_default_stem_rejects_insufficient_strain_compatible_capacity() -> None:
     from bridge_design.domain.abutment import _moment_resistance_tn_m
 

@@ -33,6 +33,7 @@ from bridge_design.reporting.abutment_docx_detail import (
     eccentricity_limit_trace,
     effective_depth_trace,
     factors_for_state,
+    heel_envelope_table_rows,
     heel_toe_demand_trace,
     horizontal_components_for_state,
     mononobe_okabe_trace,
@@ -49,6 +50,7 @@ from bridge_design.reporting.abutment_docx_detail import (
     shear_beta_trace,
     stem_demand_trace,
     surcharge_height_trace,
+    toe_envelope_table_rows,
 )
 from bridge_design.reporting.deck_docx import (
     GRAY,
@@ -807,6 +809,32 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
         demand = heel_toe_demand_trace(result, case)
         if demand is not None:
             _calc(document, f"Origen de Mu y Vu - {case.name}", *demand, REF_FLEXURE)
+        if case.name == "Zapata - talon superior":
+            _comment(
+                document,
+                "Cuerpo libre del talón en cada estado estructural. ΣγW y ΣγW·x son las acciones "
+                "hacia abajo; Vsuelo y Msuelo la reacción de contacto bajo el talón; M y V la demanda "
+                "en la cara posterior de la pantalla.",
+            )
+            _table(
+                document,
+                ("Condición", "Estado", "Contacto", "ΣγW", "Vsuelo", "V", "ΣγW·x", "Msuelo", "M"),
+                heel_envelope_table_rows(result),
+                widths=(22, 36, 22, 16, 16, 16, 18, 16, 16),
+            )
+        elif case.name == "Zapata - puntera inferior":
+            _comment(
+                document,
+                "Cuerpo libre de la puntera en cada estado estructural. qpunta y qcara son la presión "
+                "de contacto en el borde y en la cara del muro; qdesc el peso hacia abajo; M y V la "
+                "demanda en la cara anterior de la pantalla.",
+            )
+            _table(
+                document,
+                ("Condición", "Estado", "Contacto", "qpunta", "qcara", "qdesc", "M", "V"),
+                toe_envelope_table_rows(result, case.effective_depth_cm),
+                widths=(24, 38, 24, 16, 16, 16, 16, 16),
+            )
     _calc(document, "Peralte efectivo", *effective_depth_trace(result, case, gross_depth), REF_FLEXURE)
     if case.name == "Pantalla" and case.strength_limit_as_cm2_m:
         _calc(
