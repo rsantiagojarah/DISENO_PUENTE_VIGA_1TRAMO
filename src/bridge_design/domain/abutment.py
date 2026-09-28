@@ -194,6 +194,24 @@ def _validate_coulomb_angles(
         raise ValueError("theta + beta debe ser menor que 180 grados para Coulomb.")
 
 
+def _validate_mononobe_okabe_backfill_slope(
+    friction_angle_deg: float,
+    backfill_slope_deg: float,
+    pga: float,
+    fpga: float,
+) -> None:
+    """Ensure backfill slope is compatible with Mononobe-Okabe (theta=delta=0 model)."""
+    kh = 0.5 * fpga * pga
+    kv = 0.0
+    seismic_angle_deg = atan(kh / (1.0 - kv)) * 180.0 / 3.141592653589793
+    max_beta_deg = friction_angle_deg - seismic_angle_deg
+    if backfill_slope_deg >= max_beta_deg:
+        raise ValueError(
+            "beta pendiente del relleno debe ser menor que phi menos el angulo sismico "
+            f"(psi≈{seismic_angle_deg:.2f}°); con los datos actuales use beta < {max_beta_deg:.2f}°."
+        )
+
+
 @dataclass(frozen=True)
 class AbutmentSoilInputs:
     """Soil and seismic inputs."""
@@ -226,6 +244,12 @@ class AbutmentSoilInputs:
             self.wall_soil_friction_deg,
             self.backfill_slope_deg,
             self.wall_backface_angle_deg,
+        )
+        _validate_mononobe_okabe_backfill_slope(
+            self.friction_angle_deg,
+            self.backfill_slope_deg,
+            self.pga,
+            self.fpga,
         )
         if abs(self.wall_backface_angle_deg - 90.0) > 1e-9 or self.wall_soil_friction_deg > 1e-9:
             raise ValueError(

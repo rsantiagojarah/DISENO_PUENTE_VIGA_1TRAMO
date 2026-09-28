@@ -1105,3 +1105,8 @@ def test_coulomb_angle_validation_reports_invalid_backface_angle() -> None:
             wall_soil_friction_deg=28.0,
             wall_backface_angle_deg=5.0,
         )
+
+
+def test_mononobe_okabe_rejects_backfill_slope_too_steep_for_seismic() -> None:
+    with pytest.raises(ValueError, match="beta pendiente del relleno debe ser menor que phi menos"):
+        AbutmentSoilInputs(friction_angle_deg=30.0, backfill_slope_deg=25.0)
