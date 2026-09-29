@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import Any
 
 from bridge_design.cli.input_prompts import _default_diaphragm_positions
+from bridge_design.cli.wall_backface_input import resolve_wall_backface_angle
 from bridge_design.domain.abutment import (
     AbutmentGeometryInputs,
     AbutmentInputs,
@@ -150,7 +151,7 @@ def abutment_yaml_template(*, pure_wall: bool = False) -> YamlMap:
                 "angulo_friccion_relleno_grados": soil.friction_angle_deg,
                 "delta_muro_suelo_grados": soil.wall_soil_friction_deg,
                 "beta_pendiente_relleno_grados": soil.backfill_slope_deg,
-                "theta_cara_posterior_desde_horizontal_grados": soil.wall_backface_angle_deg,
+                "theta_cara_posterior_desde_horizontal_grados": "auto" if pure_wall else soil.wall_backface_angle_deg,
                 "fs_capacidad_portante_nominal": soil.bearing_capacity_factor_fs,
                 "pga": soil.pga,
                 "fpga": soil.fpga,
@@ -229,7 +230,11 @@ def abutment_inputs_from_yaml(data: YamlMap, *, pure_wall: bool = False) -> Abut
         friction_angle_deg=float(_value(soil, "angulo_friccion_relleno_grados", s0.friction_angle_deg)),
         wall_soil_friction_deg=float(_value(soil, "delta_muro_suelo_grados", s0.wall_soil_friction_deg)),
         backfill_slope_deg=float(_value(soil, "beta_pendiente_relleno_grados", s0.backfill_slope_deg)),
-        wall_backface_angle_deg=float(_value(soil, "theta_cara_posterior_desde_horizontal_grados", s0.wall_backface_angle_deg)),
+        wall_backface_angle_deg=resolve_wall_backface_angle(
+            _value(soil, "theta_cara_posterior_desde_horizontal_grados", "auto" if pure_wall else s0.wall_backface_angle_deg),
+            geometry,
+            allow_auto=pure_wall,
+        ),
         bearing_capacity_factor_fs=float(_value(soil, "fs_capacidad_portante_nominal", s0.bearing_capacity_factor_fs)),
         pga=float(_value(soil, "pga", s0.pga)),
         fpga=float(_value(soil, "fpga", s0.fpga)),
@@ -254,7 +259,13 @@ def abutment_inputs_from_yaml(data: YamlMap, *, pure_wall: bool = False) -> Abut
 
 def cantilever_wall_yaml_template() -> YamlMap:
     """Return a Spanish YAML template for cantilever wall inputs."""
-    return abutment_yaml_template(pure_wall=True)
+    data = abutment_yaml_template(pure_wall=True)
+    data["nota"] = (
+        "theta=auto (predeterminado): calcula theta=90-atan((e_inferior-e_superior)/(H-D)) en grados, "
+        "con cara exterior vertical y ensanche hacia el relleno. theta=90: trasdos vertical. "
+        "Se admite ese theta <= theta ingresado <= 90, con beta=0 y delta=0 para trasdos inclinado."
+    )
+    return data
 
 
 def cantilever_wall_inputs_from_yaml(data: YamlMap) -> AbutmentInputs:

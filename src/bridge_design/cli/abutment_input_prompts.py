@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from bridge_design.cli.input_prompts import prompt_float, prompt_non_negative_float
+from bridge_design.cli.wall_backface_input import resolve_wall_backface_angle
 from bridge_design.domain.abutment import (
     AbutmentDesignResult,
     AbutmentGeometryInputs,
@@ -13,6 +14,8 @@ from bridge_design.domain.abutment import (
     AbutmentSoilInputs,
     GAMMA_EQ_DEFAULT,
     equivalent_vehicular_surcharge_height_m,
+    validate_wall_backface,
+    wall_vertical_front_angle_deg,
 )
 from bridge_design.domain.cantilever_wall import cantilever_wall_geometry_inputs, cantilever_wall_load_inputs
 from bridge_design.domain.rebar_catalog import (
@@ -200,14 +203,21 @@ def _collect_soil(
     friction_angle = prompt_float("Angulo de friccion del relleno", "grados", default.friction_angle_deg)
     wall_soil_friction = prompt_non_negative_float("delta muro-suelo", "grados", default.wall_soil_friction_deg)
     while wall_soil_friction != 0.0:
-        print("El modelo actual requiere delta=0 para emplear una resultante horizontal.")
+        print("El modelo actual requiere una interfaz lisa: delta=0.")
         wall_soil_friction = prompt_non_negative_float("delta muro-suelo", "grados", 0.0)
     backfill_slope = prompt_non_negative_float("beta pendiente del relleno", "grados", default.backfill_slope_deg)
+    if element_label == "muro":
+        print("Relleno del lado del trasdos. theta se mide desde la horizontal (90 = trasdos vertical).")
+        print(f"Calculo automatico: theta={wall_vertical_front_angle_deg(geometry):.8f} grados; cara exterior vertical y ensanche hacia el relleno.")
+        print("Pulse Enter o escriba auto para adoptarlo; ingrese 90 para trasdos vertical u otro angulo compatible.")
+        print("El trasdos inclinado admite beta=0 y delta=0; theta debe ser compatible con los espesores.")
     wall_backface_angle = _prompt_wall_backface_angle(
         friction_angle,
         wall_soil_friction,
         backfill_slope,
         default.wall_backface_angle_deg,
+        geometry=geometry,
+        pure_wall=element_label == "muro",
     )
     return AbutmentSoilInputs(
         vehicular_surcharge_height_m=vehicular_surcharge_height,
@@ -244,24 +254,40 @@ def _prompt_wall_backface_angle(
     wall_soil_friction_deg: float,
     backfill_slope_deg: float,
     default: float,
+    *,
+    geometry: AbutmentGeometryInputs | None = None,
+    pure_wall: bool = False,
 ) -> float:
     """Prompt Coulomb wall-back angle measured from horizontal."""
+    if pure_wall and geometry is None:
+        raise ValueError("Se requiere la geometria para calcular theta automaticamente.")
     while True:
-        angle = prompt_float(
-            "theta cara posterior desde horizontal; vertical=90",
-            "grados",
-            default,
-        )
         try:
-            AbutmentSoilInputs(
+            if pure_wall:
+                automatic_angle = wall_vertical_front_angle_deg(geometry)
+                raw = input(
+                    "theta cara posterior desde horizontal; Enter=auto, vertical=90 "
+                    f"(grados) [auto: {automatic_angle:.8f}]: "
+                )
+                angle = resolve_wall_backface_angle(raw, geometry, allow_auto=True)
+            else:
+                angle = prompt_float(
+                    "theta cara posterior desde horizontal; vertical=90", "grados", default,
+                )
+            trial_soil = AbutmentSoilInputs(
                 friction_angle_deg=friction_angle_deg,
                 wall_soil_friction_deg=wall_soil_friction_deg,
                 backfill_slope_deg=backfill_slope_deg,
                 wall_backface_angle_deg=angle,
+                pga=0.0,  # Seismic validity is checked with the actual PGA below.
             )
+            if geometry is not None:
+                validate_wall_backface(geometry, trial_soil, pure_wall)
         except ValueError as exc:
             print(str(exc))
             continue
+        if pure_wall:
+            print(f"theta adoptado = {angle:.8f} grados.")
         return angle
 
 

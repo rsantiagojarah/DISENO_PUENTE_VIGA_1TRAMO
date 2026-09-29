@@ -16,8 +16,8 @@ from bridge_design.domain.simple_neoprene_support import SimpleSupportDemands
 
 @pytest.mark.parametrize("delta,theta", [(0, 75), (10, 90)])
 def test_h24_rejects_unresolved_force_geometry(delta, theta):
-    with pytest.raises(ValueError, match="modelo de empujes"):
-        a.AbutmentSoilInputs(wall_soil_friction_deg=delta, wall_backface_angle_deg=theta)
+    with pytest.raises(ValueError, match="modelo de empujes|theta incompatible"):
+        a.AbutmentInputs(is_pure_wall=True, soil=a.AbutmentSoilInputs(wall_soil_friction_deg=delta, wall_backface_angle_deg=theta))
 
 
 def test_h24_zero_acceleration_recovers_static_coefficient():

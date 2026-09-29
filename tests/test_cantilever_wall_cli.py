@@ -560,7 +560,7 @@ def test_wall_soil_prompt_accepts_zero_vehicular_surcharge(monkeypatch) -> None:
     assert soil.allowable_bearing_kg_cm2 > 0.0
     assert "h' sobrecarga vehicular equivalente (m) [0.6]: " in prompts
     assert "qadm capacidad portante admisible (kg/cm2) [2.67]: " in prompts
-    assert "theta cara posterior desde horizontal; vertical=90 (grados) [90]: " in prompts
+    assert any("Enter=auto, vertical=90" in prompt and "[auto:" in prompt for prompt in prompts)
 
 
 def test_wall_soil_prompt_rejects_theta_measured_from_vertical(monkeypatch, capsys) -> None:

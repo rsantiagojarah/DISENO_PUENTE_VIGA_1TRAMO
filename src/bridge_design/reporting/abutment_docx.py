@@ -16,6 +16,7 @@ from bridge_design.domain.abutment import (
     AbutmentDesignResult,
     StabilityStateResult,
     StructuralDesignCase,
+    wall_backface_setback_m,
 )
 from bridge_design.domain.rebar_catalog import REINFORCING_BAR_CATALOG
 from bridge_design.reporting.abutment_docx_charts import (
@@ -489,8 +490,15 @@ def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
     p = result.pressures
     gamma = data.materials.soil_unit_weight_kg_m3 / 1000.0
     effective_heel = g.heel_length_m - g.backfill_step_width_m
+    if data.is_pure_wall:
+        effective_heel += wall_backface_setback_m(g, data.soil.wall_backface_angle_deg)
     document.add_heading("3. Empujes de suelo, sobrecargas y sismo", level=1)
-    _calc(document, "Coeficiente activo de Coulomb", *coulomb_ka_trace(result), REF_EARTH)
+    _comment(document, "Estabilidad global: muro y relleno sobre talón, con plano virtual vertical en su extremo. "
+             "Las fuerzas sobre el trasdós real son internas a este conjunto y se usan por separado al diseñar la pantalla.")
+    if data.is_pure_wall:
+        _calc(document, "Coulomb sobre trasdós real de pantalla", *coulomb_ka_trace(result, stem_face=True), REF_EARTH)
+        _calc(document, "Mononobe-Okabe sobre trasdós real de pantalla", *mononobe_okabe_trace(result, stem_face=True), REF_EARTH)
+    _calc(document, "Coeficiente activo de Coulomb - plano virtual", *coulomb_ka_trace(result), REF_EARTH)
     _calc(document, "Altura equivalente de sobrecarga vehicular", *surcharge_height_trace(result), REF_EARTH)
     _calc(
         document,

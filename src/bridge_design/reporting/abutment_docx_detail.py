@@ -118,13 +118,14 @@ def surcharge_height_trace(result: AbutmentDesignResult) -> tuple[str, str, str,
     return formula, legend, substitution, result_text, comment
 
 
-def coulomb_ka_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, str]:
+def coulomb_ka_trace(result: AbutmentDesignResult, *, stem_face: bool = False) -> tuple[str, str, str, str, str]:
     soil = result.inputs.soil
-    ka = result.pressures.ka
+    ka = result.pressures.stem_ka if stem_face else result.pressures.ka
+    theta_deg = soil.wall_backface_angle_deg if stem_face else 90.0
     phi = radians(soil.friction_angle_deg)
     delta = radians(soil.wall_soil_friction_deg)
     beta = radians(soil.backfill_slope_deg)
-    theta = radians(soil.wall_backface_angle_deg)
+    theta = radians(theta_deg)
     root_term = sqrt(
         sin(phi + delta)
         * sin(phi - beta)
@@ -145,7 +146,7 @@ def coulomb_ka_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, 
     )
     substitution = (
         f"φ = {soil.friction_angle_deg:.3f}°; δ = {soil.wall_soil_friction_deg:.3f}°; "
-        f"β = {soil.backfill_slope_deg:.3f}°; θ = {soil.wall_backface_angle_deg:.3f}°\n"
+        f"β = {soil.backfill_slope_deg:.3f}°; θ = {theta_deg:.3f}°\n"
         f"√[...] = {root_term:.6f}\n"
         f"Numerador = sin²(θ+φ) = {numerator:.6f}\n"
         f"Denominador = {denominator:.6f}\n"
@@ -153,8 +154,8 @@ def coulomb_ka_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, 
     )
     result_text = f"Se adopta Ka = {ka:.5f}."
     comment = (
-        "El coeficiente conserva los ángulos ingresados; para cara vertical y relleno "
-        "horizontal reproduce el caso activo convencional."
+        "Coeficiente sobre la cara real de la pantalla."
+        if stem_face else "Coeficiente sobre el plano virtual vertical por el extremo del talón; cuerpo muro + relleno."
     )
     return formula, legend, substitution, result_text, comment
 
@@ -188,7 +189,7 @@ def seismic_angle_trace(result: AbutmentDesignResult) -> tuple[str, str, str, st
     return formula, legend, substitution, result_text, comment
 
 
-def mononobe_okabe_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, str]:
+def mononobe_okabe_trace(result: AbutmentDesignResult, *, stem_face: bool = False) -> tuple[str, str, str, str, str]:
     soil = result.inputs.soil
     p = result.pressures
     as_coeff = soil.fpga * soil.pga
@@ -198,7 +199,8 @@ def mononobe_okabe_trace(result: AbutmentDesignResult) -> tuple[str, str, str, s
     phi = radians(soil.friction_angle_deg)
     delta = radians(soil.wall_soil_friction_deg)
     beta = radians(soil.backfill_slope_deg)
-    theta = radians(0.0)  # M-O del modelo: inclinación desde la vertical (=0 muro vertical)
+    theta = radians(90.0 - soil.wall_backface_angle_deg) if stem_face else 0.0
+    kae = p.stem_k_ae if stem_face else p.k_ae
     numerator = cos(phi - psi - theta) ** 2.0
     inner = (
         sin(phi + delta)
@@ -222,16 +224,16 @@ def mononobe_okabe_trace(result: AbutmentDesignResult) -> tuple[str, str, str, s
     )
     substitution = (
         f"φ = {soil.friction_angle_deg:.3f}°; δ = {soil.wall_soil_friction_deg:.3f}°; "
-        f"β = {soil.backfill_slope_deg:.3f}°; θ = 0.000°; ψ = {degrees(psi):.3f}°\n"
+        f"β = {soil.backfill_slope_deg:.3f}°; θ = {degrees(theta):.3f}°; ψ = {degrees(psi):.3f}°\n"
         f"√[...] = {sqrt(inner):.6f}\n"
         f"Numerador = cos²(φ−θ−ψ) = {numerator:.6f}\n"
         f"Denominador = {denominator:.6f}\n"
-        f"kAE = {numerator:.6f}/{denominator:.6f} = {p.k_ae:.5f}"
+        f"kAE = {numerator:.6f}/{denominator:.6f} = {kae:.5f}"
     )
-    result_text = f"Se obtiene kAE = {p.k_ae:.5f}."
+    result_text = f"Se obtiene kAE = {kae:.5f}."
     comment = (
-        "Para muro vertical el modelo adopta θ = 0° medido desde la vertical "
-        "(equivalente a cara posterior a 90° desde la horizontal)."
+        "En Mononobe-Okabe la inclinación es 90° menos el ángulo de Coulomb. "
+        + ("Se usa la cara real de la pantalla." if stem_face else "Se usa el plano virtual vertical del talón.")
     )
     return formula, legend, substitution, result_text, comment
 
@@ -501,6 +503,25 @@ def component_factor_rows(
 
 def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, str]:
     demands = _stem_design_demands(result.inputs, result.pressures)
+    if result.inputs.is_pure_wall:
+        p = result.pressures
+        return (
+            "Px=P·cos(α); Py=P·sin(α); M=P_x·y-P_y·(x_cara-x_centro); α=90°-θ; "
+            "Mu,R=max|1.75MLS+1.50MEH+γDC·MDC|; Mu,E=max|γEQ·MLS+MEH+MEQ+0.5MPIR+MDC|, "
+            "|γEQ·MLS+M[max(0.5PAE,EH)]+MPIR+MDC|",
+            "P: resultante sobre pantalla; Py positiva hacia abajo; MDC: momento desfavorable del peso propio. "
+            "La estabilidad global usa un cuerpo distinto: muro más relleno sobre el talón.",
+            f"θ={result.inputs.soil.wall_backface_angle_deg:.6f}°; α={p.stem_force_angle_deg:.6f}°; "
+            f"Ka,pantalla={p.stem_ka:.6f}; kAE,pantalla={p.stem_k_ae:.6f}; γEQ={result.inputs.gamma_eq:.3f}\n"
+            + "\n".join(f"{key} = {demands[key]:.5f}" for key in (
+                "eh_horizontal", "eh_vertical", "ls_horizontal", "ls_vertical", "eq_horizontal", "eq_vertical",
+                "eh_moment", "ls_moment", "eq_moment", "weight_moment", "pir_moment",
+                "strength_mu", "extreme_mu_a", "extreme_mu_b", "strength_vu", "extreme_vu_a", "extreme_vu_b",
+            )),
+            f"Mu,R={demands['strength_mu']:.3f} Tn·m/m; Mu,E={demands['extreme_mu']:.3f} Tn·m/m.",
+            "Fuerzas en Tn/m y momentos en Tn·m/m. Se integra el concreto por encima de cada corte. "
+            "No se acredita el momento favorable del peso propio ni la compresión axial en la resistencia a flexión.",
+        )
     case = result.stem_design
     g = result.inputs.geometry
     gamma_soil = result.inputs.materials.soil_unit_weight_kg_m3 / 1000.0
@@ -1132,21 +1153,22 @@ def stem_cut_constructive_length_trace(
 ) -> tuple[str, str, str, str, str]:
     g = result.inputs.geometry
     formula = (
-        "hc = ht + ld ; Lcort = hc + ld ; Lcont = Hp + ld"
+        "α=90°-θ; hc=min(Hp, ht+ld·cosα); Lcort=hc/cosα+ld; Lcont=Hp/cosα+ld"
     )
     legend = (
         "hc: altura constructiva de terminación de barras cortadas sobre la zapata; "
         "ht: altura teórica de corte; ld: longitud de desarrollo de la sección 7.2; "
         "Lcort: longitud de barras cortadas; Lcont: longitud de barras continuas; Hp: altura de pantalla."
     )
+    bar_cos = cos(radians(90.0 - result.inputs.soil.wall_backface_angle_deg))
     substitution = (
-        f"ht = {cut.theoretical_cut_height_m:.3f} m; ld = {cut.development_extension_m:.3f} m\n"
-        f"hc = {cut.theoretical_cut_height_m:.3f} + {cut.development_extension_m:.3f} "
+        f"cosα = {bar_cos:.6f}; ht = {cut.theoretical_cut_height_m:.3f} m; ld = {cut.development_extension_m:.3f} m\n"
+        f"hc = min(Hp, {cut.theoretical_cut_height_m:.3f} + {cut.development_extension_m:.3f}·{bar_cos:.6f}) "
         f"= {cut.constructive_cut_height_m:.3f} m sobre la zapata\n"
-        f"Lcort = {cut.constructive_cut_height_m:.3f} + {cut.development_extension_m:.3f} "
+        f"Lcort = {cut.constructive_cut_height_m:.3f}/{bar_cos:.6f} + {cut.development_extension_m:.3f} "
         f"= {cut.lower_cut_bar_length_m:.3f} m\n"
         f"Hp = {g.stem_height_above_footing_m:.3f} m\n"
-        f"Lcont = {g.stem_height_above_footing_m:.3f} + {cut.development_extension_m:.3f} "
+        f"Lcont = {g.stem_height_above_footing_m:.3f}/{bar_cos:.6f} + {cut.development_extension_m:.3f} "
         f"= {cut.continuous_bar_length_m:.3f} m"
     )
     result_text = (

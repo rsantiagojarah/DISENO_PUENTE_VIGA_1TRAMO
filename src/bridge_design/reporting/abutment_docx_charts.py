@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from math import cos, radians, sin
 
 from PIL import Image, ImageDraw, ImageFont
 
-from bridge_design.domain.abutment import AbutmentDesignResult, StabilityStateResult
+from bridge_design.domain.abutment import AbutmentDesignResult, StabilityStateResult, wall_backface_setback_m
 
 INK = "#000000"
 ACCENT = "#155E75"
@@ -50,7 +51,9 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
     stem_left_base = sx(g.toe_length_m)
     stem_right_base = sx(g.toe_length_m + g.lower_stem_thickness_m)
     stem_left_top = sx(g.toe_length_m + g.lower_stem_thickness_m - g.upper_stem_thickness_m)
-    stem_right_top = stem_right_base
+    setback = wall_backface_setback_m(g, result.inputs.soil.wall_backface_angle_deg) if result.inputs.is_pure_wall else 0.0
+    stem_left_top -= setback / g.footing_width_m * width
+    stem_right_top = stem_right_base - setback / g.footing_width_m * width
     stem = [
         (stem_left_base, footing_top),
         (stem_right_base, footing_top),
@@ -72,7 +75,7 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
         outline=RULE,
     )
     draw.text((sx(g.toe_length_m + g.lower_stem_thickness_m + g.heel_length_m / 2) - 80, top + 55), "Relleno", font=regular, fill=INK)
-    draw.text((stem_left_top - 70, top + 75), "Pantalla", font=small, fill=INK)
+    draw.text((stem_left_top - 145, top + 75), "Pantalla", font=small, fill=INK)
     if g.toe_length_m > 0.0:
         draw.text((left + 15, footing_top + 25), "Puntera", font=small, fill=INK)
     draw.text((sx(g.toe_length_m + g.lower_stem_thickness_m) + 20, footing_top + 25), "Talón", font=small, fill=INK)
@@ -97,13 +100,18 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
         draw.text((left, 800), "Sin puntera (Lp = 0.00 m)", font=small, fill=INK)
     _dimension(draw, (stem_right_base, 835), (right, 835), f"Lt = {g.heel_length_m:.2f} m", small, horizontal=True)
 
-    pressure_x = stem_right_top + 30
+    alpha = radians(result.pressures.stem_force_angle_deg)
     for index in range(7):
-        y = top + 70 + index * (height - 120) / 6
+        y = top + 70 + index * (footing_top - top - 140) / 6
+        fraction = (footing_top - y) / (footing_top - top)
+        pressure_x = stem_right_base - fraction * setback / g.footing_width_m * width + 8
         length = 45 + index * 16
-        draw.line((pressure_x + length, y, pressure_x, y), fill=ACCENT, width=4)
+        dx, dy = length * cos(alpha), -length * sin(alpha) * (height / g.retained_height_m) / (width / g.footing_width_m)
+        draw.line((pressure_x + dx, y + dy, pressure_x, y), fill=ACCENT, width=4)
         draw.polygon([(pressure_x, y), (pressure_x + 14, y - 8), (pressure_x + 14, y + 8)], fill=ACCENT)
-    draw.text((pressure_x + 125, top + height / 2 - 20), "Empuje activo", font=small, fill=ACCENT)
+    draw.text((stem_right_base + 160, top + height / 2 + 40), "Empuje sobre pantalla", font=small, fill=ACCENT)
+    if result.inputs.is_pure_wall:
+        draw.text((70, 85), f"Trasdós real: θ = {result.inputs.soil.wall_backface_angle_deg:.4f}°; relleno a la derecha", font=small, fill=INK)
     image.save(path, dpi=(220, 220), optimize=True)
     return path
 

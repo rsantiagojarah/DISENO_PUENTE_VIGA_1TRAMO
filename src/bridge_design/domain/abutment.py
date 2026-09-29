@@ -1,7 +1,7 @@
 """Cantilever abutment design workflow by 1 m longitudinal strip."""
 
 from dataclasses import dataclass, replace
-from math import atan, cos, radians, sin, sqrt, tan
+from math import atan, cos, degrees, isfinite, radians, sin, sqrt, tan
 from collections.abc import Mapping
 
 from bridge_design.codes.mtc_2018 import (
@@ -200,7 +200,7 @@ def _validate_mononobe_okabe_backfill_slope(
     pga: float,
     fpga: float,
 ) -> None:
-    """Ensure backfill slope is compatible with Mononobe-Okabe (theta=delta=0 model)."""
+    """Ensure a real active Mononobe-Okabe wedge (phi > beta + psi)."""
     kh = 0.5 * fpga * pga
     kv = 0.0
     seismic_angle_deg = atan(kh / (1.0 - kv)) * 180.0 / 3.141592653589793
@@ -251,11 +251,15 @@ class AbutmentSoilInputs:
             self.pga,
             self.fpga,
         )
-        if abs(self.wall_backface_angle_deg - 90.0) > 1e-9 or self.wall_soil_friction_deg > 1e-9:
-            raise ValueError(
-                "El modelo de empujes admite trasdos vertical y delta=0; "
-                "otras geometrías requieren descomposición completa de fuerzas."
-            )
+        if not isfinite(self.wall_backface_angle_deg) or self.wall_backface_angle_deg > 90.0:
+            raise ValueError("El modelo de empujes requiere 0 < theta <= 90 grados; el trasdos vertical corresponde a 90.")
+        seismic_angle = degrees(atan(0.5 * self.fpga * self.pga))
+        if self.wall_backface_angle_deg <= seismic_angle:
+            raise ValueError("theta debe superar el angulo sismico para Mononobe-Okabe.")
+        if self.wall_soil_friction_deg > 1e-9:
+            raise ValueError("El modelo de empujes requiere delta=0.")
+        if self.wall_backface_angle_deg < 90.0 - 1e-9 and self.backfill_slope_deg > 1e-9:
+            raise ValueError("El trasdos inclinado requiere relleno horizontal: beta=0.")
 
 
 @dataclass(frozen=True)
@@ -312,6 +316,32 @@ class AbutmentReinforcementInputs:
 GAMMA_EQ_DEFAULT = 0.50
 
 
+def wall_backface_setback_m(geometry: AbutmentGeometryInputs, angle_deg: float) -> float:
+    """Top retreat toward the toe; x increases from toe toward retained soil."""
+    return geometry.stem_height_above_footing_m * tan(radians(90.0 - angle_deg))
+
+
+def wall_vertical_front_angle_deg(geometry: AbutmentGeometryInputs) -> float:
+    """Coulomb angle of a wall with vertical front and all taper on the soil side."""
+    return 90.0 - degrees(atan(
+        (geometry.lower_stem_thickness_m - geometry.upper_stem_thickness_m)
+        / geometry.stem_height_above_footing_m
+    ))
+
+
+def validate_wall_backface(geometry: AbutmentGeometryInputs, soil: AbutmentSoilInputs, pure_wall: bool) -> None:
+    if abs(soil.wall_backface_angle_deg - 90.0) <= 1e-9:
+        return
+    if not pure_wall:
+        raise ValueError("El trasdos inclinado esta implementado para diseno-muros; el estribo requiere theta=90.")
+    minimum = wall_vertical_front_angle_deg(geometry)
+    if soil.wall_backface_angle_deg < minimum - 1e-7:
+        raise ValueError(
+            f"theta incompatible con altura y espesores: use {minimum:.8f} <= theta <= 90 grados. "
+            "El limite inferior deja vertical la cara exterior y el ensanche del lado del relleno."
+        )
+
+
 @dataclass(frozen=True)
 class AbutmentInputs:
     """Complete abutment input set."""
@@ -327,6 +357,7 @@ class AbutmentInputs:
 
     def __post_init__(self) -> None:
         require_range(self.gamma_eq, "gamma_EQ", 0.0, 1.0)
+        validate_wall_backface(self.geometry, self.soil, self.is_pure_wall)
 
 
 @dataclass(frozen=True)
@@ -362,6 +393,11 @@ class SoilPressureResult:
     peq_tn_m: float
     pedestrian_lsy_tn_m: float
     pedestrian_lsx_tn_m: float
+    # Global forces act on the vertical virtual plane at the heel. The actual
+    # inclined face is used only for the stem free body (no internal-force double count).
+    stem_ka: float = 0.0
+    stem_k_ae: float = 0.0
+    stem_force_angle_deg: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -1222,7 +1258,8 @@ def mononobe_okabe_active_coefficient(inputs: AbutmentInputs) -> tuple[float, fl
     phi = radians(soil.friction_angle_deg)
     delta = radians(soil.wall_soil_friction_deg)
     beta = radians(soil.backfill_slope_deg)
-    theta = radians(0.0)
+    # M-O uses the signed inclination from vertical, opposite to Coulomb theta.
+    theta = radians(90.0 - soil.wall_backface_angle_deg)
     numerator = cos(phi - seismic_angle - theta) ** 2.0
     denominator = (
         cos(seismic_angle)
@@ -1276,8 +1313,14 @@ def _concrete_components(inputs: AbutmentInputs) -> tuple[LoadComponent, ...]:
                 g.footing_thickness_m / 2.0,
             ),
         )
+        setback = wall_backface_setback_m(g, inputs.soil.wall_backface_angle_deg)
         return tuple(
-            LoadComponent(name, "DC", area * gamma * g.strip_width_m, x, y)
+            LoadComponent(
+                name, "DC", area * gamma * g.strip_width_m,
+                x - setback * (y - g.footing_thickness_m) / e71
+                if name in {"Pantalla rectangular", "Ensanche de pantalla"} else x,
+                y,
+            )
             for name, area, x, y in rows
             if area > 0.0
         )
@@ -1375,6 +1418,21 @@ def _soil_components(inputs: AbutmentInputs) -> tuple[LoadComponent, ...]:
                 g.footing_thickness_m + max(g.front_soil_depth_m - g.footing_thickness_m, 0.0) / 2.0,
             ),
         )
+        setback = wall_backface_setback_m(g, inputs.soil.wall_backface_angle_deg)
+        if setback > 0.0:
+            rows += ((
+                "Relleno sobre trasdos inclinado", setback * e71 / 2.0,
+                g.toe_length_m + g.lower_stem_thickness_m - setback / 3.0,
+                g.footing_thickness_m + 2.0 * e71 / 3.0,
+            ),)
+            front_height = min(max(g.front_soil_depth_m - g.footing_thickness_m, 0.0), e71)
+            front_batter = max(g.lower_stem_thickness_m - g.upper_stem_thickness_m - setback, 0.0)
+            front_width = front_batter * front_height / e71
+            rows += ((
+                "Relleno triangular frontal", front_width * front_height / 2.0,
+                g.toe_length_m + front_width / 3.0,
+                g.footing_thickness_m + 2.0 * front_height / 3.0,
+            ),)
         return tuple(
             LoadComponent(name, "EV", area * gamma * g.strip_width_m, x, y)
             for name, area, x, y in rows
@@ -1459,16 +1517,24 @@ def _soil_pressures(
         soil.backfill_slope_deg,
         soil.wall_backface_angle_deg,
     )
+    stem_ka = ka
+    stem_k_ae, seismic_angle = mononobe_okabe_active_coefficient(inputs)
+    # Whole wall + soil over heel: the stem-face pressures are internal.
+    # Use a vertical external plane through the heel (FHWA NHI-06-089, Sec. 10.4.2, p. 10-20).
+    global_inputs = replace(inputs, soil=replace(soil, wall_backface_angle_deg=90.0))
+    ka = coulomb_active_coefficient(soil.friction_angle_deg, 0.0, soil.backfill_slope_deg, 90.0)
     h_eq = soil.vehicular_surcharge_height_m
     if h_eq is None:
         h_eq = equivalent_vehicular_surcharge_height_m(g.retained_height_m)
     effective_heel_m = g.heel_length_m - g.backfill_step_width_m
+    if inputs.is_pure_wall:
+        effective_heel_m += wall_backface_setback_m(g, soil.wall_backface_angle_deg)
     lsy = effective_heel_m * h_eq * gamma_soil
     lsx = ka * h_eq * gamma_soil * g.retained_height_m
     pedestrian_lsy = soil.pedestrian_surcharge_tn_m2 * effective_heel_m
     pedestrian_lsx = ka * soil.pedestrian_surcharge_tn_m2 * g.retained_height_m
     eh = 0.5 * ka * gamma_soil * g.retained_height_m**2.0
-    k_ae, seismic_angle = mononobe_okabe_active_coefficient(inputs)
+    k_ae, seismic_angle = mononobe_okabe_active_coefficient(global_inputs)
     pae = 0.5 * k_ae * gamma_soil * g.retained_height_m**2.0
     eq_terr = pae - eh
     as_coeff = soil.fpga * soil.pga
@@ -1490,6 +1556,9 @@ def _soil_pressures(
         peq_tn_m=peq,
         pedestrian_lsy_tn_m=pedestrian_lsy,
         pedestrian_lsx_tn_m=pedestrian_lsx,
+        stem_ka=stem_ka,
+        stem_k_ae=stem_k_ae,
+        stem_force_angle_deg=90.0 - soil.wall_backface_angle_deg,
     )
 
 
@@ -1511,6 +1580,7 @@ def _load_components(
         lsy_x = g.toe_length_m + g.lower_stem_thickness_m + g.backfill_step_width_m + (
             g.heel_length_m - g.backfill_step_width_m
         ) / 2.0
+        lsy_x -= wall_backface_setback_m(g, inputs.soil.wall_backface_angle_deg) / 2.0
         vertical_without_bridge = (
             LoadComponent("DC muro", "DC", dc_weight_tn_m, dc_x_m),
             LoadComponent("EV relleno", "EV", ev_weight_tn_m, ev_x_m),
@@ -2514,7 +2584,8 @@ def _stem_reinforcement_cut(
                 low = mid
         theoretical_cut = high
 
-    constructive_cut = min(height, theoretical_cut + development_extension_m)
+    bar_cos = cos(radians(90.0 - inputs.soil.wall_backface_angle_deg))
+    constructive_cut = min(height, theoretical_cut + development_extension_m * bar_cos)
     (
         moment_at_cut,
         effective_depth_cm,
@@ -2561,8 +2632,8 @@ def _stem_reinforcement_cut(
         theoretical_cut_height_m=theoretical_cut,
         constructive_cut_height_m=constructive_cut,
         development_extension_m=development_extension_m,
-        lower_cut_bar_length_m=constructive_cut + development_extension_m,
-        continuous_bar_length_m=height + development_extension_m,
+        lower_cut_bar_length_m=constructive_cut / bar_cos + development_extension_m,
+        continuous_bar_length_m=height / bar_cos + development_extension_m,
         controlling_moment_at_cut_tn_m_m=moment_at_cut,
         required_as_at_cut_cm2_m=required_as,
         moment_resistance_at_cut_tn_m_m=moment_resistance_at_cut,
@@ -2793,6 +2864,10 @@ def _stem_design_limit_moments_at_height(
     pressures: SoilPressureResult,
     height_above_footing_m: float,
 ) -> tuple[float, float]:
+    if inputs.is_pure_wall:
+        from bridge_design.domain.inclined_wall import stem_actions
+        actions = stem_actions(inputs, pressures, height_above_footing_m)
+        return actions["strength_mu"], actions["extreme_mu"]
     g = inputs.geometry
     gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     height = g.stem_height_above_footing_m
@@ -2849,6 +2924,9 @@ def _stem_design_demands(
     inputs: AbutmentInputs,
     pressures: SoilPressureResult,
 ) -> dict[str, float]:
+    if inputs.is_pure_wall:
+        from bridge_design.domain.inclined_wall import stem_actions
+        return stem_actions(inputs, pressures)
     g = inputs.geometry
     gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     height = g.stem_height_above_footing_m
@@ -3009,6 +3087,15 @@ def _heel_state_demand(inputs: AbutmentInputs, state: StabilityStateResult) -> H
         + factors.ls_vertical * weights.lsy_tn_m
     )
     extra_loads: list[tuple[str, float, float]] = []
+    if inputs.is_pure_wall and inputs.soil.wall_backface_angle_deg < 90.0 - 1e-9:
+        from bridge_design.domain.inclined_wall import heel_transfer
+        transfer_v, transfer_m = heel_transfer(inputs, state)
+        shear += transfer_v
+        moment += transfer_m
+        if abs(transfer_v) > 1e-12:
+            extra_loads.append(("Transferencia del relleno sobre trasdos", transfer_v, transfer_m / transfer_v))
+        elif abs(transfer_m) > 1e-12:
+            extra_loads.extend((("Par de transferencia +", 1.0, transfer_m), ("Par de transferencia -", -1.0, 0.0)))
     if not inputs.is_pure_wall:
         shear += factors.dc * weights.seat_concrete_weight_tn_m
         moment += factors.dc * weights.seat_concrete_moment_tn_m_m
@@ -3104,6 +3191,9 @@ def _service_moments(
 
 
 def _stem_service_moment(inputs: AbutmentInputs, pressures: SoilPressureResult) -> float:
+    if inputs.is_pure_wall:
+        from bridge_design.domain.inclined_wall import stem_actions
+        return stem_actions(inputs, pressures)["service_mu"]
     g = inputs.geometry
     height = g.stem_height_above_footing_m
     gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
@@ -3261,7 +3351,7 @@ def _bar_detail_length_m(inputs: AbutmentInputs, element: str, required_ld_cm: f
     g = inputs.geometry
     ld_m = required_ld_cm / 100.0
     if element == "Pantalla":
-        return g.stem_height_above_footing_m + ld_m
+        return g.stem_height_above_footing_m / cos(radians(90.0 - inputs.soil.wall_backface_angle_deg)) + ld_m
     if element == "Zapata - talon superior":
         return g.heel_length_m + ld_m
     if element == "Zapata - puntera inferior":

@@ -11,6 +11,7 @@ from bridge_design.domain.abutment import (
     StabilityStateResult,
     StructuralDesignCase,
     abutment_load_factors,
+    wall_backface_setback_m,
 )
 from bridge_design.domain.rebar_catalog import ReinforcementCaseOptions, ReinforcementSpacingOption
 
@@ -34,6 +35,8 @@ def format_abutment_design_result(
     lines.extend(_format_section_title("CARGAS HORIZONTALES"))
     lines.extend(_format_horizontal_loads(primary_stability_title, result.components.horizontal_with_bridge))
     lines.extend(_format_pressures(result))
+    if result.inputs.is_pure_wall:
+        lines.extend(_format_wall_backface(result))
     factor_title = (
         "ESTADOS LIMITES APLICABLES Y COMBINACIONES DE CARGAS - MURO CANTILEVER"
         if result.inputs.is_pure_wall
@@ -619,10 +622,12 @@ def _format_soil_pressure_procedure(result: AbutmentDesignResult) -> list[str]:
     p = result.pressures
     gamma = data.materials.soil_unit_weight_kg_m3 / 1000.0
     effective_heel = g.heel_length_m - g.backfill_step_width_m
+    if data.is_pure_wall:
+        effective_heel += wall_backface_setback_m(g, soil.wall_backface_angle_deg)
     as_coeff = soil.fpga * soil.pga
     kh = 0.5 * as_coeff
     rows = [
-        ("Ka Coulomb", "f(phi, delta, beta, theta)", f"phi={soil.friction_angle_deg:.3f}; delta={soil.wall_soil_friction_deg:.3f}; beta={soil.backfill_slope_deg:.3f}; theta={soil.wall_backface_angle_deg:.3f}", f"{p.ka:.4f}"),
+        ("Ka Coulomb", "f(phi, delta, beta, theta)", f"phi={soil.friction_angle_deg:.3f}; delta={soil.wall_soil_friction_deg:.3f}; beta={soil.backfill_slope_deg:.3f}; theta=90.000 (plano virtual)", f"{p.ka:.4f}"),
         ("h' vehicular", "valor ingresado o interpolado por H", f"H={g.retained_height_m:.3f}", f"{p.live_surcharge_height_m:.3f} m"),
         ("LSy vehicular", "Btalon* h' * gamma", f"{effective_heel:.3f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}", f"{p.lsy_tn_m:.3f} Tn/m"),
         ("LSx vehicular", "Ka * h' * gamma * H", f"{p.ka:.4f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}*{g.retained_height_m:.3f}", f"{p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m"),
@@ -789,10 +794,12 @@ def _format_pressures(result: AbutmentDesignResult) -> list[str]:
     soil = data.soil
     gamma = data.materials.soil_unit_weight_kg_m3 / 1000.0
     effective_heel = g.heel_length_m - g.backfill_step_width_m
+    if data.is_pure_wall:
+        effective_heel += wall_backface_setback_m(g, soil.wall_backface_angle_deg)
     as_coeff = soil.fpga * soil.pga
     kh = 0.5 * as_coeff
     values = [
-        ("Ka Coulomb", f"Coulomb(phi={soil.friction_angle_deg:.3f}, delta={soil.wall_soil_friction_deg:.3f}, beta={soil.backfill_slope_deg:.3f}, theta={soil.wall_backface_angle_deg:.3f})", f"{p.ka:.4f}"),
+        ("Ka Coulomb", f"Coulomb(phi={soil.friction_angle_deg:.3f}, delta={soil.wall_soil_friction_deg:.3f}, beta={soil.backfill_slope_deg:.3f}, theta=90.000 (plano virtual))", f"{p.ka:.4f}"),
         ("h' vehicular adoptado", f"h'({g.retained_height_m:.3f})", f"{p.live_surcharge_height_m:.3f} m"),
         ("LSy vehicular", f"{effective_heel:.3f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}", f"{p.lsy_tn_m:.3f} Ton/m"),
         ("LSx vehicular + peatonal", f"{p.ka:.4f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}*{g.retained_height_m:.3f} + {p.ka:.4f}*{soil.pedestrian_surcharge_tn_m2:.3f}*{g.retained_height_m:.3f}", f"{p.lsx_tn_m:.3f} Ton/m"),
@@ -1306,4 +1313,30 @@ def _format_bar_details(result: AbutmentDesignResult) -> list[str]:
             aligns=("center", "left", "left", "center", "right", "right", "right"),
             title="CUADRO DE DETALLE DE ACERO",
         ),
+    ]
+
+
+def _format_wall_backface(result: AbutmentDesignResult) -> list[str]:
+    from bridge_design.domain.inclined_wall import stem_actions
+    g, soil, p = result.inputs.geometry, result.inputs.soil, result.pressures
+    a = stem_actions(result.inputs, p)
+    return [
+        "",
+        "Estabilidad: muro + relleno sobre talon; empuje externo en plano virtual vertical.",
+        "Pantalla: empuje sobre el trasdos real. Sus fuerzas internas no se suman otra vez a la estabilidad.",
+        *boxed_table(
+            ("Concepto", "Valor"),
+            [
+                ("theta del trasdos real desde horizontal", f"{soil.wall_backface_angle_deg:.8f} grados"),
+                ("Retiro superior hacia puntera", f"{wall_backface_setback_m(g, soil.wall_backface_angle_deg):.5f} m"),
+                ("Ka / kAE sobre pantalla", f"{p.stem_ka:.6f} / {p.stem_k_ae:.6f}"),
+                ("Direccion del empuje bajo horizontal", f"{p.stem_force_angle_deg:.6f} grados"),
+                ("EH horizontal / vertical descendente", f"{a['eh_horizontal']:.4f} / {a['eh_vertical']:.4f} Tn/m"),
+                ("LS horizontal / vertical descendente", f"{a['ls_horizontal']:.4f} / {a['ls_vertical']:.4f} Tn/m"),
+                ("Incremento EQ horizontal / vertical", f"{a['eq_horizontal']:.4f} / {a['eq_vertical']:.4f} Tn/m"),
+                ("Momento EH real sobre pantalla", f"{a['eh_moment']:.4f} Tn*m/m"),
+            ],
+            aligns=("left", "right"), title="TRASDOS Y EMPUJE SOBRE PANTALLA",
+        ),
+        "Momentos: Px*y - Py*(x_cara-x_centro). No se acredita compresion axial en la resistencia.",
     ]
