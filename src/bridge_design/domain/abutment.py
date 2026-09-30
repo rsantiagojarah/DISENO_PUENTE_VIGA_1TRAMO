@@ -254,10 +254,10 @@ class AbutmentSoilInputs:
         if not isfinite(self.wall_backface_angle_deg) or self.wall_backface_angle_deg > 90.0:
             raise ValueError("El modelo de empujes requiere 0 < theta <= 90 grados; el trasdos vertical corresponde a 90.")
         seismic_angle = degrees(atan(0.5 * self.fpga * self.pga))
-        if self.wall_backface_angle_deg <= seismic_angle:
-            raise ValueError("theta debe superar el angulo sismico para Mononobe-Okabe.")
-        if self.wall_soil_friction_deg > 1e-9:
-            raise ValueError("El modelo de empujes requiere delta=0.")
+        if not isfinite(self.wall_soil_friction_deg):
+            raise ValueError("delta debe ser finito.")
+        if self.wall_backface_angle_deg <= seismic_angle + self.wall_soil_friction_deg:
+            raise ValueError("theta debe superar delta mas el angulo sismico para Mononobe-Okabe.")
         if self.wall_backface_angle_deg < 90.0 - 1e-9 and self.backfill_slope_deg > 1e-9:
             raise ValueError("El trasdos inclinado requiere relleno horizontal: beta=0.")
 
@@ -1521,7 +1521,7 @@ def _soil_pressures(
     stem_k_ae, seismic_angle = mononobe_okabe_active_coefficient(inputs)
     # Whole wall + soil over heel: the stem-face pressures are internal.
     # Use a vertical external plane through the heel (FHWA NHI-06-089, Sec. 10.4.2, p. 10-20).
-    global_inputs = replace(inputs, soil=replace(soil, wall_backface_angle_deg=90.0))
+    global_inputs = replace(inputs, soil=replace(soil, wall_backface_angle_deg=90.0, wall_soil_friction_deg=0.0))
     ka = coulomb_active_coefficient(soil.friction_angle_deg, 0.0, soil.backfill_slope_deg, 90.0)
     h_eq = soil.vehicular_surcharge_height_m
     if h_eq is None:
@@ -1558,7 +1558,7 @@ def _soil_pressures(
         pedestrian_lsx_tn_m=pedestrian_lsx,
         stem_ka=stem_ka,
         stem_k_ae=stem_k_ae,
-        stem_force_angle_deg=90.0 - soil.wall_backface_angle_deg,
+        stem_force_angle_deg=90.0 - soil.wall_backface_angle_deg + soil.wall_soil_friction_deg,
     )
 
 
@@ -2868,6 +2868,10 @@ def _stem_design_limit_moments_at_height(
         from bridge_design.domain.inclined_wall import stem_actions
         actions = stem_actions(inputs, pressures, height_above_footing_m)
         return actions["strength_mu"], actions["extreme_mu"]
+    if inputs.soil.wall_soil_friction_deg > 0.0:
+        from bridge_design.domain.wall_friction import abutment_actions
+        actions = abutment_actions(inputs, pressures, height_above_footing_m)
+        return actions["strength_mu"], actions["extreme_mu"]
     g = inputs.geometry
     gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     height = g.stem_height_above_footing_m
@@ -2927,6 +2931,9 @@ def _stem_design_demands(
     if inputs.is_pure_wall:
         from bridge_design.domain.inclined_wall import stem_actions
         return stem_actions(inputs, pressures)
+    if inputs.soil.wall_soil_friction_deg > 0.0:
+        from bridge_design.domain.wall_friction import abutment_actions
+        return abutment_actions(inputs, pressures)
     g = inputs.geometry
     gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     height = g.stem_height_above_footing_m
@@ -3087,7 +3094,16 @@ def _heel_state_demand(inputs: AbutmentInputs, state: StabilityStateResult) -> H
         + factors.ls_vertical * weights.lsy_tn_m
     )
     extra_loads: list[tuple[str, float, float]] = []
-    if inputs.is_pure_wall and inputs.soil.wall_backface_angle_deg < 90.0 - 1e-9:
+    if not inputs.is_pure_wall and inputs.soil.wall_soil_friction_deg > 0.0:
+        from bridge_design.domain.wall_friction import abutment_heel_transfer
+        transfer_v, transfer_m = abutment_heel_transfer(inputs, state)
+        shear += transfer_v
+        moment += transfer_m
+        if abs(transfer_v) > 1e-12:
+            extra_loads.append(("Transferencia por friccion del trasdos", transfer_v, transfer_m / transfer_v))
+        elif abs(transfer_m) > 1e-12:
+            extra_loads.extend((("Par de friccion +", 1.0, transfer_m), ("Par de friccion -", -1.0, 0.0)))
+    if inputs.is_pure_wall and (inputs.soil.wall_backface_angle_deg < 90.0 - 1e-9 or inputs.soil.wall_soil_friction_deg > 0.0):
         from bridge_design.domain.inclined_wall import heel_transfer
         transfer_v, transfer_m = heel_transfer(inputs, state)
         shear += transfer_v
@@ -3194,6 +3210,9 @@ def _stem_service_moment(inputs: AbutmentInputs, pressures: SoilPressureResult) 
     if inputs.is_pure_wall:
         from bridge_design.domain.inclined_wall import stem_actions
         return stem_actions(inputs, pressures)["service_mu"]
+    if inputs.soil.wall_soil_friction_deg > 0.0:
+        from bridge_design.domain.wall_friction import abutment_actions
+        return abutment_actions(inputs, pressures)["service_mu"]
     g = inputs.geometry
     height = g.stem_height_above_footing_m
     gamma_soil = inputs.materials.soil_unit_weight_kg_m3 / 1000.0

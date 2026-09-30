@@ -202,15 +202,16 @@ def _collect_soil(
     )
     friction_angle = prompt_float("Angulo de friccion del relleno", "grados", default.friction_angle_deg)
     wall_soil_friction = prompt_non_negative_float("delta muro-suelo", "grados", default.wall_soil_friction_deg)
-    while wall_soil_friction != 0.0:
-        print("El modelo actual requiere una interfaz lisa: delta=0.")
+    while wall_soil_friction > friction_angle:
+        print("delta no puede superar el angulo de friccion del relleno.")
         wall_soil_friction = prompt_non_negative_float("delta muro-suelo", "grados", 0.0)
+    print("Adopte delta segun la interfaz: MTC 2018, Tabla 2.4.4.1.5.3-1.")
     backfill_slope = prompt_non_negative_float("beta pendiente del relleno", "grados", default.backfill_slope_deg)
     if element_label == "muro":
         print("Relleno del lado del trasdos. theta se mide desde la horizontal (90 = trasdos vertical).")
         print(f"Calculo automatico: theta={wall_vertical_front_angle_deg(geometry):.8f} grados; cara exterior vertical y ensanche hacia el relleno.")
         print("Pulse Enter o escriba auto para adoptarlo; ingrese 90 para trasdos vertical u otro angulo compatible.")
-        print("El trasdos inclinado admite beta=0 y delta=0; theta debe ser compatible con los espesores.")
+        print("El trasdos inclinado admite beta=0; theta debe ser compatible con los espesores.")
     wall_backface_angle = _prompt_wall_backface_angle(
         friction_angle,
         wall_soil_friction,

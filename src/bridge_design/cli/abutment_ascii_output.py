@@ -35,7 +35,7 @@ def format_abutment_design_result(
     lines.extend(_format_section_title("CARGAS HORIZONTALES"))
     lines.extend(_format_horizontal_loads(primary_stability_title, result.components.horizontal_with_bridge))
     lines.extend(_format_pressures(result))
-    if result.inputs.is_pure_wall:
+    if result.inputs.is_pure_wall or result.inputs.soil.wall_soil_friction_deg > 0.0:
         lines.extend(_format_wall_backface(result))
     factor_title = (
         "ESTADOS LIMITES APLICABLES Y COMBINACIONES DE CARGAS - MURO CANTILEVER"
@@ -627,7 +627,7 @@ def _format_soil_pressure_procedure(result: AbutmentDesignResult) -> list[str]:
     as_coeff = soil.fpga * soil.pga
     kh = 0.5 * as_coeff
     rows = [
-        ("Ka Coulomb", "f(phi, delta, beta, theta)", f"phi={soil.friction_angle_deg:.3f}; delta={soil.wall_soil_friction_deg:.3f}; beta={soil.backfill_slope_deg:.3f}; theta=90.000 (plano virtual)", f"{p.ka:.4f}"),
+        ("Ka Coulomb", "f(phi, delta, beta, theta)", f"phi={soil.friction_angle_deg:.3f}; delta=0.000; beta={soil.backfill_slope_deg:.3f}; theta=90.000 (plano virtual)", f"{p.ka:.4f}"),
         ("h' vehicular", "valor ingresado o interpolado por H", f"H={g.retained_height_m:.3f}", f"{p.live_surcharge_height_m:.3f} m"),
         ("LSy vehicular", "Btalon* h' * gamma", f"{effective_heel:.3f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}", f"{p.lsy_tn_m:.3f} Tn/m"),
         ("LSx vehicular", "Ka * h' * gamma * H", f"{p.ka:.4f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}*{g.retained_height_m:.3f}", f"{p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m"),
@@ -799,7 +799,7 @@ def _format_pressures(result: AbutmentDesignResult) -> list[str]:
     as_coeff = soil.fpga * soil.pga
     kh = 0.5 * as_coeff
     values = [
-        ("Ka Coulomb", f"Coulomb(phi={soil.friction_angle_deg:.3f}, delta={soil.wall_soil_friction_deg:.3f}, beta={soil.backfill_slope_deg:.3f}, theta=90.000 (plano virtual))", f"{p.ka:.4f}"),
+        ("Ka Coulomb", f"Coulomb(phi={soil.friction_angle_deg:.3f}, delta=0.000, beta={soil.backfill_slope_deg:.3f}, theta=90.000 (plano virtual))", f"{p.ka:.4f}"),
         ("h' vehicular adoptado", f"h'({g.retained_height_m:.3f})", f"{p.live_surcharge_height_m:.3f} m"),
         ("LSy vehicular", f"{effective_heel:.3f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}", f"{p.lsy_tn_m:.3f} Ton/m"),
         ("LSx vehicular + peatonal", f"{p.ka:.4f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}*{g.retained_height_m:.3f} + {p.ka:.4f}*{soil.pedestrian_surcharge_tn_m2:.3f}*{g.retained_height_m:.3f}", f"{p.lsx_tn_m:.3f} Ton/m"),
@@ -1317,9 +1317,9 @@ def _format_bar_details(result: AbutmentDesignResult) -> list[str]:
 
 
 def _format_wall_backface(result: AbutmentDesignResult) -> list[str]:
-    from bridge_design.domain.inclined_wall import stem_actions
+    from bridge_design.domain.abutment import _stem_design_demands
     g, soil, p = result.inputs.geometry, result.inputs.soil, result.pressures
-    a = stem_actions(result.inputs, p)
+    a = _stem_design_demands(result.inputs, p)
     return [
         "",
         "Estabilidad: muro + relleno sobre talon; empuje externo en plano virtual vertical.",
@@ -1330,6 +1330,7 @@ def _format_wall_backface(result: AbutmentDesignResult) -> list[str]:
                 ("theta del trasdos real desde horizontal", f"{soil.wall_backface_angle_deg:.8f} grados"),
                 ("Retiro superior hacia puntera", f"{wall_backface_setback_m(g, soil.wall_backface_angle_deg):.5f} m"),
                 ("Ka / kAE sobre pantalla", f"{p.stem_ka:.6f} / {p.stem_k_ae:.6f}"),
+                ("delta interfaz pantalla (MTC Tabla 2.4.4.1.5.3-1)", f"{soil.wall_soil_friction_deg:.6f} grados"),
                 ("Direccion del empuje bajo horizontal", f"{p.stem_force_angle_deg:.6f} grados"),
                 ("EH horizontal / vertical descendente", f"{a['eh_horizontal']:.4f} / {a['eh_vertical']:.4f} Tn/m"),
                 ("LS horizontal / vertical descendente", f"{a['ls_horizontal']:.4f} / {a['ls_vertical']:.4f} Tn/m"),

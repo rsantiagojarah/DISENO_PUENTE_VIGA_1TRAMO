@@ -123,7 +123,8 @@ def coulomb_ka_trace(result: AbutmentDesignResult, *, stem_face: bool = False) -
     ka = result.pressures.stem_ka if stem_face else result.pressures.ka
     theta_deg = soil.wall_backface_angle_deg if stem_face else 90.0
     phi = radians(soil.friction_angle_deg)
-    delta = radians(soil.wall_soil_friction_deg)
+    delta_deg = soil.wall_soil_friction_deg if stem_face else 0.0
+    delta = radians(delta_deg)
     beta = radians(soil.backfill_slope_deg)
     theta = radians(theta_deg)
     root_term = sqrt(
@@ -145,7 +146,7 @@ def coulomb_ka_trace(result: AbutmentDesignResult, *, stem_face: bool = False) -
         "β: pendiente del relleno; θ: ángulo de la cara posterior desde la horizontal."
     )
     substitution = (
-        f"φ = {soil.friction_angle_deg:.3f}°; δ = {soil.wall_soil_friction_deg:.3f}°; "
+        f"φ = {soil.friction_angle_deg:.3f}°; δ = {delta_deg:.3f}°; "
         f"β = {soil.backfill_slope_deg:.3f}°; θ = {theta_deg:.3f}°\n"
         f"√[...] = {root_term:.6f}\n"
         f"Numerador = sin²(θ+φ) = {numerator:.6f}\n"
@@ -154,7 +155,8 @@ def coulomb_ka_trace(result: AbutmentDesignResult, *, stem_face: bool = False) -
     )
     result_text = f"Se adopta Ka = {ka:.5f}."
     comment = (
-        "Coeficiente sobre la cara real de la pantalla."
+        ("Coeficiente sobre la cara real de la pantalla." if result.inputs.is_pure_wall else
+         "Coeficiente sobre la cara vertical equivalente del estribo; momentos con brazos del perfil escalonado.")
         if stem_face else "Coeficiente sobre el plano virtual vertical por el extremo del talón; cuerpo muro + relleno."
     )
     return formula, legend, substitution, result_text, comment
@@ -197,7 +199,8 @@ def mononobe_okabe_trace(result: AbutmentDesignResult, *, stem_face: bool = Fals
     kv = 0.0
     psi = atan(kh / (1.0 - kv))
     phi = radians(soil.friction_angle_deg)
-    delta = radians(soil.wall_soil_friction_deg)
+    delta_deg = soil.wall_soil_friction_deg if stem_face else 0.0
+    delta = radians(delta_deg)
     beta = radians(soil.backfill_slope_deg)
     theta = radians(90.0 - soil.wall_backface_angle_deg) if stem_face else 0.0
     kae = p.stem_k_ae if stem_face else p.k_ae
@@ -223,7 +226,7 @@ def mononobe_okabe_trace(result: AbutmentDesignResult, *, stem_face: bool = Fals
         "ψ: ángulo sísmico."
     )
     substitution = (
-        f"φ = {soil.friction_angle_deg:.3f}°; δ = {soil.wall_soil_friction_deg:.3f}°; "
+        f"φ = {soil.friction_angle_deg:.3f}°; δ = {delta_deg:.3f}°; "
         f"β = {soil.backfill_slope_deg:.3f}°; θ = {degrees(theta):.3f}°; ψ = {degrees(psi):.3f}°\n"
         f"√[...] = {sqrt(inner):.6f}\n"
         f"Numerador = cos²(φ−θ−ψ) = {numerator:.6f}\n"
@@ -503,15 +506,18 @@ def component_factor_rows(
 
 def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, str]:
     demands = _stem_design_demands(result.inputs, result.pressures)
-    if result.inputs.is_pure_wall:
+    if result.inputs.is_pure_wall or result.inputs.soil.wall_soil_friction_deg > 0.0:
         p = result.pressures
+        bridge_terms = "" if result.inputs.is_pure_wall else (
+            " En estribos se agregan 1.75MBR en Resistencia y MPEQ+γEQ·MBR en Evento Extremo."
+        )
         return (
-            "Px=P·cos(α); Py=P·sin(α); M=P_x·y-P_y·(x_cara-x_centro); α=90°-θ; "
+            "Px=P·cos(α); Py=P·sin(α); M=P_x·y-P_y·(x_cara-x_centro); α=90°-θ+δ; "
             "Mu,R=max|1.75MLS+1.50MEH+γDC·MDC|; Mu,E=max|γEQ·MLS+MEH+MEQ+0.5MPIR+MDC|, "
-            "|γEQ·MLS+M[max(0.5PAE,EH)]+MPIR+MDC|",
+            "|γEQ·MLS+M[max(0.5PAE,EH)]+MPIR+MDC|" + bridge_terms,
             "P: resultante sobre pantalla; Py positiva hacia abajo; MDC: momento desfavorable del peso propio. "
             "La estabilidad global usa un cuerpo distinto: muro más relleno sobre el talón.",
-            f"θ={result.inputs.soil.wall_backface_angle_deg:.6f}°; α={p.stem_force_angle_deg:.6f}°; "
+            f"θ={result.inputs.soil.wall_backface_angle_deg:.6f}°; δ={result.inputs.soil.wall_soil_friction_deg:.6f}°; α={p.stem_force_angle_deg:.6f}°; "
             f"Ka,pantalla={p.stem_ka:.6f}; kAE,pantalla={p.stem_k_ae:.6f}; γEQ={result.inputs.gamma_eq:.3f}\n"
             + "\n".join(f"{key} = {demands[key]:.5f}" for key in (
                 "eh_horizontal", "eh_vertical", "ls_horizontal", "ls_vertical", "eq_horizontal", "eq_vertical",
@@ -519,8 +525,11 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
                 "strength_mu", "extreme_mu_a", "extreme_mu_b", "strength_vu", "extreme_vu_a", "extreme_vu_b",
             )),
             f"Mu,R={demands['strength_mu']:.3f} Tn·m/m; Mu,E={demands['extreme_mu']:.3f} Tn·m/m.",
-            "Fuerzas en Tn/m y momentos en Tn·m/m. Se integra el concreto por encima de cada corte. "
-            "No se acredita el momento favorable del peso propio ni la compresión axial en la resistencia a flexión.",
+            "MTC 2018: Art. 2.4.4.1.5.3 y Tabla 2.4.4.1.5.3-1; Apéndice A.11.3.1; Art. 2.8.1.1.14.1. "
+            "Fuerzas en Tn/m y momentos en Tn·m/m. No se acredita compresión axial como resistencia adicional. "
+            + ("Se integra el concreto sobre cada corte." if result.inputs.is_pure_wall else
+               "Estribo: cara vertical equivalente para el coeficiente; brazos sobre el perfil escalonado. "
+               f"MPEQ={demands['peq_moment']:.5f}; MBR={demands['br_moment']:.5f} Tn·m/m."),
         )
     case = result.stem_design
     g = result.inputs.geometry

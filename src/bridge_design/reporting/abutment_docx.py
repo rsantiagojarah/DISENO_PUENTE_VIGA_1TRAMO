@@ -70,7 +70,10 @@ from bridge_design.reporting.deck_docx import (
 )
 
 REF_COMBINATIONS = "Manual de Puentes MTC 2018, Art. 2.4.5.3.1 y Tabla 2.4.5.3.1-1."
-REF_EARTH = "Manual de Puentes MTC 2018, criterios de empuje de suelo de la Sección 2.11; AASHTO LRFD 3.11."
+REF_EARTH = (
+    "Manual de Puentes MTC 2018, Art. 2.4.4.1.5.3 y Tabla 2.4.4.1.5.3-1; "
+    "Arts. 2.8.1.1.14.1 y 2.8.1.1.14.3; Apéndice A.11.3.1."
+)
 REF_STABILITY = "Manual de Puentes MTC 2018, Art. 2.8.1.1.12; AASHTO LRFD 10.6.3.1 y 11.6.3."
 REF_SEISMIC_ECC = "Manual de Puentes MTC 2018, Art. 2.8.1.1.14.1; AASHTO LRFD 11.6.5.1."
 REF_FLEXURE = "Manual de Puentes MTC 2018, Sección 2.9.4.2; AASHTO LRFD 5.7.3."
@@ -495,9 +498,10 @@ def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
     document.add_heading("3. Empujes de suelo, sobrecargas y sismo", level=1)
     _comment(document, "Estabilidad global: muro y relleno sobre talón, con plano virtual vertical en su extremo. "
              "Las fuerzas sobre el trasdós real son internas a este conjunto y se usan por separado al diseñar la pantalla.")
-    if data.is_pure_wall:
-        _calc(document, "Coulomb sobre trasdós real de pantalla", *coulomb_ka_trace(result, stem_face=True), REF_EARTH)
-        _calc(document, "Mononobe-Okabe sobre trasdós real de pantalla", *mononobe_okabe_trace(result, stem_face=True), REF_EARTH)
+    if data.is_pure_wall or data.soil.wall_soil_friction_deg > 0.0:
+        face_label = "trasdós real de pantalla" if data.is_pure_wall else "cara vertical equivalente del estribo"
+        _calc(document, f"Coulomb sobre {face_label}", *coulomb_ka_trace(result, stem_face=True), REF_EARTH)
+        _calc(document, f"Mononobe-Okabe sobre {face_label}", *mononobe_okabe_trace(result, stem_face=True), REF_EARTH)
     _calc(document, "Coeficiente activo de Coulomb - plano virtual", *coulomb_ka_trace(result), REF_EARTH)
     _calc(document, "Altura equivalente de sobrecarga vehicular", *surcharge_height_trace(result), REF_EARTH)
     _calc(

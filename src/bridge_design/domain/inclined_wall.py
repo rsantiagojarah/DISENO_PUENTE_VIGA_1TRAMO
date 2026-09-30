@@ -2,7 +2,8 @@
 
 Coulomb and Mononobe-Okabe: FHWA NHI-10-024 Eq. 7-6.
 MTC 2018 Art. 2.8.1.1.14.1: envelope PAE+0.5PIR / max(0.5PAE,EH)+PIR.
-Flat backfill and smooth interface; downward vertical pressure is compression.
+MTC 2018 Art. 2.4.4.1.5.3 and Appendix A.11.3.1 include wall friction.
+Downward vertical pressure is compression; force and geometry angles differ.
 Its eccentric moment is included, without crediting axial compression in capacity.
 """
 
@@ -26,7 +27,7 @@ def stem_actions(inputs: "AbutmentInputs", pressures: "SoilPressureResult", cut_
     taper = (g.lower_stem_thickness_m - g.upper_stem_thickness_m) / height
     thickness = g.lower_stem_thickness_m - taper * cut
     angle = radians(pressures.stem_force_angle_deg)
-    slope = tan(angle)
+    slope = tan(radians(90.0 - inputs.soil.wall_backface_angle_deg))
     gamma_s = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     gamma_c = inputs.materials.concrete_unit_weight_kg_m3 / 1000.0
     q = gamma_s * pressures.live_surcharge_height_m + inputs.soil.pedestrian_surcharge_tn_m2
@@ -83,7 +84,8 @@ inertia. This prevents counting wedge weight and the stem vertical thrust twice.
     p = _soil_pressures(inputs, 0.0, 0.0, 0.0, 0.0)
     h = g.stem_height_above_footing_m
     alpha = radians(p.stem_force_angle_deg)
-    setback = h * tan(alpha)
+    slope = tan(radians(90.0 - soil.wall_backface_angle_deg))
+    setback = h * slope
     gamma = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     q = gamma * p.live_surcharge_height_m + soil.pedestrian_surcharge_tn_m2
     wedge = gamma * setback * h / 2.0
@@ -93,7 +95,7 @@ inertia. This prevents counting wedge weight and the stem vertical thrust twice.
     def transfer(actual: float, virtual: float, y: float, factor: float) -> None:
         nonlocal vertical, moment
         vertical -= factor * actual * sin(alpha)
-        moment += factor * ((actual * cos(alpha) - virtual) * y + actual * sin(alpha) * tan(alpha) * y)
+        moment += factor * ((actual * cos(alpha) - virtual) * y + actual * sin(alpha) * slope * y)
 
     transfer(p.stem_ka * q * h, p.ka * q * h, h / 2.0, f.ls_horizontal)
     eh, pae = 0.5 * p.stem_ka * gamma * h**2, 0.5 * p.stem_k_ae * gamma * h**2
@@ -103,12 +105,16 @@ inertia. This prevents counting wedge weight and the stem vertical thrust twice.
         ay = h / 3.0 if actual <= eh + 1e-12 else h / 2.0
         vy = h / 3.0 if virtual <= vh + 1e-12 else h / 2.0
         vertical -= actual * sin(alpha)
-        moment += actual * (cos(alpha) + sin(alpha) * tan(alpha)) * ay - virtual * vy
+        moment += actual * (cos(alpha) + sin(alpha) * slope) * ay - virtual * vy
         inertia_factor = 1.0
     else:
         transfer(eh, vh, h / 3.0, f.eh)
         transfer(pae - eh, vae - vh, h / 2.0, f.eq)
         inertia_factor = 0.5
     soil_first_y = gamma * g.heel_length_m * h**2 / 2.0 + wedge * 2.0 * h / 3.0
-    moment -= f.eq * inertia_factor * 0.5 * soil.fpga * soil.pga * soil_first_y
+    # The vertical-face reference already uses its established heel model.
+    # For that geometry this routine transfers only the change in face loads;
+    # do not introduce a delta-independent inertia jump at delta -> 0.
+    if soil.wall_backface_angle_deg < 90.0 - 1e-9:
+        moment -= f.eq * inertia_factor * 0.5 * soil.fpga * soil.pga * soil_first_y
     return vertical, moment

@@ -14,7 +14,7 @@ from bridge_design.domain.pep_strain_curves import compressive_strain_from_curve
 from bridge_design.domain.simple_neoprene_support import SimpleSupportDemands
 
 
-@pytest.mark.parametrize("delta,theta", [(0, 75), (10, 90)])
+@pytest.mark.parametrize("delta,theta", [(0, 75), (10, 75)])
 def test_h24_rejects_unresolved_force_geometry(delta, theta):
     with pytest.raises(ValueError, match="modelo de empujes|theta incompatible"):
         a.AbutmentInputs(is_pure_wall=True, soil=a.AbutmentSoilInputs(wall_soil_friction_deg=delta, wall_backface_angle_deg=theta))

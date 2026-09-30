@@ -131,11 +131,10 @@ def test_incompatible_angle_rejected(theta):
         wall(theta)
 
 
-def test_unsupported_sloping_fill_and_rough_interface_rejected():
+def test_sloping_fill_rejected_and_rough_interface_supported():
     with pytest.raises(ValueError,match="beta=0"):
         a.AbutmentSoilInputs(wall_backface_angle_deg=88,backfill_slope_deg=5)
-    with pytest.raises(ValueError,match="delta=0"):
-        a.AbutmentSoilInputs(wall_backface_angle_deg=88,wall_soil_friction_deg=5)
+    assert a.AbutmentSoilInputs(wall_backface_angle_deg=88,wall_soil_friction_deg=5).wall_soil_friction_deg == 5
     with pytest.raises(ValueError,match="diseno-muros"):
         replace(wall(),is_pure_wall=False)
 
