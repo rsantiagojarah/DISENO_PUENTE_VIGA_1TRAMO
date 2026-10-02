@@ -35,6 +35,7 @@ def collect_abutment_inputs(
     load_note: str = "Use Ton/m. PPL es peatonal vertical de tablero; PLL+IM es vehicular con impacto.",
     include_bridge_inputs: bool = True,
     collect_key: bool = True,
+    geometry_defaults: AbutmentGeometryInputs | None = None,
 ) -> AbutmentInputs:
     """Collect abutment design inputs from terminal."""
     print("=" * 72)
@@ -42,7 +43,7 @@ def collect_abutment_inputs(
     print("=" * 72)
     print(defaults_note)
 
-    geometry = _collect_geometry(include_bridge_inputs=include_bridge_inputs)
+    geometry = _collect_geometry(include_bridge_inputs=include_bridge_inputs, geometry_defaults=geometry_defaults)
     materials = _collect_materials()
     if include_bridge_inputs:
         loads = _collect_loads(load_defaults, load_title, load_note)
@@ -69,8 +70,11 @@ def collect_abutment_inputs(
     )
 
 
-def _collect_geometry(include_bridge_inputs: bool = True) -> AbutmentGeometryInputs:
-    default = AbutmentGeometryInputs() if include_bridge_inputs else cantilever_wall_geometry_inputs()
+def _collect_geometry(
+    include_bridge_inputs: bool = True,
+    geometry_defaults: AbutmentGeometryInputs | None = None,
+) -> AbutmentGeometryInputs:
+    default = geometry_defaults or (AbutmentGeometryInputs() if include_bridge_inputs else cantilever_wall_geometry_inputs())
     print()
     print("GEOMETRIA")
     retained_height_label = (

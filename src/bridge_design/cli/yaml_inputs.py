@@ -101,11 +101,14 @@ def _template_header(command: str) -> YamlMap:
     }
 
 
-def abutment_yaml_template(*, pure_wall: bool = False) -> YamlMap:
+def abutment_yaml_template(
+    *, pure_wall: bool = False, geometry_defaults: AbutmentGeometryInputs | None = None,
+    load_defaults: AbutmentLoadInputs | None = None,
+) -> YamlMap:
     """Return a Spanish YAML template for abutment or cantilever wall inputs."""
-    g = cantilever_wall_geometry_inputs() if pure_wall else AbutmentGeometryInputs()
+    g = geometry_defaults or (cantilever_wall_geometry_inputs() if pure_wall else AbutmentGeometryInputs())
     m = AbutmentMaterialInputs()
-    loads = cantilever_wall_load_inputs() if pure_wall else AbutmentLoadInputs()
+    loads = cantilever_wall_load_inputs() if pure_wall else (load_defaults or AbutmentLoadInputs())
     soil = AbutmentSoilInputs()
     front_soil_depth_m = g.footing_thickness_m if pure_wall else g.front_soil_depth_m
     geometry: YamlMap = {
@@ -175,13 +178,16 @@ def abutment_yaml_template(*, pure_wall: bool = False) -> YamlMap:
     return data
 
 
-def abutment_inputs_from_yaml(data: YamlMap, *, pure_wall: bool = False) -> AbutmentInputs:
+def abutment_inputs_from_yaml(
+    data: YamlMap, *, pure_wall: bool = False, geometry_defaults: AbutmentGeometryInputs | None = None,
+    load_defaults: AbutmentLoadInputs | None = None,
+) -> AbutmentInputs:
     """Build abutment or wall inputs from Spanish YAML data."""
-    g0 = AbutmentGeometryInputs()
+    g0 = geometry_defaults or AbutmentGeometryInputs()
     if pure_wall:
         g0 = cantilever_wall_geometry_inputs(g0)
     m0 = AbutmentMaterialInputs()
-    l0 = cantilever_wall_load_inputs() if pure_wall else AbutmentLoadInputs()
+    l0 = cantilever_wall_load_inputs() if pure_wall else (load_defaults or AbutmentLoadInputs())
     s0 = AbutmentSoilInputs()
     g = _section(data, "geometria")
     m = _section(data, "materiales")

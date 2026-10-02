@@ -1,0 +1,133 @@
+version_esquema: 1
+comando: diseno-estribos-conectados
+nota: Geometria inicial editable de MDOELO DE PUENTEl.pdf. Pantalla 1.00 m y puntera 2.50 m
+  confirmadas por el usuario. Cargas iniciales del tablero indicadas por el usuario,
+  editables en ambos lados. Materiales, suelo y brazo adicional de frenado son
+  REFERENCIALES, no datos del PDF. Presion siempre activa.
+  Cargas izquierda/derecha son un par simultaneo, no maximos independientes. Longitud
+  cajuela + espesor parapeto = espesor superior + t1 + t2.
+cimentacion:
+  separacion_libre_entre_caras_interiores_m: 13.1
+  espesor_losa_central_m: 0.75
+  transicion_izquierda_m: 1.0
+  transicion_derecha_m: 1.0
+  paso_malla_m: 0.5
+  offsets_seccion: false
+  nodo_referencia_x_m: null
+  recubrimiento_losa_cm: 7.5
+  materiales_losa:
+    fc_concreto_kg_cm2: 210.0
+    fy_acero_kg_cm2: 4200.0
+    peso_unitario_concreto_tn_m3: 2.4
+    peso_unitario_relleno_tn_m3: 1.925
+suelo_cimentacion:
+  modulo_balasto_vertical_tn_m3: null
+  coeficiente_friccion_interfaz: null
+  qadm_tn_m2: 26.7
+  fs_capacidad_nominal: 3.0
+  phi_deslizamiento_resistencia: 0.8
+  phi_deslizamiento_extremo: 1.0
+estribo_izquierdo:
+  geometria:
+    altura_relleno_activo_m: 10.7
+    luz_puente_m: 14.1
+    ancho_zapata_m: 5.0
+    espesor_zapata_m: 1.5
+    longitud_puntera_m: 2.5
+    espesor_inferior_pantalla_m: 1.0
+    espesor_superior_pantalla_m: 1.0
+    altura_suelo_frontal_m: 1.5
+    transicion_frontal_superior_t1_m: 0.0
+    retiro_superior_relleno_t2_m: 0.35
+    longitud_cajuela_m: 1.0
+    espesor_parapeto_posterior_m: 0.35
+    altura_cajuela_m: 1.15
+    altura_bloque_cajuela_m: 0.5
+    altura_transicion_m: 0.4
+    altura_apoyo_a_cajuela_m: 1.8
+  materiales:
+    fc_concreto_kg_cm2: 210.0
+    fy_acero_kg_cm2: 4200.0
+    peso_unitario_concreto_tn_m3: 2.4
+    peso_unitario_relleno_tn_m3: 1.925
+  cargas_tablero:
+    pdc_carga_muerta_tablero_tn_m: 8.959
+    pdw_superficie_tn_m: 0.545
+    ppl_peatonal_tablero_tn_m: 0.762
+    pll_im_vehicular_tn_m: 6.92
+    br_frenado_tn_m: 1.33
+  suelo_sismo:
+    h_sobrecarga_vehicular_equivalente_m: 0.6
+    qadm_capacidad_portante_kg_cm2: 2.67
+    angulo_friccion_relleno_grados: 30.0
+    delta_muro_suelo_grados: 0.0
+    beta_pendiente_relleno_grados: 0.0
+    theta_cara_posterior_desde_horizontal_grados: 90.0
+    fs_capacidad_portante_nominal: 3.0
+    pga: 0.3
+    fpga: 1.2
+    gamma_eq: 0.5
+    sobrecarga_peatonal_relleno_tn_m2: 0.0
+  armadura:
+    recubrimiento_pantalla_cm: 5.0
+    recubrimiento_zapata_cm: 7.5
+    paso_separacion_m: 0.025
+    separacion_minima_m: 0.1
+    separacion_maxima_m: 0.3
+estribo_derecho:
+  geometria:
+    altura_relleno_activo_m: 10.7
+    luz_puente_m: 14.1
+    ancho_zapata_m: 5.0
+    espesor_zapata_m: 1.5
+    longitud_puntera_m: 2.5
+    espesor_inferior_pantalla_m: 1.0
+    espesor_superior_pantalla_m: 1.0
+    altura_suelo_frontal_m: 1.5
+    transicion_frontal_superior_t1_m: 0.0
+    retiro_superior_relleno_t2_m: 0.35
+    longitud_cajuela_m: 1.0
+    espesor_parapeto_posterior_m: 0.35
+    altura_cajuela_m: 1.15
+    altura_bloque_cajuela_m: 0.5
+    altura_transicion_m: 0.4
+    altura_apoyo_a_cajuela_m: 1.8
+  materiales:
+    fc_concreto_kg_cm2: 210.0
+    fy_acero_kg_cm2: 4200.0
+    peso_unitario_concreto_tn_m3: 2.4
+    peso_unitario_relleno_tn_m3: 1.925
+  cargas_tablero:
+    pdc_carga_muerta_tablero_tn_m: 8.959
+    pdw_superficie_tn_m: 0.545
+    ppl_peatonal_tablero_tn_m: 0.762
+    pll_im_vehicular_tn_m: 6.92
+    br_frenado_tn_m: 1.33
+  suelo_sismo:
+    h_sobrecarga_vehicular_equivalente_m: 0.6
+    qadm_capacidad_portante_kg_cm2: 2.67
+    angulo_friccion_relleno_grados: 30.0
+    delta_muro_suelo_grados: 0.0
+    beta_pendiente_relleno_grados: 0.0
+    theta_cara_posterior_desde_horizontal_grados: 90.0
+    fs_capacidad_portante_nominal: 3.0
+    pga: 0.3
+    fpga: 1.2
+    gamma_eq: 0.5
+    sobrecarga_peatonal_relleno_tn_m2: 0.0
+  armadura:
+    recubrimiento_pantalla_cm: 5.0
+    recubrimiento_zapata_cm: 7.5
+    paso_separacion_m: 0.025
+    separacion_minima_m: 0.1
+    separacion_maxima_m: 0.3
+incluir_sin_tablero: true
+casos_simultaneos: []
+nota_casos: 'Lista vacia usa el par de cargas ingresado en los estribos. Para varios
+  casos: nombre, cargas_izquierda, cargas_derecha (claves de cargas_tablero), factor_sobrecarga_izquierda,
+  factor_sobrecarga_derecha. Cada caso debe contener las reacciones del mismo posicionamiento
+  del tablero.'
+longitudes_rectas_anclaje_disponibles_m: {}
+nota_anclajes: Ingresar longitudes utiles verificadas por region, por ejemplo 'Pantalla
+  izquierda'. Si faltan, se informa PENDIENTE DETALLE. Los ganchos se reportan sin
+  aprobar su acomodo automaticamente.

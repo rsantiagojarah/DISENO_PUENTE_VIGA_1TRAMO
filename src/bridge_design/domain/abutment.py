@@ -1248,11 +1248,15 @@ def rankine_passive_coefficient(friction_angle_deg: float) -> float:
     return tan(radians(45.0 + friction_angle_deg / 2.0)) ** 2.0
 
 
-def mononobe_okabe_active_coefficient(inputs: AbutmentInputs) -> tuple[float, float]:
+def mononobe_okabe_active_coefficient(
+    inputs: AbutmentInputs, *, horizontal_direction: float = 1.0,
+) -> tuple[float, float]:
     """Return seismic active coefficient and seismic angle in degrees."""
     soil = inputs.soil
     as_coeff = soil.fpga * soil.pga
-    kh = 0.5 * as_coeff
+    if horizontal_direction not in (-1.0, 1.0):
+        raise ValueError("El sentido horizontal sismico debe ser +1 o -1.")
+    kh = horizontal_direction * 0.5 * as_coeff
     kv = 0.0
     seismic_angle = atan(kh / (1.0 - kv))
     phi = radians(soil.friction_angle_deg)

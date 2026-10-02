@@ -479,3 +479,14 @@ Caracteristicas del reporte:
 
 La capa de reporte consume resultados ya calculados y el acero seleccionado por
 el usuario; no modifica ni duplica el nucleo de calculo estructural.
+
+## 19. Estribos conectados mediante cimentacion continua
+
+`diseno-estribos-conectados` agrega el analisis y diseno de dos estribos con
+cajuela y cimentacion zapata-losa-zapata mediante FRAME 2D y resortes Winkler
+solo a compresion. Las dimensiones son editables y el modulo de balasto es
+obligatorio. Se restringe exclusivamente Ux en un nodo central configurable.
+El empuje se considera siempre activo en ambos lados.
+
+La guia de datos, hipotesis, verificaciones y comandos esta en
+`ESTRIBOS_CONECTADOS.md`. Los comandos anteriores conservan su modalidad.

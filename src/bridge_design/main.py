@@ -82,6 +82,11 @@ from bridge_design.domain.transverse_slab import solve_transverse_slab_design
 def main(argv: list[str] | None = None) -> None:
     """Run the terminal input workflow or a module subcommand."""
     args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] in {"estribos-conectados", "connected-abutments"}:
+        from bridge_design.connected_main import main as run_connected_abutments
+
+        run_connected_abutments(args[1:])
+        return
     if args and args[0] in {"tablero", "deck", "losa"}:
         _run_deck_command(args[1:])
         return
@@ -114,6 +119,7 @@ def main(argv: list[str] | None = None) -> None:
             "  diseno-tablero             Comando simple para tablero completo\n"
             "                              Al finalizar solicita donde guardar el documento Word\n"
             "  diseno-estribos            Comando simple para estribos\n"
+            "  diseno-estribos-conectados Analisis y diseno de estribos con cimentacion continua\n"
             "  diseno-apoyos              Comando simple para apoyos\n"
             "  diseno-apoyos-neopreno     Comando simple para apoyos de neopreno con detalles fijo/movil\n"
             "  diseno-muros               Comando simple para muros cantilever\n"
