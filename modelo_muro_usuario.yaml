@@ -1,0 +1,28 @@
+version_esquema: 1
+comando: diseno-muros
+nota: Geometria solicitada por usuario (h=8.30 m hasta fondo de zapata).
+geometria:
+  altura_relleno_activo_m: 8.30
+  ancho_zapata_m: 6.0
+  espesor_zapata_m: 1.0
+  longitud_puntera_m: 2.0
+  espesor_inferior_pantalla_m: 1.0
+  espesor_superior_pantalla_m: 0.5
+  altura_suelo_frontal_m: 1.0
+materiales:
+  fc_concreto_kg_cm2: 210.0
+  fy_acero_kg_cm2: 4200.0
+  peso_unitario_concreto_tn_m3: 2.4
+  peso_unitario_relleno_tn_m3: 1.925
+suelo_sismo:
+  h_sobrecarga_vehicular_equivalente_m: 0.6
+  qadm_capacidad_portante_kg_cm2: 2.67
+  angulo_friccion_relleno_grados: 30.0
+  delta_muro_suelo_grados: 0.0
+  beta_pendiente_relleno_grados: 0.0
+  theta_cara_posterior_desde_horizontal_grados: 90.0
+  fs_capacidad_portante_nominal: 3.0
+  pga: 0.3
+  fpga: 1.2
+  gamma_eq: 0.5
+  sobrecarga_peatonal_relleno_tn_m2: 0.0
