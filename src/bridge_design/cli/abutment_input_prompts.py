@@ -36,6 +36,7 @@ def collect_abutment_inputs(
     include_bridge_inputs: bool = True,
     collect_key: bool = True,
     geometry_defaults: AbutmentGeometryInputs | None = None,
+    shared_bearing_soil: AbutmentSoilInputs | None = None,
 ) -> AbutmentInputs:
     """Collect abutment design inputs from terminal."""
     print("=" * 72)
@@ -49,7 +50,7 @@ def collect_abutment_inputs(
         loads = _collect_loads(load_defaults, load_title, load_note)
     else:
         loads = cantilever_wall_load_inputs()
-    soil = _collect_soil(geometry, element_label)
+    soil = _collect_soil(geometry, element_label, shared_bearing_soil)
     gamma_eq = _prompt_gamma_eq(GAMMA_EQ_DEFAULT)
     key = (
         collect_abutment_key(default_passive_soil_height_m=geometry.front_soil_depth_m)
@@ -188,6 +189,7 @@ def _collect_loads(
 def _collect_soil(
     geometry: AbutmentGeometryInputs,
     element_label: str = "estribo",
+    shared_bearing_soil: AbutmentSoilInputs | None = None,
 ) -> AbutmentSoilInputs:
     default = AbutmentSoilInputs()
     default_h_eq = equivalent_vehicular_surcharge_height_m(geometry.retained_height_m)
@@ -199,7 +201,7 @@ def _collect_soil(
         "m",
         default_h_eq,
     )
-    allowable_bearing = prompt_float(
+    allowable_bearing = shared_bearing_soil.allowable_bearing_kg_cm2 if shared_bearing_soil else prompt_float(
         "qadm capacidad portante admisible",
         "kg/cm2",
         default.allowable_bearing_kg_cm2,
@@ -231,7 +233,8 @@ def _collect_soil(
         wall_soil_friction_deg=wall_soil_friction,
         backfill_slope_deg=backfill_slope,
         wall_backface_angle_deg=wall_backface_angle,
-        bearing_capacity_factor_fs=prompt_float("FS capacidad portante nominal", "-", default.bearing_capacity_factor_fs),
+        bearing_capacity_factor_fs=(shared_bearing_soil.bearing_capacity_factor_fs if shared_bearing_soil else
+                                    prompt_float("FS capacidad portante nominal", "-", default.bearing_capacity_factor_fs)),
         pga=prompt_non_negative_float("PGA", "-", default.pga),
         fpga=prompt_float("Fpga", "-", default.fpga),
         pedestrian_surcharge_tn_m2=prompt_non_negative_float(

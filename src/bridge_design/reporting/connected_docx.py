@@ -1,17 +1,23 @@
 """A4 calculation memorandum for the connected abutment FRAME, using existing Word styles."""
 
 from pathlib import Path
+from dataclasses import astuple
 
 from docx import Document
+from bridge_design.domain.connected_reinforcement import DESIGN_SCOPE_NOTE
 from bridge_design.reporting.connected_docx_layout import connected_front_matter, connected_summary_and_references
 from bridge_design.reporting.deck_docx import _body, _calc, _enforce_uniform_typography, _picture, _table
+from bridge_design.reporting.connected_audit import build_connected_audit
+from bridge_design.reporting.connected_audit_docx import write_audit_table, write_steel_audit
 
 
 def write_connected_docx(result, path, charts):
     document = Document()
     connected_front_matter(document, result)
     document.add_heading("1. Bases de diseño y datos de entrada", level=1)
+    _body(document, DESIGN_SCOPE_NOTE)
     data, mesh = result.inputs, result.mesh
+    audit = build_connected_audit(result)
     failures = sum(steel.status != "OK" for steel in result.reinforcement)
     failures += sum(check.sliding_status != "OK" or check.bearing_status != "OK" for check in result.foundation_checks)
     pending = sum(steel.anchor_status != "OK RECTO" for steel in result.reinforcement)
@@ -56,6 +62,9 @@ def write_connected_docx(result, path, charts):
         ("fy kg/cm²", *[f"{material.steel_yield_kg_cm2:.1f}" for material in (data.left.materials, data.slab_materials, data.right.materials)]),
         ("Peso concreto Tn/m³", *[f"{material.concrete_unit_weight_kg_m3 / 1000:.3f}" for material in (data.left.materials, data.slab_materials, data.right.materials)]),
     ), widths=(70, 30, 30, 30), font_size=10)
+    for table in audit["inputs"]:
+        if table.title != "Propiedades FRAME por elemento":
+            write_audit_table(document, table)
     document.add_heading("2. Rigidez y contacto", level=1)
     slab_element = next(element for element in mesh.frame.elements if element.region == "Losa central")
     _calc(document, "Propiedades de sección", "A = b·t; I = b·t³/12; Kᵢ = kₛ·b·Lᵢ",
@@ -109,9 +118,14 @@ def write_connected_docx(result, path, charts):
                  f"{loads.pll_im_tn_m:.3f}", f"{loads.braking_tn_m:.3f}")
                 for side_label, loads in (("Izquierda", left_loads), ("Derecha", right_loads))),
                widths=(35, 25, 25, 25, 25, 25), font_size=10)
-    _body(document, "Las variantes Ia e Ib se aplican también cruzadas entre lados; DC de losa se evalúa con sus "
-          "dos factores. Las cargas de cada caso representan un par simultáneo del tablero y de las sobrecargas "
+    _body(document, "Cada variante Ia o Ib se aplica globalmente a ambos estribos, losa y transiciones, sin cruces "
+          "entre regiones. Las cargas de cada caso representan un par simultáneo del tablero y de las sobrecargas "
           "de relleno. La envolvente cubre los casos ingresados; debe incluirse cada posicionamiento vehicular relevante.")
+    for step in audit["earth"]:
+        _calc(document, *astuple(step))
+    for table in audit["loads"]:
+        if table.headers[0] != "Accion / lado":
+            write_audit_table(document, table)
     document.add_heading("4. Presiones y deslizamiento", level=1)
     _picture(document, charts["contacto"], "Presiones y asentamientos de servicio en la cimentación completa")
     _body(document, "La demanda global de deslizamiento es |Rx|. La resistencia adoptada es φ·μ·ΣRᵥ, utilizando "
@@ -123,6 +137,8 @@ def write_connected_docx(result, path, charts):
            ((f"C{index:03d}", f"{row.horizontal_reaction:.3f}", f"{row.maximum_pressure:.3f}",
              f"{row.contact_length:.3f}", row.sliding_status, row.bearing_status)
             for index, row in enumerate(result.foundation_checks, 1)), widths=(18, 25, 31, 27, 33, 26), font_size=9)
+    _body(document, "Los asentamientos se presentan como resultados del modelo, sin verificación de un límite "
+          "admisible. Un estado conforme de presión no implica conformidad de asentamientos.")
     document.add_heading("5. Solicitaciones del FRAME", level=1)
     for name, caption in (("modelo_axial", "Envolvente axial N sobre la estructura completa"),
                           ("modelo_cortante", "Envolvente de cortante V sobre la estructura completa"),
@@ -140,14 +156,17 @@ def write_connected_docx(result, path, charts):
     _body(document, "Se presentan las distribuciones adoptadas después de la selección en consola y la "
           "reevaluación de resistencia, servicio y desarrollo. En modo automático se conserva la propuesta inicial. "
           "Cambiar el acero no modifica la rigidez bruta del FRAME utilizada en este análisis.")
-    _body(document, "Se verifica la interacción N M mediante compatibilidad de deformaciones, bloque rectangular "
-          "de concreto y dos capas de acero con respuesta limitada por fy. Se aplica φ según deformación y un límite "
-          "axial conservador de 0,80 φ P0. La cuantía principal satisface también el criterio mínimo de flexión existente. "
-          "El corte usa el procedimiento general compartido; se incluye el efecto desfavorable del axial de tracción "
-          "en la deformación longitudinal y se omite el beneficio de compresión. Servicio se verifica con sección "
-          "fisurada, concreto sin tracción y acero elástico. Referencias: MTC 2018 y AASHTO LRFD 5.7.2 a 5.7.4.")
+    _body(document, "Se diseña por flexión y cortante con las funciones compartidas del estribo individual. "
+          "Para cada signo de momento se utiliza el acero de la cara traccionada, sin acreditar el acero de "
+          "la cara comprimida. La resistencia a flexión emplea bloque rectangular y φ limitado por la deformación. "
+          "Se conserva el mínimo de flexión. El corte usa el procedimiento general compartido, sin término axial. "
+          "En servicio se estima fs = |Ms| / (As · 0,90d), como en estribos individuales, y se verifica fisuración. "
+          "No se realiza verificación de flexocompresión ni flexotracción. La simplificación no demuestra "
+          "que el efecto axial sea despreciable. Los momentos mantienen las transformaciones de offsets "
+          "del análisis cuando se activan.")
     for index, steel in enumerate(result.reinforcement, 1):
         document.add_heading(f"6.{index}. {steel.region}", level=2)
+        write_steel_audit(document, steel, audit["steel"][steel.region], steel.region in result.selected_reinforcement)
         _calc(document, "Armadura principal adoptada", "As = Ab / s",
               "As: área de acero por metro y por cara; Ab: área de una barra; s: separación de barras en metros.",
               f"Barra adoptada {steel.bar_label}; separación s = {steel.spacing_m:.3f} m.",
@@ -158,13 +177,13 @@ def write_connected_docx(result, path, charts):
               f"As = {steel.area_per_face_cm2_m:.3f} cm²/m. Armadura transversal por cara: "
               f"{steel.transverse_bar_label} cada {steel.transverse_spacing_m:.3f} m. "
               f"Mínimo por temperatura y retracción: {steel.temperature_cm2_m:.3f} cm²/m, según MTC Art. 2.9.1.4.5.8.")
-        _body(document, f"Sección gobernante de interacción: elemento {steel.governing_element}, estación relativa "
+        _body(document, f"Sección gobernante de flexión: elemento {steel.governing_element}, estación relativa "
               f"{steel.governing_station:.3f}, espesor {steel.governing_depth_cm:.2f} cm. "
-              f"N = {steel.governing_axial:.3f} Tn, V = {steel.governing_shear:.3f} Tn y "
+              f"N = {steel.governing_axial:.3f} Tn (informativo, no verificado), V = {steel.governing_shear:.3f} Tn y "
               f"M = {steel.governing_moment:.3f} Tn·m del caso {steel.governing_case}.")
         _table(document, ("Comprobación", "Máximo demanda capacidad", "Estado"),
                ((label, f"{value:.3f}", "CUMPLE" if value <= 1 + 1e-8 else "NO CUMPLE")
-                for label, value in (("Interacción N M", steel.axial_moment_utilization),
+                for label, value in (("Flexión", steel.flexural_utilization),
                                      ("Corte de concreto", steel.shear_utilization),
                                      ("Fisuración y tensión de servicio", steel.crack_utilization),
                                      ("Mínimo principal por temperatura", steel.minimum_utilization),
@@ -186,7 +205,9 @@ def write_connected_docx(result, path, charts):
     else:
         _body(document, "No se solicitó comparación de malla en esta ejecución. Está disponible mediante --verificar-malla.")
     _body(document, "resultados.json conserva entradas, propiedades, vectores de carga, contacto y comprobaciones. "
-          "elementos.csv, nodos.csv y esfuerzos.csv permiten revisar el cálculo y reconstruir los diagramas.")
+          "Las tablas detalladas por elemento, acción de cada combinación y nodo de contacto se omiten en esta "
+          "memoria y permanecen en las salidas de auditoría. elementos.csv, nodos.csv, esfuerzos.csv y "
+          "cargas_combinadas.csv permiten revisar el cálculo y reconstruir los diagramas.")
     for index, case in enumerate(result.results, 1):
         _body(document, f"C{index:03d}: {case.name}")
     connected_summary_and_references(document, result)

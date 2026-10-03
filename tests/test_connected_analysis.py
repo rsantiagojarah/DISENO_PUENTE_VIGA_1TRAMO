@@ -26,6 +26,96 @@ def test_geometry_springs_centre_and_rigid_connections(data):
     assert min(element.depth for element in mesh.frame.elements if element.region == "Losa central") == 0.75
 
 
+def test_global_combinations_with_and_without_bridge_have_expected_sequence(data):
+    inputs = replace(data, include_without_bridge=True)
+    cases = list(connected_load_cases(inputs, build_connected_mesh(inputs)))
+    assert len(cases) == 17
+    assert cases[0].name == "Par simultaneo ingresado / Resistencia Ia BR-1"
+    assert cases[1].name == "Par simultaneo ingresado / Resistencia Ia BR+1"
+    assert cases[2].name == "Par simultaneo ingresado / Resistencia Ib BR-1"
+    assert cases[3].name == "Par simultaneo ingresado / Resistencia Ib BR+1"
+    assert cases[4].name == "Par simultaneo ingresado / Servicio I BR-1"
+    assert cases[5].name == "Par simultaneo ingresado / Servicio I BR+1"
+    assert cases[10].name == "Sin tablero / Resistencia Ia"
+    assert cases[11].name == "Sin tablero / Resistencia Ib"
+    assert cases[12].name == "Sin tablero / Servicio I"
+    assert cases[13].name == "Sin tablero / Evento Extremo I A EQ-1"
+    assert cases[16].name == "Sin tablero / Evento Extremo I B EQ+1"
+    for case in cases[10:]:
+        assert " BR" not in case.name
+        braking = [row for row in case.load_trace if row[0].endswith(" / BR")]
+        assert len(braking) == 2
+        assert all(row[2:] == (0.0, 0.0, 0.0) for row in braking)
+
+
+def test_strength_factor_sets_are_global_not_crossed_by_region(data):
+    from itertools import product
+    from bridge_design.domain.abutment import abutment_load_factors
+
+    cases = list(connected_load_cases(data, build_connected_mesh(data)))
+    factors = abutment_load_factors(data.left.gamma_eq)
+    assert len({case.name for case in cases}) == len(cases)
+    strength = [case for case in cases if case.limit_state == "strength"]
+    assert len(strength) == 4
+    for case, (factor, direction) in zip(strength, product(factors[:2], (-1, 1))):
+        assert "Mixta" not in case.name
+        assert factor.name in case.name
+        assert case.name.endswith(f"BR{direction:+d}")
+        trace = {row[0]: row[1] for row in case.load_trace}
+        assert trace["Izquierda / DC"] == trace["Derecha / DC"] == trace["Losa y transiciones / DC"] == factor.dc
+        for side in ("Izquierda", "Derecha"):
+            assert trace[f"{side} / BDC"] == factor.dc
+            assert trace[f"{side} / EV"] == factor.ev
+            assert trace[f"{side} / LL"] == factor.ll
+            assert trace[f"{side} / BR"] == direction * factor.br
+
+
+def test_service_and_earthquake_are_simultaneous_global_cases(data):
+    cases = list(connected_load_cases(data, build_connected_mesh(data)))
+    assert len([case for case in cases if case.limit_state == "service"]) == 2
+    extreme = [case for case in cases if case.limit_state == "extreme"]
+    assert len(extreme) == 4
+    for case in cases:
+        trace = {row[0]: row[1] for row in case.load_trace}
+        assert trace["Izquierda / DC"] == trace["Derecha / DC"] == trace["Losa y transiciones / DC"]
+        if case.limit_state == "extreme":
+            direction = -1 if case.name.endswith("EQ-1") else 1
+            inertia = 0.5 if "Evento Extremo I A" in case.name else 1.0
+            assert trace["Izquierda / PIR"] == trace["Derecha / PIR"] == trace["Losa y transiciones / PIR"] == direction * inertia
+            assert any(row[0].startswith("Izquierda / Empuje") and row[2] > 0 for row in case.load_trace)
+            assert any(row[0].startswith("Derecha / Empuje") and row[2] < 0 for row in case.load_trace)
+
+
+def test_global_factors_preserve_asymmetric_simultaneous_bridge_reactions(data):
+    from bridge_design.domain.connected_inputs import PairedBridgeCase
+
+    paired = PairedBridgeCase("Asimetrico", replace(data.left.loads, pdc_tn_m=10),
+                             replace(data.right.loads, pdc_tn_m=20))
+    inputs = replace(data, cases=(paired,))
+    cases = list(connected_load_cases(inputs, build_connected_mesh(inputs)))
+    assert len(cases) == 10
+    for case in cases:
+        trace = {row[0]: row for row in case.load_trace}
+        assert trace["Izquierda / BDC"][1] == trace["Derecha / BDC"][1]
+        assert trace["Izquierda / BDC"][3] == -10
+        assert trace["Derecha / BDC"][3] == -20
+
+
+@pytest.mark.parametrize("left_braking,right_braking", [(0, 0), (1.33, 0), (0, 1.33)])
+def test_braking_labels_follow_actual_loads_on_either_side(data, left_braking, right_braking):
+    inputs = replace(data, left=replace(data.left, loads=replace(data.left.loads, braking_tn_m=left_braking)),
+                     right=replace(data.right, loads=replace(data.right.loads, braking_tn_m=right_braking)))
+    cases = list(connected_load_cases(inputs, build_connected_mesh(inputs)))
+    service = [case for case in cases if case.limit_state == "service"]
+    if left_braking or right_braking:
+        assert len(cases) == 10
+        assert [case.name.rsplit(" / ", 1)[1] for case in service] == ["Servicio I BR-1", "Servicio I BR+1"]
+    else:
+        assert len(cases) == 7
+        assert service[0].name == "Par simultaneo ingresado / Servicio I"
+        assert all(" BR" not in case.name for case in cases)
+
+
 def test_gravity_reuses_existing_weights_and_centroids(data):
     mesh = build_connected_mesh(data)
     builders = gravity_builders(data, mesh)

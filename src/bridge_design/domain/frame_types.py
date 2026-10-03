@@ -71,6 +71,7 @@ class FrameCase:
     nodal: tuple[float, ...]
     distributed: tuple[ElementLoad, ...]
     limit_state: str = "service"
+    load_trace: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -95,4 +96,3 @@ class FrameResult:
     applied_resultant: tuple[float, float, float]
     equilibrium_error: tuple[float, float, float]
     iterations: int
-

@@ -659,8 +659,11 @@ def test_abutment_design_accepts_zero_optional_pdf_dimensions() -> None:
     assert result.with_bridge[0].bearing_status in {"OK", "NO"}
 
 
-def test_default_structural_design_matches_reference_workbook() -> None:
-    result = solve_abutment_design()
+def test_structural_design_matches_reference_workbook_with_original_cover() -> None:
+    from bridge_design.domain.abutment import AbutmentReinforcementInputs
+
+    result = solve_abutment_design(AbutmentInputs(
+        reinforcement=AbutmentReinforcementInputs(stem_cover_cm=5.0)))
 
     assert result.stem_design.strength_limit_mu_tn_m_m == pytest.approx(71.488083, abs=1e-6)
     assert result.stem_design.extreme_limit_mu_tn_m_m == pytest.approx(72.436292, abs=1e-6)
@@ -762,7 +765,10 @@ def test_abutment_generates_single_stem_reinforcement_cut() -> None:
     assert cut.moment_resistance_at_cut_tn_m_m >= cut.required_moment_at_cut_tn_m_m - 1e-6
     assert cut.upper_spacing_limit_m == pytest.approx(0.300)
     assert cut.required_as_at_cut_cm2_m <= cut.upper_provided_as_cm2_m + 1e-6
-    assert cut.constructive_cut_height_m > cut.theoretical_cut_height_m
+    assert cut.constructive_cut_height_m == pytest.approx(min(
+        result.inputs.geometry.stem_height_above_footing_m,
+        cut.theoretical_cut_height_m + cut.development_extension_m,
+    ))
     assert cut.lower_cut_bar_length_m == pytest.approx(
         cut.constructive_cut_height_m + cut.development_extension_m
     )

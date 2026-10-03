@@ -4,6 +4,8 @@ from dataclasses import dataclass, replace
 from math import atan, cos, degrees, isfinite, radians, sin, sqrt, tan
 from collections.abc import Mapping
 
+from bridge_design.domain.cover_defaults import SOIL_CONTACT_COVER_CM
+
 from bridge_design.codes.mtc_2018 import (
     ABUTMENT_TEMPERATURE_REINFORCEMENT_REFERENCE,
     TEMPERATURE_STEEL_MAX_CM2_M,
@@ -293,8 +295,8 @@ class AbutmentReinforcementInputs:
     shear_phi: float = 0.90
     stem_design_phi_for_as: float = 1.00
     footing_design_phi_for_as: float = 0.90
-    stem_cover_cm: float = 5.0
-    footing_cover_cm: float = 7.5
+    stem_cover_cm: float = SOIL_CONTACT_COVER_CM
+    footing_cover_cm: float = SOIL_CONTACT_COVER_CM
     stem_main_bar_diameter_cm: float = 1.905
     footing_main_bar_diameter_cm: float = 1.905
     toe_main_bar_diameter_cm: float = 1.27

@@ -28,8 +28,7 @@ def connected_reinforcement_options(result):
     for adopted in result.reinforcement:
         region = adopted.region
         demands = grouped[region]
-        inputs, cover, grid, temperature, modulus, candidates = region_setup(
-            result.inputs, result.mesh, region, demands)
+        inputs, cover, grid, temperature, candidates = region_setup(result.inputs, region, demands)
         principal = []
         bars = sorted({candidate[1] for candidate in candidates}, key=lambda bar: bar.diameter_cm)
         for bar in bars:
@@ -37,7 +36,7 @@ def connected_reinforcement_options(result):
                                   key=lambda row: row[2], reverse=True)
             selected = alternatives[-1]
             for candidate in alternatives:
-                if max(evaluate_option(demands, inputs, cover, bar, candidate[2], modulus)[:3]) <= 1 + 1e-8:
+                if max(evaluate_option(demands, inputs, cover, bar, candidate[2])[:3]) <= 1 + 1e-8:
                     selected = candidate
                     break
             choice = ConnectedSteelChoice(ConnectedBarChoice(bar.label, selected[2]),

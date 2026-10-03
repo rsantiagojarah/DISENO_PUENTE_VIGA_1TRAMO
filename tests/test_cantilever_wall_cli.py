@@ -387,7 +387,8 @@ def test_pure_wall_main_stem_reinforcement_is_not_less_than_exterior_vertical_mi
     secondary_by_name = {case.name: case for case in result.secondary_reinforcement}
     exterior_vertical = secondary_by_name["Pantalla - vertical exterior"]
 
-    assert result.stem_design.required_as_cm2_m == pytest.approx(5.018585, abs=1e-6)
+    assert result.stem_design.effective_depth_cm == pytest.approx(30 - 7.5 - 1.905 / 2)
+    assert result.stem_design.required_as_cm2_m == pytest.approx(5.636822, abs=1e-6)
     assert result.stem_design.required_as_cm2_m >= exterior_vertical.required_as_cm2_m
 
 

@@ -9,6 +9,51 @@ impone cotas al cálculo.
 
 ## Uso
 
+### Nombres de combinaciones
+
+Los casos identifican **Resistencia Ia**, **Resistencia Ib**, **Evento Extremo I**
+y **Servicio I**, conforme a los nombres del módulo de estribos individuales.
+Cada combinación se aplica globalmente a ambos estribos, losa y transiciones.
+No se cruzan Ia/Ib independientemente por región: se eliminan las variantes
+mixtas anteriormente identificadas como `111–222`. Las cargas físicas de cada
+lado conservan sus valores y posiciones; global no significa cargas iguales.
+Servicio I y Evento Extremo I ya eran globales y mantienen ese criterio.
+
+Con un par de reacciones de tablero y frenado, se generan 10 casos: cuatro de
+resistencia (Ia/Ib por dos sentidos), dos de servicio y cuatro sísmicos
+(alternativas A/B por dos sentidos). Si se incluye la condición sin tablero,
+se agregan siete: Ia, Ib, Servicio I y los cuatro sísmicos. El ejemplo queda
+numerado C001–C017; por tanto, deben regenerarse reportes y exportaciones
+anteriores y no compararse casos únicamente por su código C.
+La selección global solicitada no incorpora automáticamente otros patrones
+asimétricos de cargas; los escenarios físicos adicionales deben justificarse
+e ingresarse como pares de cargas simultáneas.
+`BR±1` solo aparece cuando existe frenado; `EQ±1` conserva el sentido sísmico global.
+Los nombres se actualizan en terminal y reportes al volver a ejecutar el cálculo.
+
+### Recubrimientos internos
+
+Se adoptan 7,5 cm en ambas caras de pantallas, cajuelas, parapetos, zapatas,
+losa central y transiciones. No se solicitan en consola ni aparecen como datos
+en las nuevas plantillas YAML. El criterio adoptado es el de contacto con suelo
+de la tabla 2.12.5.4.1 del Manual de Puentes MTC 2018, aplicado uniformemente
+a estas regiones, sin distinguir caras. Es una hipótesis para concreto vaciado
+en sitio, sin exposición marina ni abrasión; no sustituye la revisión de
+durabilidad específica del proyecto.
+
+Los recubrimientos se toman exclusivamente de los valores internos: las claves
+de recubrimiento en YAML no se utilizan, incluso si indican valores mayores.
+Los valores efectivos quedan registrados en las entradas de `resultados.json`
+y se utilizan en los cálculos de armado. No modifican la rigidez bruta del
+FRAME ni el contacto.
+
+El resto del programa mantiene 5 cm en losa y voladizos del tablero, vigas y
+diafragmas, y 5,08 cm en la barrera New Jersey. Estribos individuales y muros
+adoptan 7,5 cm en pantallas, zapatas y dentellones. Estos son valores internos
+adoptados, no una selección automática de todas las condiciones normativas.
+
+### Ejecución
+
 ```powershell
 diseno-estribos-conectados output modelo.yaml
 diseno-estribos-conectados input modelo.yaml --verificar-malla
@@ -18,7 +63,7 @@ Sin argumentos se solicitan los datos por terminal, reutilizando las preguntas
 del estribo individual. `input` y `output` sin ruta abren el selector de archivos.
 Después del análisis se muestran alternativas de armadura principal y transversal
 por región. Se puede conservar la propuesta, elegir un ítem o ingresar barra y
-separación personalizadas, igual que en estribos. El programa recalcula N–M,
+separación personalizadas, igual que en estribos. El programa recalcula flexión,
 corte, fisuración, mínimos y desarrollo con el acero adoptado. Las alternativas
 que no cumplen se identifican; conservarlas para revisión no aprueba el diseño.
 Al terminar se pregunta si se desea generar Word y se abre el diálogo para
@@ -42,6 +87,15 @@ obligatorios. `--ejemplo` introduce expresamente `ks=3000 Tn/m³` y `mu=0.50`, q
 no constituyen datos geotécnicos del proyecto. Los materiales, parámetros
 sísmicos y brazo adicional de frenado también son referenciales, no datos del PDF.
 No se deduce el balasto de la presión admisible.
+
+En consola, `qadm` y el FS de capacidad portante se solicitan una sola vez,
+al ingresar el primer estribo, y se comparten en toda la cimentación. El programa
+convierte automáticamente de kg/cm² a Tn/m² (`1,35 kg/cm² = 13,5 Tn/m²`) y muestra
+el valor adoptado sin volver a preguntarlo, incluso con estribos diferentes.
+En las plantillas YAML se definen únicamente en `suelo_cimentacion`, mediante
+`qadm_tn_m2` y `fs_capacidad_nominal`. Los archivos anteriores siguen siendo
+compatibles: los valores comunes de ese bloque prevalecen sobre las copias
+antiguas en `suelo_sismo` de cada estribo y se reutilizan en ambos lados.
 
 Las reacciones iniciales del tablero indicadas por el usuario son, en Tn/m por
 estribo: `PDC=8.959`, `PDW=0.545`, `PPL=0.762`, `PLL+IM=6.92` y `BR=1.33`.
@@ -195,16 +249,20 @@ y sus sobrecargas presentes. No equivale a todas las fases constructivas.
 - Se recuperan N, V, M con signos, incluyendo los extremos internos de las
   cargas polinómicas, y se verifican las demandas simultáneas por sección/caso.
 - La armadura principal se selecciona del catálogo existente, con dos caras
-  iguales. La interacción N–M usa compatibilidad de deformaciones, bloque de
-  concreto y acero elastoplástico; phi depende de la deformación. El máximo
-  axial se limita conservadoramente a `0.80*phi*P0`.
+  iguales. Se diseña por flexión y cortante, sin interacción axial–momento,
+  por decisión del usuario. La flexión reutiliza la función del estribo individual:
+  sección rectangular, acero de la cara traccionada y phi limitado por deformación,
+  sin acreditar la contribución del acero de la cara comprimida.
 - Se mantienen el mínimo de flexión y la armadura por temperatura/retracción.
   La armadura transversal por cara se dimensiona por el mínimo correspondiente.
-- El corte emplea el procedimiento general compartido. La tracción axial se
-  incorpora a la deformación longitudinal; no se acredita beneficio del axial
-  de compresión. Si el concreto no resiste, se informa NO CUMPLE.
-- Servicio se calcula con sección fisurada, concreto sin tracción y dos capas
-  elásticas de acero. Se revisan tensión de acero y espaciamiento de fisuración.
+- El corte emplea el procedimiento general compartido, sin término axial.
+  Si el concreto no resiste, se informa NO CUMPLE.
+- Servicio reutiliza la estimación del estribo individual `fs = |Ms|/(As*0.90*d)`.
+  Se revisan tensión de acero y espaciamiento de fisuración, sin efecto axial.
+- N se conserva en el análisis, diagramas y exportaciones, pero no se verifica
+  flexocompresión ni flexotracción. Los momentos mantienen las transformaciones
+  por offsets cuando están activadas. Un estado OK solo acredita las comprobaciones
+  ejecutadas: no demuestra capacidad axial ni que su efecto sea despreciable.
 - Se calculan las longitudes de desarrollo recto y con gancho reutilizando las
   funciones existentes. Las longitudes útiles deben ingresarse por región en
   `longitudes_rectas_anclaje_disponibles_m`; de lo contrario el estado es
@@ -225,11 +283,51 @@ La franja 2D no resuelve efectos tridimensionales locales de los apoyos.
 
 ## Salidas y validación
 
+### Desarrollo verificable en terminal y Word
+
+Ambas salidas utilizan una misma traza. El Word conserva entradas efectivas,
+pesos por componente, expresiones de áreas del estribo individual, empujes
+activos por lado, sentidos sísmicos y el cuadro resumen de factores.
+Las propiedades FRAME por elemento y las acciones detalladas de cada
+combinación se conservan en `auditoria.txt` y JSON, no en el Word ni en la
+salida normal de la terminal. La terminal y `resumen.txt` presentan solamente
+los resultados necesarios para revisar y adoptar el diseño.
+Cada acción conserva su factor y sus resultantes Fx, Fy y Mz sin ponderar;
+su suma ponderada reproduce el vector de cargas global del FRAME. Los momentos
+globales se refieren a (0,0); los brazos de la descomposición geométrica son
+locales desde la puntera y se identifican como tales.
+
+La auditoría conserva resortes, áreas tributarias, reacciones, presiones y
+asentamientos por nodo y combinación. El Word omite estas tablas nodales y
+mantiene el resumen por caso y los gráficos de presiones y asentamientos.
+Los asentamientos no se califican como conformes sin un límite admisible.
+Se conservan los diagramas completos de N, V y M y contacto.
+
+Por región se identifican separadamente las secciones gobernantes de flexión,
+cortante y fisuración: combinación, elemento, estación, coordenadas, espesor y
+cara traccionada. Las fórmulas y sustituciones desarrollan d, As, Mcr, capacidad
+mínima, respuesta rectangular (c, a, deformación, tensión y phi), Mr, dv, beta,
+Vr, fs de servicio, espaciamiento, temperatura y desarrollo. Los valores salen
+de las mismas funciones que determinan los índices del diseño.
+
+Las opciones de acero muestran As requerido por flexión y mínimos junto con
+As proporcionado. Cumplir el área no sustituye cortante ni servicio. Se recalcula
+la traza al cambiar barra o separación. No se inventan cortes, longitudes de
+barras ni acomodos de ganchos a partir del detalle del estribo aislado.
+
+`resultados.json` incluye `calculation_audit`, con verificaciones numéricas y
+tablas compartidas; `cargas_combinadas.csv` contiene acciones base y ponderadas.
+El Word mantiene el formato común de estribos y desarrolla las operaciones,
+no solo índices. Las limitaciones del análisis y del diseño sin interacción
+axial se mantienen expresamente.
+
 Por defecto se escribe en `output/estribos_conectados`:
 
 - `resumen.txt` con las armaduras adoptadas y verificaciones finales.
+- `auditoria.txt` con propiedades, cargas, contacto nodal y desarrollo detallado.
 - `resultados.json`: entradas, malla, cargas, combinaciones, contacto y diseño.
-- `elementos.csv`, `nodos.csv` y `esfuerzos.csv` con unidades explícitas.
+- `elementos.csv`, `nodos.csv`, `esfuerzos.csv` y `cargas_combinadas.csv` con
+  unidades explícitas.
 - Figuras de geometría y contacto de la cimentación completa.
 - `modelo_axial.png`, `modelo_cortante.png` y `modelo_momento.png`: cada diagrama
   se dibuja sobre la estructura completa, con ambos estribos, cajuelas, zapatas,

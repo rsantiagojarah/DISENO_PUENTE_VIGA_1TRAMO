@@ -47,10 +47,20 @@ def test_custom_console_selection_rechecks_and_exports_adopted_steel(analysis, g
     assert steel.spacing_m == 0.15
     assert steel.area_per_face_cm2_m == pytest.approx(2.84 / 0.15)
     assert steel.required_straight_anchor_cm > group.adopted.required_straight_anchor_cm
-    assert steel.axial_moment_utilization < group.adopted.axial_moment_utilization
+    assert steel.flexural_utilization < group.adopted.flexural_utilization
     assert steel.status == "OK"
     export_connected_results(adopted, tmp_path)
     data = json.loads((tmp_path / "resultados.json").read_text(encoding="utf-8"))
+    assert "sin verificacion de interaccion axial-momento" in data["design_scope"]
+    assert all("flexural_utilization" in row and "axial_moment_utilization" not in row
+               for row in data["reinforcement"])
+    trace = data["calculation_audit"]["steel"][group.region]
+    assert trace["flexure"]["area"] == pytest.approx(steel.area_per_face_cm2_m)
+    assert trace["flexure"]["diameter"] == pytest.approx(1.91)
+    assert (tmp_path / "cargas_combinadas.csv").exists()
+    assert (tmp_path / "auditoria.txt").exists()
+    assert "Propiedades FRAME por elemento" in (tmp_path / "auditoria.txt").read_text(encoding="utf-8")
+    assert "Propiedades FRAME por elemento" not in (tmp_path / "resumen.txt").read_text(encoding="utf-8")
     assert data["selected_reinforcement"][group.region]["principal"]["spacing_m"] == 0.15
     assert next(row for row in data["reinforcement"] if row["region"] == group.region)["bar_label"] == '3/4"'
 

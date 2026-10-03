@@ -1,6 +1,7 @@
 """ASCII results for continuous abutments; all checks consume domain results."""
 
 from bridge_design.cli.ascii_tables import boxed_table
+from bridge_design.domain.connected_reinforcement import DESIGN_SCOPE_NOTE
 
 
 def format_connected_result(result):
@@ -12,6 +13,7 @@ def format_connected_result(result):
              f"ks={data.soil.subgrade_tn_m3:.3f} Tn/m3 | mu={data.soil.friction_coefficient:.3f} | qadm={data.soil.allowable_tn_m2:.3f} Tn/m2",
              f"Offsets: {'SI' if data.section_offsets else 'NO'} | Contacto solo a compresion | Empuje siempre activo.",
              "N positivo = traccion. Armadura principal simetrica en ambas caras.",
+             DESIGN_SCOPE_NOTE,
              "La restriccion central es idealizada; el deslizamiento se verifica independientemente.",
              "Presiones geotecnicas locales de Winkler; limite LRFD estimado como phi*FS*qadm."]
     rows = []
@@ -21,9 +23,9 @@ def format_connected_result(result):
                      check.sliding_status, check.bearing_status))
     lines.extend(boxed_table(("Caso", "Rx Tn", "qmax Tn/m2", "Asent. mm", "Contacto m", "Desliz.", "Presion"), rows,
                              title="CONTACTO Y ESTABILIDAD GLOBAL", row_separators=False))
-    lines.extend(boxed_table(("Region", "Barra", "s m", "As/cara cm2/m", "N-M", "Corte", "Fisura", "Estado"),
+    lines.extend(boxed_table(("Region", "Barra", "s m", "As/cara cm2/m", "Flexion", "Corte", "Fisura", "Estado"),
         ((steel.region, steel.bar_label, f"{steel.spacing_m:.3f}", f"{steel.area_per_face_cm2_m:.3f}",
-          f"{steel.axial_moment_utilization:.3f}", f"{steel.shear_utilization:.3f}",
+          f"{steel.flexural_utilization:.3f}", f"{steel.shear_utilization:.3f}",
           f"{steel.crack_utilization:.3f}", steel.status) for steel in result.reinforcement),
         title="ARMADURA PRINCIPAL POR CARA - INDICES DEMANDA/CAPACIDAD", row_separators=False))
     lines.extend(boxed_table(("Region", "Transversal por cara", "Indice temp.", "Ld recto cm", "Ldh cm", "Anclaje"),

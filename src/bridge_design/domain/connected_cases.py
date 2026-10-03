@@ -26,25 +26,40 @@ def connected_load_cases(data, mesh):
     factors = abutment_load_factors(data.left.gamma_eq)
     for paired in paired_cases(data):
         bridge = bridge_builders(data, mesh, paired)
-        braking_directions = (-1, 1) if paired.left.braking_tn_m + paired.right.braking_tn_m > 0 else (1,)
+        resultants = {}
+        has_braking = paired.left.braking_tn_m + paired.right.braking_tn_m > 0
+        braking_directions = (-1, 1) if has_braking else (1,)
         combinations = []
-        for left_index, right_index, slab_index, direction in product((0, 1), (0, 1), (0, 1), braking_directions):
-            label = f"Resistencia I {left_index + 1}{right_index + 1}{slab_index + 1} BR{direction:+d}"
-            combinations.append((label, factors[left_index], factors[right_index],
-                                 factors[slab_index].dc, direction, "EH", 0))
+        for global_factors, direction in product(factors[:2], braking_directions):
+            braking_label = f" BR{direction:+d}" if has_braking else ""
+            label = global_factors.name + braking_label
+            combinations.append((label, global_factors, direction, "EH", 0))
         for direction in braking_directions:
-            combinations.append((f"Servicio I BR{direction:+d}", factors[3], factors[3], 1.0, direction, "EH", 0))
+            braking_label = f" BR{direction:+d}" if has_braking else ""
+            combinations.append((f"Servicio I{braking_label}", factors[3], direction, "EH", 0))
         for direction, kind in product((-1, 1), ("A", "B")):
-            combinations.append((f"Evento Extremo I {kind} EQ{direction:+d}", factors[2], factors[2],
-                                 1.0, direction, kind, direction))
-        for label, left_factors, right_factors, slab_dc, braking, kind, seismic in combinations:
+            combinations.append((f"Evento Extremo I {kind} EQ{direction:+d}", factors[2], direction, kind, direction))
+        for label, global_factors, braking, kind, seismic in combinations:
             builder = LoadBuilder(mesh.frame)
-            builder.add(permanent["DCs"], slab_dc)
+            trace = []
+
+            def add(part, factor, name):
+                builder.add(part, factor)
+                if part not in resultants:
+                    vector = part.vector()
+                    resultants[part] = (
+                        sum(vector[0::3]), sum(vector[1::3]),
+                        sum(node.x * vector[3 * index + 1] - node.y * vector[3 * index]
+                            + vector[3 * index + 2] for index, node in enumerate(mesh.frame.nodes)))
+                trace.append((name, factor, *resultants[part]))
+
+            add(permanent["DCs"], global_factors.dc, "Losa y transiciones / DC")
             inertia_factor = 0.5 if kind == "A" else 1.0
-            builder.add(permanent["PIRs"], seismic * inertia_factor)
-            for side_index, side_factors in enumerate((left_factors, right_factors)):
+            add(permanent["PIRs"], seismic * inertia_factor, "Losa y transiciones / PIR")
+            for side_index in (0, 1):
                 owner = str(side_index)
-                factor = side_factors
+                side_name = "Izquierda" if side_index == 0 else "Derecha"
+                factor = global_factors
                 loads = (paired.left, paired.right)[side_index]
                 live_scale = (paired.left_surcharge, paired.right_surcharge)[side_index]
                 if factor.limit_state == "extreme" and live_scale == 0 and all(
@@ -52,12 +67,13 @@ def connected_load_cases(data, mesh):
                 ):
                     factor = replace(factor, ll=0.0, br=0.0, ls_vertical=0.0, ls_horizontal=0.0)
                 for name, multiplier in (("DC", factor.dc), ("EV", factor.ev)):
-                    builder.add(permanent[name + owner], multiplier)
+                    add(permanent[name + owner], multiplier, f"{side_name} / {name}")
                 for name, multiplier in (("BDC", factor.dc), ("DW", factor.dw), ("LL", factor.ll),
                                          ("BR", factor.br * braking), ("PEQ", seismic)):
-                    builder.add(bridge[name + owner], multiplier)
-                builder.add(permanent["PIR" + owner], seismic * inertia_factor)
-                builder.add(surcharge[side_index], factor.ls_vertical * live_scale)
-                builder.add(earth[(side_index, "LS", 1)], factor.ls_horizontal * live_scale)
-                builder.add(earth[(side_index, kind, seismic or 1)], factor.eq if seismic else factor.eh)
-            yield builder.case(f"{paired.name} / {label}", left_factors.limit_state)
+                    add(bridge[name + owner], multiplier, f"{side_name} / {name}")
+                add(permanent["PIR" + owner], seismic * inertia_factor, f"{side_name} / PIR")
+                add(surcharge[side_index], factor.ls_vertical * live_scale, f"{side_name} / LS vertical")
+                add(earth[(side_index, "LS", 1)], factor.ls_horizontal * live_scale, f"{side_name} / LS empuje")
+                add(earth[(side_index, kind, seismic or 1)], factor.eq if seismic else factor.eh,
+                    f"{side_name} / Empuje {kind} EQ{seismic:+d}")
+            yield replace(builder.case(f"{paired.name} / {label}", global_factors.limit_state), load_trace=tuple(trace))

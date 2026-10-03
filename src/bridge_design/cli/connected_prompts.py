@@ -9,6 +9,7 @@ from bridge_design.domain.connected_defaults import (
     connected_geometry_defaults, connected_load_defaults,
 )
 from bridge_design.domain.connected_inputs import ConnectedInputs, FoundationSoil
+from bridge_design.domain.transverse_slab import kg_cm2_to_tn_m2
 
 
 def yes_no(label, default=True):
@@ -27,6 +28,7 @@ def collect_connected_inputs():
     note = ("Geometria inicial: MDOELO DE PUENTEl.pdf, editable. Pantalla 1.00 m y puntera 2.50 m "
             "confirmadas por el usuario. Use reacciones simultaneas del tablero. Empuje siempre activo. "
             "Cargas iniciales del tablero indicadas por el usuario, editables en ambos lados. "
+            "qadm y FS se ingresan una sola vez y se comparten en toda la cimentacion. "
             "Materiales, suelo y brazo adicional de frenado son referenciales, no datos del PDF.")
     left = collect_abutment_inputs(title="ESTRIBO IZQUIERDO CON CAJUELA", defaults_note=note,
                                    collect_key=False, geometry_defaults=connected_geometry_defaults(),
@@ -36,8 +38,11 @@ def collect_connected_inputs():
     else:
         right = collect_abutment_inputs(title="ESTRIBO DERECHO CON CAJUELA", defaults_note=note,
                                         collect_key=False, geometry_defaults=connected_geometry_defaults(),
-                                        load_defaults=connected_load_defaults())
+                                        load_defaults=connected_load_defaults(), shared_bearing_soil=left.soil)
     print("CIMENTACION CONTINUA - FRANJA DE 1.00 m")
+    allowable = kg_cm2_to_tn_m2(left.soil.allowable_bearing_kg_cm2)
+    print(f"qadm comun: {left.soil.allowable_bearing_kg_cm2:g} kg/cm2 = {allowable:g} Tn/m2 | "
+          f"FS capacidad portante nominal: {left.soil.bearing_capacity_factor_fs:g} (datos ya ingresados)")
     clear_span = prompt_float("Separacion libre entre caras interiores de pantallas en su base", "m", REFERENCE_CLEAR_SPAN_M)
     slab = prompt_float("Espesor de losa central", "m", REFERENCE_SLAB_THICKNESS_M)
     transition_left = prompt_non_negative_float("Longitud transicion izquierda (0 sin transicion)", "m", REFERENCE_TRANSITION_M)
@@ -49,9 +54,7 @@ def collect_connected_inputs():
     soil = FoundationSoil(
         prompt_float("Modulo de balasto vertical OBLIGATORIO", "Tn/m3"),
         prompt_non_negative_float("Coeficiente de friccion interfaz suelo-concreto", "adimensional"),
-        prompt_float("Presion admisible de cimentacion", "Tn/m2"),
-        prompt_float("FS para estimar capacidad portante nominal desde qadm", "adimensional", 3.0))
+        allowable, left.soil.bearing_capacity_factor_fs)
     return ConnectedInputs(soil, left, right, clear_span, slab, transition_left, transition_right, step,
                            offset, position, left.materials,
-                           prompt_float("Recubrimiento losa central", "cm", 7.5),
                            include_without_bridge=yes_no("Incluir condicion sin tablero"))

@@ -3,6 +3,8 @@
 from dataclasses import asdict, dataclass, field
 from math import isfinite
 
+from bridge_design.domain.cover_defaults import SOIL_CONTACT_COVER_CM
+
 from bridge_design.domain.abutment import AbutmentInputs, AbutmentKeyInputs, AbutmentLoadInputs, AbutmentMaterialInputs
 from bridge_design.domain.connected_defaults import (
     REFERENCE_CLEAR_SPAN_M, REFERENCE_SLAB_THICKNESS_M, REFERENCE_TRANSITION_M,
@@ -73,7 +75,7 @@ class ConnectedInputs:
     section_offsets: bool = False
     reference_x_m: float | None = None
     slab_materials: AbutmentMaterialInputs = field(default_factory=AbutmentMaterialInputs)
-    slab_cover_cm: float = 7.5
+    slab_cover_cm: float = SOIL_CONTACT_COVER_CM
     cases: tuple[PairedBridgeCase, ...] = ()
     include_without_bridge: bool = True
     anchor_lengths_m: dict[str, float] = field(default_factory=dict)

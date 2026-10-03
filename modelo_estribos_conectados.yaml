@@ -14,7 +14,6 @@ cimentacion:
   paso_malla_m: 0.5
   offsets_seccion: false
   nodo_referencia_x_m: null
-  recubrimiento_losa_cm: 7.5
   materiales_losa:
     fc_concreto_kg_cm2: 210.0
     fy_acero_kg_cm2: 4200.0
@@ -58,19 +57,15 @@ estribo_izquierdo:
     br_frenado_tn_m: 1.33
   suelo_sismo:
     h_sobrecarga_vehicular_equivalente_m: 0.6
-    qadm_capacidad_portante_kg_cm2: 2.67
     angulo_friccion_relleno_grados: 30.0
     delta_muro_suelo_grados: 0.0
     beta_pendiente_relleno_grados: 0.0
     theta_cara_posterior_desde_horizontal_grados: 90.0
-    fs_capacidad_portante_nominal: 3.0
     pga: 0.3
     fpga: 1.2
     gamma_eq: 0.5
     sobrecarga_peatonal_relleno_tn_m2: 0.0
   armadura:
-    recubrimiento_pantalla_cm: 5.0
-    recubrimiento_zapata_cm: 7.5
     paso_separacion_m: 0.025
     separacion_minima_m: 0.1
     separacion_maxima_m: 0.3
@@ -105,19 +100,15 @@ estribo_derecho:
     br_frenado_tn_m: 1.33
   suelo_sismo:
     h_sobrecarga_vehicular_equivalente_m: 0.6
-    qadm_capacidad_portante_kg_cm2: 2.67
     angulo_friccion_relleno_grados: 30.0
     delta_muro_suelo_grados: 0.0
     beta_pendiente_relleno_grados: 0.0
     theta_cara_posterior_desde_horizontal_grados: 90.0
-    fs_capacidad_portante_nominal: 3.0
     pga: 0.3
     fpga: 1.2
     gamma_eq: 0.5
     sobrecarga_peatonal_relleno_tn_m2: 0.0
   armadura:
-    recubrimiento_pantalla_cm: 5.0
-    recubrimiento_zapata_cm: 7.5
     paso_separacion_m: 0.025
     separacion_minima_m: 0.1
     separacion_maxima_m: 0.3

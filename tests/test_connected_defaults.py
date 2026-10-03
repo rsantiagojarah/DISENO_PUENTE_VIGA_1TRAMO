@@ -64,8 +64,6 @@ def test_interactive_enter_uses_pdf_dimensions_and_still_requires_soil(monkeypat
             return "3000"
         if prompt.startswith("Coeficiente de friccion interfaz"):
             return "0.50"
-        if prompt.startswith("Presion admisible de cimentacion"):
-            return "26.7"
         return ""
 
     monkeypatch.setattr("builtins.input", answer)
@@ -76,6 +74,9 @@ def test_interactive_enter_uses_pdf_dimensions_and_still_requires_soil(monkeypat
     assert inputs.soil.subgrade_tn_m3 == 3000
     assert inputs.left.loads == inputs.right.loads == connected_load_defaults()
     assert inputs.reference_position_m == pytest.approx(9.05)
+    assert not any("recubrimiento" in prompt.lower() for prompt in prompts)
+    assert inputs.slab_cover_cm == 7.5
+    assert inputs.left.reinforcement.stem_cover_cm == inputs.right.reinforcement.stem_cover_cm == 7.5
     assert any("Separacion libre" in prompt and "[13.1]" in prompt for prompt in prompts)
 
 

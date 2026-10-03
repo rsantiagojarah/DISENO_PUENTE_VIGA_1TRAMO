@@ -53,7 +53,7 @@ def main(argv=None):
         destination = export_connected_results(result, args.resultados)
         from bridge_design.reporting.connected_charts import save_connected_charts
         charts = save_connected_charts(result, destination)
-        print(f"Resultados TXT, JSON, CSV y graficos guardados en: {destination.resolve()}")
+        print(f"Resumen, auditoria, JSON, CSV y graficos guardados en: {destination.resolve()}")
         if not args.sin_word:
             from bridge_design.reporting.connected_word_dialog import generate_connected_docx_with_dialog
             from bridge_design.reporting.connected_docx import write_connected_docx

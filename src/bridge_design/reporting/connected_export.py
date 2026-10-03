@@ -6,7 +6,10 @@ from dataclasses import asdict
 from math import isfinite
 from pathlib import Path
 
+from bridge_design.cli.connected_audit_output import format_connected_audit
 from bridge_design.cli.connected_output import format_connected_result
+from bridge_design.domain.connected_reinforcement import DESIGN_SCOPE_NOTE
+from bridge_design.reporting.connected_audit import build_connected_audit
 
 
 def _json_value(value):
@@ -29,10 +32,20 @@ def write_csv(path, headers, rows):
 def export_connected_results(result, directory):
     destination = Path(directory)
     destination.mkdir(parents=True, exist_ok=True)
+    audit = build_connected_audit(result)
     (destination / "resumen.txt").write_text(format_connected_result(result), encoding="utf-8")
-    (destination / "resultados.json").write_text(json.dumps(_json_value(asdict(result)), ensure_ascii=False,
+    (destination / "auditoria.txt").write_text(format_connected_audit(result, audit), encoding="utf-8")
+    trace = {key: [asdict(table) for table in audit[key]] for key in ("inputs", "loads", "foundation")}
+    trace["steel"] = audit["steel"]
+    trace["earth"] = [asdict(step) for step in audit["earth"]]
+    payload = {**asdict(result), "design_scope": DESIGN_SCOPE_NOTE, "calculation_audit": trace}
+    (destination / "resultados.json").write_text(json.dumps(_json_value(payload), ensure_ascii=False,
                                                           indent=2, allow_nan=False), encoding="utf-8")
     model = result.mesh.frame
+    write_csv(destination / "cargas_combinadas.csv", ("caso", "accion", "factor", "Fx_base_Tn", "Fy_base_Tn", "Mz_base_Tn_m",
+              "Fx_ponderada_Tn", "Fy_ponderada_Tn", "Mz_ponderado_Tn_m"),
+              ((case.name, name, factor, horizontal, vertical, moment, factor * horizontal, factor * vertical, factor * moment)
+               for case in result.cases for name, factor, horizontal, vertical, moment in case.load_trace))
     write_csv(destination / "elementos.csv", ("elemento", "nodo_i", "nodo_j", "region", "A_m2", "I_m4", "E_Tn_m2", "espesor_m", "offset_m"),
               ((index, element.start, element.end, element.region, element.area, element.inertia, element.modulus,
                 element.depth, element.offset) for index, element in enumerate(model.elements)))

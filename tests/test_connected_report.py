@@ -28,6 +28,26 @@ def test_connected_memory_preserves_inputs_results_and_correct_header(tmp_path):
     assert "Envolvente axial N sobre la estructura completa" in paragraphs
     assert "Envolvente de cortante V sobre la estructura completa" in paragraphs
     assert "Envolvente de momento M sobre la estructura completa" in paragraphs
+    assert "sin verificacion de interaccion axial-momento" in paragraphs
+    assert "Sección gobernante de flexión" in paragraphs
+    assert "Interacción N M" not in tables
+    assert "Flexión" in tables
+    assert "secciones gobernantes independientes" in paragraphs
+    assert "As requerido flexion y minimos cm2/m" in tables
+    assert "Peralte y acero de la seccion gobernante de flexion" in paragraphs
+    assert "Cortante y procedimiento general beta" in paragraphs
+    assert "Fisuracion y tension del acero en servicio" in paragraphs
+    assert "Propiedades FRAME por elemento" not in paragraphs
+    assert "Accion / lado" not in tables
+    assert "Fx base Tn" not in tables
+    assert "contacto, presion y asentamiento" not in paragraphs
+    assert "K=ks*Area" not in paragraphs
+    assert "Factores incluyen sentido" not in paragraphs
+    assert "se aplican también cruzadas" not in paragraphs
+    assert "se aplica globalmente a ambos estribos, losa y transiciones" in paragraphs
+    assert "sin verificación de un límite admisible" in paragraphs
+    assert "qmax Tn/m²" in tables
+    assert "cargas_combinadas.csv" in paragraphs
     assert "Envolventes N V M del estribo" not in paragraphs
     section = document.sections[0]
     assert round(section.page_width.mm) == 210
@@ -54,5 +74,5 @@ def test_connected_memory_preserves_inputs_results_and_correct_header(tmp_path):
     failed = [steel for steel in result.reinforcement if steel.status != "OK"]
     assert failed
     assert "NO CUMPLE" in tables
-    assert all(max(steel.axial_moment_utilization, steel.shear_utilization,
+    assert all(max(steel.flexural_utilization, steel.shear_utilization,
                    steel.crack_utilization) > 1 for steel in failed)

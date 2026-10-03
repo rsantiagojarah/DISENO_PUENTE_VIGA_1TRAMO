@@ -10,6 +10,7 @@ from bridge_design.domain.connected_defaults import (
     connected_geometry_defaults, connected_load_defaults,
 )
 from bridge_design.domain.connected_inputs import ConnectedInputs, FoundationSoil, PairedBridgeCase
+from bridge_design.domain.transverse_slab import kg_cm2_to_tn_m2
 
 
 def connected_yaml_template(*, example=False):
@@ -17,9 +18,10 @@ def connected_yaml_template(*, example=False):
     side = abutment_yaml_template(geometry_defaults=geometry, load_defaults=connected_load_defaults())
     for name in ("version_esquema", "comando", "nota"):
         side.pop(name, None)
+    for name in ("qadm_capacidad_portante_kg_cm2", "fs_capacidad_portante_nominal"):
+        side["suelo_sismo"].pop(name)
     side["geometria"]["altura_apoyo_a_cajuela_m"] = geometry.bridge_seat_to_bearing_height_m
     side["armadura"] = {
-        "recubrimiento_pantalla_cm": 5.0, "recubrimiento_zapata_cm": 7.5,
         "paso_separacion_m": 0.025, "separacion_minima_m": 0.10, "separacion_maxima_m": 0.30,
     }
     return {
@@ -36,7 +38,6 @@ def connected_yaml_template(*, example=False):
             "espesor_losa_central_m": REFERENCE_SLAB_THICKNESS_M,
             "transicion_izquierda_m": REFERENCE_TRANSITION_M, "transicion_derecha_m": REFERENCE_TRANSITION_M,
             "paso_malla_m": 0.50, "offsets_seccion": False, "nodo_referencia_x_m": None,
-            "recubrimiento_losa_cm": 7.5,
             "materiales_losa": deepcopy(side["materiales"]),
         },
         "suelo_cimentacion": {
@@ -89,16 +90,18 @@ def boolean(data, name, default):
     return value
 
 
-def side_inputs(data):
+def side_inputs(data, foundation_soil):
+    shared_soil = dict(mapping(data, "suelo_sismo"))
+    shared_soil.update(
+        qadm_capacidad_portante_kg_cm2=foundation_soil.allowable_tn_m2 / kg_cm2_to_tn_m2(1.0),
+        fs_capacidad_portante_nominal=foundation_soil.nominal_bearing_fs)
     try:
-        side = abutment_inputs_from_yaml(data, geometry_defaults=connected_geometry_defaults(),
+        side = abutment_inputs_from_yaml({**data, "suelo_sismo": shared_soil}, geometry_defaults=connected_geometry_defaults(),
                                          load_defaults=connected_load_defaults())
     except (TypeError, ValueError) as error:
         raise ValueError(f"Datos de estribo invalidos: {error}") from error
     raw = mapping(data, "armadura")
     reinforcement = replace(side.reinforcement,
-        stem_cover_cm=number(raw, "recubrimiento_pantalla_cm", 5.0),
-        footing_cover_cm=number(raw, "recubrimiento_zapata_cm", 7.5),
         spacing_step_m=number(raw, "paso_separacion_m", 0.025),
         minimum_spacing_m=number(raw, "separacion_minima_m", 0.10),
         maximum_spacing_m=number(raw, "separacion_maxima_m", 0.30))
@@ -112,8 +115,12 @@ def connected_inputs_from_yaml(raw):
         raise ValueError("Version de esquema no soportada.")
     foundation = mapping(raw, "cimentacion", True)
     soil = mapping(raw, "suelo_cimentacion", True)
+    foundation_soil = FoundationSoil(
+        number(soil, "modulo_balasto_vertical_tn_m3"), number(soil, "coeficiente_friccion_interfaz"),
+        number(soil, "qadm_tn_m2"), number(soil, "fs_capacidad_nominal", 3.0),
+        number(soil, "phi_deslizamiento_resistencia", 0.80), number(soil, "phi_deslizamiento_extremo", 1.0))
     left_raw, right_raw = mapping(raw, "estribo_izquierdo", True), mapping(raw, "estribo_derecho", True)
-    left, right = side_inputs(left_raw), side_inputs(right_raw)
+    left, right = side_inputs(left_raw, foundation_soil), side_inputs(right_raw, foundation_soil)
     materials_raw = mapping(foundation, "materiales_losa")
     materials = abutment_inputs_from_yaml({"materiales": materials_raw}).materials if materials_raw else left.materials
     paired = []
@@ -134,11 +141,7 @@ def connected_inputs_from_yaml(raw):
                                       number(entry, "factor_sobrecarga_izquierda", 1.0),
                                       number(entry, "factor_sobrecarga_derecha", 1.0)))
     return ConnectedInputs(
-        soil=FoundationSoil(number(soil, "modulo_balasto_vertical_tn_m3"),
-                            number(soil, "coeficiente_friccion_interfaz"), number(soil, "qadm_tn_m2"),
-                            number(soil, "fs_capacidad_nominal", 3.0),
-                            number(soil, "phi_deslizamiento_resistencia", 0.80),
-                            number(soil, "phi_deslizamiento_extremo", 1.0)),
+        soil=foundation_soil,
         left=left, right=right,
         clear_span_m=number(foundation, "separacion_libre_entre_caras_interiores_m"),
         slab_thickness_m=number(foundation, "espesor_losa_central_m"),
@@ -147,7 +150,7 @@ def connected_inputs_from_yaml(raw):
         mesh_size_m=number(foundation, "paso_malla_m", 0.50),
         section_offsets=boolean(foundation, "offsets_seccion", False),
         reference_x_m=None if foundation.get("nodo_referencia_x_m") is None else number(foundation, "nodo_referencia_x_m"),
-        slab_materials=materials, slab_cover_cm=number(foundation, "recubrimiento_losa_cm", 7.5),
+        slab_materials=materials,
         cases=tuple(paired), include_without_bridge=boolean(raw, "incluir_sin_tablero", True),
         anchor_lengths_m={name: number(mapping(raw, "longitudes_rectas_anclaje_disponibles_m"), name)
                           for name in mapping(raw, "longitudes_rectas_anclaje_disponibles_m")})

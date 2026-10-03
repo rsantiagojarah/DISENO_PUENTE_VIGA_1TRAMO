@@ -4,12 +4,13 @@ from bridge_design.cli.abutment_input_prompts import _prompt_spacing_option
 from bridge_design.cli.ascii_tables import boxed_table
 from bridge_design.cli.connected_prompts import yes_no
 from bridge_design.domain.connected_options import check_region_choice, choice_from_steel
-from bridge_design.domain.connected_reinforcement import ConnectedBarChoice, ConnectedSteelChoice
+from bridge_design.domain.connected_reinforcement import ConnectedBarChoice, ConnectedSteelChoice, DESIGN_SCOPE_NOTE
 from bridge_design.domain.rebar_catalog import REINFORCING_BAR_CATALOG
 
 
 def format_connected_options(groups):
     lines = ["SELECCION DE ACERO DE ESTRIBOS CONECTADOS",
+             DESIGN_SCOPE_NOTE,
              "Armadura principal simetrica por cara; * identifica la propuesta inicial.",
              "Indices <= 1 cumplen. NO CUMPLE no es una recomendacion de armado."]
     for group in groups:
@@ -17,9 +18,9 @@ def format_connected_options(groups):
         for item, steel in enumerate(group.principal, 1):
             adopted = steel.bar_label == group.adopted.bar_label and abs(steel.spacing_m - group.adopted.spacing_m) < 1e-8
             rows.append((str(item) + ("*" if adopted else ""), steel.bar_label, f"{steel.spacing_m:.3f}",
-                         f"{steel.area_per_face_cm2_m:.3f}", f"{steel.axial_moment_utilization:.3f}",
+                         f"{steel.required_as_cm2_m:.3f}", f"{steel.area_per_face_cm2_m:.3f}", f"{steel.flexural_utilization:.3f}",
                          f"{steel.shear_utilization:.3f}", f"{steel.crack_utilization:.3f}", steel.status))
-        lines.extend(boxed_table(("Item", "Barra", "s m", "As/cara cm2/m", "N-M", "Corte", "Fisura", "Estado"),
+        lines.extend(boxed_table(("Item", "Barra", "s m", "As req", "As prov/cara", "Flexion", "Corte", "Fisura", "Estado"),
                                  rows, title=group.region.upper() + " - PRINCIPAL", row_separators=False))
         lines.extend(boxed_table(("Item", "Barra", "s m", "As/cara cm2/m", "Estado"),
             ((str(option.item) + ("*" if option.is_recommended else ""), option.bar.label,
@@ -48,7 +49,7 @@ def _principal_choice(result, group):
                     raise ValueError("El item no existe para esta region.")
                 chosen = choice_from_steel(group.principal[item - 1]).principal
             checked = check_region_choice(result, group.region, ConnectedSteelChoice(chosen, default.transverse))
-            print(f"N-M={checked.axial_moment_utilization:.3f}; corte={checked.shear_utilization:.3f}; "
+            print(f"Flexion={checked.flexural_utilization:.3f}; corte={checked.shear_utilization:.3f}; "
                   f"fisura={checked.crack_utilization:.3f}; minimo={checked.minimum_utilization:.3f}: {checked.status}")
             if checked.status != "OK" and not yes_no("NO CUMPLE. Conservar solo para revision", False):
                 continue

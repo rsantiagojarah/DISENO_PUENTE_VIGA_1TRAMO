@@ -52,7 +52,8 @@ def test_output_generates_template_and_cli_runs_complete_example(tmp_path, capsy
     destination = tmp_path / "resultados"
     main(["input", str(template), "--resultados", str(destination), "--automatico", "--sin-word", "--verificar-malla"])
     document = json.loads((destination / "resultados.json").read_text(encoding="utf-8"))
-    assert len(document["results"]) > 20
+    assert len(document["results"]) == 17
+    assert all("Mixta" not in case["name"] for case in document["results"])
     assert document["reinforcement"]
     assert document["mesh_comparison"]["fine_step"] == 0.25
     assert (destination / "nodos.csv").exists()

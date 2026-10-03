@@ -1,17 +1,23 @@
-"""Design continuous strips from simultaneous FRAME N,V,M, using shared RC checks."""
+"""Design continuous strips for flexure and shear using individual-abutment checks."""
 
 from dataclasses import dataclass
 from math import isfinite
 from bridge_design.codes.mtc_2018 import mtc_tension_development_length_cm
 from bridge_design.domain.abutment import (
-    _concrete_shear_resistance_tn, _cracking_moment_tn_m, _effective_shear_depth_cm,
-    _general_shear_beta, _hooked_development_length_cm, _temperature_mtc_bounded,
+    _hooked_development_length_cm, _temperature_mtc_bounded,
 )
 from bridge_design.domain.connected_geometry import foundation_section, stem_centroid
 from bridge_design.domain.abutment import _stem_thickness_at_height_m
-from bridge_design.domain.crack_control import maximum_crack_control_spacing_m
-from bridge_design.domain.frame_concrete import interaction_curve, moment_capacity, service_tension_stress
+from bridge_design.domain.connected_section_checks import section_check
+from bridge_design.domain.connected_steel_audit import area_requirements
 from bridge_design.domain.rebar_catalog import REINFORCING_BAR_CATALOG, SpacingGrid, reinforcing_bar_by_label
+
+
+DESIGN_SCOPE_NOTE = (
+    "Diseno simplificado por flexion y cortante; sin verificacion de interaccion axial-momento. "
+    "N se conserva como resultado del FRAME, pero se omite su efecto directo en resistencia y fisuracion. "
+    "OK se limita a las comprobaciones realizadas y no certifica la capacidad frente a carga axial."
+)
 
 
 @dataclass(frozen=True)
@@ -47,7 +53,7 @@ class ConnectedSteel:
     temperature_cm2_m: float
     transverse_bar_label: str
     transverse_spacing_m: float
-    axial_moment_utilization: float
+    flexural_utilization: float
     shear_utilization: float
     crack_utilization: float
     governing_case: str
@@ -65,6 +71,9 @@ class ConnectedSteel:
     status: str
     minimum_utilization: float = 0.0
     transverse_utilization: float = 0.0
+    flexural_as_cm2_m: float = 0.0
+    capacity_minimum_as_cm2_m: float = 0.0
+    required_as_cm2_m: float = 0.0
 
 
 def region_inputs(data, region):
@@ -103,51 +112,29 @@ def section_demands(data, mesh, results):
     return grouped
 
 
-def evaluate_option(demands, inputs, cover, bar, spacing, modulus, full=False):
-    area = bar.area_cm2 / spacing
-    axis = cover + bar.diameter_cm / 2
-    axial_ratio = shear_ratio = crack_ratio = 0.0
+def evaluate_option(demands, inputs, cover, bar, spacing, full=False):
+    flexural_ratio = shear_ratio = crack_ratio = 0.0
     governing = demands[0]
     for demand in demands:
-        depth = demand.depth_cm
-        if depth <= 2 * axis:
+        values = section_check(demand, inputs, cover, bar, spacing)
+        if not isfinite(values["flexure_ratio"]):
             return float("inf"), float("inf"), float("inf"), demand
-        effective = depth - axis
-        if demand.limit_state == "service":
-            stresses = service_tension_stress(depth, axis, area, modulus, -demand.axial, demand.moment)
-            stress = max(stresses)
-            maximum_spacing, _beta = maximum_crack_control_spacing_m(max(stress, 1e-9), axis, depth)
-            ratio = max(stress / (0.60 * inputs.materials.steel_yield_kg_cm2),
-                        spacing / max(maximum_spacing, 1e-12))
-            crack_ratio = max(crack_ratio, ratio)
-        else:
-            curve = interaction_curve(depth, axis, area, inputs.materials.concrete_strength_kg_cm2,
-                                      inputs.materials.steel_yield_kg_cm2, inputs.reinforcement.flexural_phi)
-            capacity = moment_capacity(curve, -demand.axial)
-            required = max(abs(demand.moment), min(_cracking_moment_tn_m(depth, inputs),
-                           inputs.reinforcement.minimum_flexural_capacity_multiplier * abs(demand.moment)))
-            ratio = float("inf") if capacity < 0 else required / max(capacity, 1e-10)
-            if ratio >= axial_ratio:
-                axial_ratio, governing = ratio, demand
-            shear_depth = _effective_shear_depth_cm(effective, depth)
-            adjusted_moment = abs(demand.moment) + 0.5 * max(demand.axial, 0.0) * shear_depth / 100
-            beta, *_details = _general_shear_beta(adjusted_moment, abs(demand.shear), area, shear_depth)
-            capacity_shear = _concrete_shear_resistance_tn(shear_depth, inputs, inputs.reinforcement.shear_phi, beta)
-            shear_ratio = max(shear_ratio, abs(demand.shear) / capacity_shear)
-        if not full and max(axial_ratio, shear_ratio, crack_ratio) > 1 + 1e-8:
-            return axial_ratio, shear_ratio, crack_ratio, governing
-    return axial_ratio, shear_ratio, crack_ratio, governing
+        if demand.limit_state != "service" and values["flexure_ratio"] >= flexural_ratio:
+            flexural_ratio, governing = values["flexure_ratio"], demand
+        shear_ratio = max(shear_ratio, values["shear_ratio"])
+        crack_ratio = max(crack_ratio, values["crack_ratio"])
+        if not full and max(flexural_ratio, shear_ratio, crack_ratio) > 1 + 1e-8:
+            return flexural_ratio, shear_ratio, crack_ratio, governing
+    return flexural_ratio, shear_ratio, crack_ratio, governing
 
 
-def region_setup(data, mesh, region, demands):
+def region_setup(data, region, demands):
     inputs, cover, panel_length = region_inputs(data, region)
     reinforcement = inputs.reinforcement
     grid = SpacingGrid(reinforcement.spacing_step_m, reinforcement.minimum_spacing_m,
                        min(0.30, reinforcement.maximum_spacing_m))
     temperature = max(_temperature_mtc_bounded(demand.depth_cm, panel_length * 100,
                       inputs.materials.steel_yield_kg_cm2, grid).required_as_cm2_m for demand in demands)
-    element = mesh.frame.elements[demands[0].element]
-    modulus = element.modulus / 10
     count = int((grid.maximum_m - grid.minimum_m) / grid.step_m + 1e-6)
     spacings = [grid.maximum_m - index * grid.step_m for index in range(count + 1)]
     spacings.append(grid.minimum_m)
@@ -156,7 +143,7 @@ def region_setup(data, mesh, region, demands):
                          if bar.area_cm2 / spacing >= temperature), key=lambda row: (row[0], row[1].diameter_cm))
     if not candidates:
         raise ValueError(f"No existen opciones de acero compatibles con la malla de separaciones: {region}.")
-    return inputs, cover, grid, temperature, modulus, candidates
+    return inputs, cover, grid, temperature, candidates
 
 
 def validate_choice(choice, grid, cover, demands, *, principal=True):
@@ -174,20 +161,20 @@ def validate_choice(choice, grid, cover, demands, *, principal=True):
 
 
 def design_region(data, mesh, region, demands, selection=None):
-    inputs, cover, grid, temperature, modulus, candidates = region_setup(data, mesh, region, demands)
+    inputs, cover, grid, temperature, candidates = region_setup(data, region, demands)
     reinforcement = inputs.reinforcement
     selected = candidates[-1]
     if selection is None:
         for candidate in candidates:
             _area, bar, spacing = candidate
-            ratios = evaluate_option(demands, inputs, cover, bar, spacing, modulus)
+            ratios = evaluate_option(demands, inputs, cover, bar, spacing)
             if max(ratios[:3]) <= 1 + 1e-8:
                 selected = candidate
                 break
     else:
         selected = validate_choice(selection.principal, grid, cover, demands)
     area, bar, spacing = selected
-    axial, shear, crack, governing = evaluate_option(demands, inputs, cover, bar, spacing, modulus, True)
+    flexure, shear, crack, governing = evaluate_option(demands, inputs, cover, bar, spacing, True)
     transverse = min(candidates, key=lambda row: (row[0], row[1].diameter_cm))
     if selection is not None:
         transverse = validate_choice(selection.transverse, grid, cover, demands, principal=False)
@@ -204,12 +191,16 @@ def design_region(data, mesh, region, demands, selection=None):
     anchor = "PENDIENTE DETALLE" if available is None else "OK RECTO" if available * 100 >= straight else "NO"
     minimum = temperature / area
     transverse_ratio = temperature / transverse[0]
-    status = "OK" if max(axial, shear, crack, minimum, transverse_ratio) <= 1 + 1e-8 else "NO CUMPLE"
+    status = "OK" if max(flexure, shear, crack, minimum, transverse_ratio) <= 1 + 1e-8 else "NO CUMPLE"
+    requirements = area_requirements(demands, inputs, cover, bar)
+    flexural_area = max((row["flexural_area"] for row in requirements), default=0.0)
+    minimum_area = max((row["minimum_area"] for row in requirements), default=0.0)
     return ConnectedSteel(region, bar.label, spacing, area, temperature, transverse[1].label, transverse[2],
-                          axial, shear, crack, governing.case, governing.axial, governing.shear,
+                          flexure, shear, crack, governing.case, governing.axial, governing.shear,
                           governing.moment, governing.depth_cm, governing.element, governing.station,
                           straight, hooked, extension, None if available is None else available * 100,
-                          anchor, status, minimum, transverse_ratio)
+                          anchor, status, minimum, transverse_ratio, flexural_area, minimum_area,
+                          max(flexural_area, minimum_area, temperature))
 
 
 def design_connected_reinforcement(data, mesh, results, selections=None):
