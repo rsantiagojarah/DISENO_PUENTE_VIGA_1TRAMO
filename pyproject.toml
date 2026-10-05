@@ -27,6 +27,7 @@ diseno-estribos-conectados = "bridge_design.connected_main:main"
 bridge-connected-abutments = "bridge_design.connected_main:main"
 diseno-apoyos = "bridge_design.cli.bearing_cli:main"
 diseno-apoyos-neopreno = "bridge_design.cli.simple_neoprene_cli:main"
+diseno-apoyos-A = "bridge_design.cli.bearing_a_cli:main"
 diseno-muros = "bridge_design.cantilever_wall_main:main"
 
 [tool.setuptools.packages.find]

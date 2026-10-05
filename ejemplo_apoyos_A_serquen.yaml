@@ -1,0 +1,79 @@
+proyecto: Comprobación del problema 4 1 de APOYOS pdf
+identificador: EJEMPLO_REFERENCIAL
+acciones:
+  dc_tn: 65.0
+  dw_tn: 5.0
+  ll_sin_im_tn: 22.0
+  pl_tn: 0.0
+  im_tn: 0.0
+  reaccion_minima_tn: null
+  fuente: APOYOS.pdf p. 234, problema 4.1, Arturo Rodríguez Serquén
+movimientos:
+  longitud_expansion_m: 30.0
+  zona_climatica: sierra
+  temperatura_instalacion_c: 25.0
+  temperatura_minima_c: null
+  temperatura_maxima_c: null
+  retraccion_cm: 0.9
+  postensado_cm: 1.0
+  otros_cm: 0.0
+  gamma_tu: 1.2
+  alpha_por_c: 1.08e-05
+  usar_rango_completo: false
+geometria:
+  ancho_cm: 45.0
+  largo_cm: 30.0
+  capa_interior_cm: 1.5
+  capa_exterior_cm: 0.8
+  numero_capas_interiores: 4
+  zuncho_cm: 0.2
+  largo_maximo_busqueda_cm: 120.0
+  maximo_capas_busqueda: 20
+  casi_cuadrado: false
+  rotacion_principal_eje_transversal: true
+materiales:
+  shore_a: 60
+  fy_zuncho_kg_cm2: 2530.0
+concreto:
+  fc_kg_cm2: 210.0
+  area_a2_cm2: null
+  phi: 0.7
+conexiones:
+  as_sitio: 0.0
+  un_solo_tramo: true
+  restriccion_longitudinal: false
+  restriccion_transversal: false
+  permanente_tributaria_longitudinal_tn: null
+  eq_longitudinal_analisis_tn: null
+  eq_transversal_analisis_tn: null
+  envolvente_resistencia_i_longitudinal_tn: 0.0
+  envolvente_resistencia_i_transversal_tn: 0.0
+  resistencia_diseno_longitudinal_tn: null
+  resistencia_diseno_transversal_tn: null
+  fuente_resistencia: ''
+  mu: 0.2
+compresion:
+  fuente: APOYOS.pdf p. 238 (página 16 del archivo), tabla de deformaciones del problema
+    4.1; lectura gráfica aproximada para este ejemplo, no certificado de producto
+  tipo: referencia
+  shore_a: 60
+  puntos:
+  - - 6.0
+    - 0.0
+    - 0.0
+  - - 6.0
+    - 51.851851851851855
+    - 0.036
+  - - 6.0
+    - 68.14814814814815
+    - 0.0445
+  - - 11.25
+    - 0.0
+    - 0.0
+  - - 11.25
+    - 51.851851851851855
+    - 0.029
+  - - 11.25
+    - 68.14814814814815
+    - 0.035
+junta_limite_cm: 0.3175
