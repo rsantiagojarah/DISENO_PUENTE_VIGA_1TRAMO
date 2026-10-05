@@ -1,6 +1,7 @@
 """Internal detailing calculations for concrete deck overhang design."""
 
 from dataclasses import replace
+from bridge_design.codes.mtc_detailing import minimum_flexural_cutoff_extension_cm
 
 from bridge_design.codes.mtc_2018 import (
     FLEXURAL_STRENGTH_REFERENCE,
@@ -208,10 +209,10 @@ def design_development(
         confinement_factor=params.development_confinement_factor,
         excess_reinforcement_factor=excess_factor,
     )
-    cutoff_extension = max(
+    cutoff_extension = minimum_flexural_cutoff_extension_cm(
         flexural.effective_depth_cm,
-        15.0 * option.bar.diameter_cm,
-        geometry.overhang_m * 100.0 / 20.0,
+        option.bar.diameter_cm,
+        geometry.overhang_m * 100.0,
     )
     exterior_projection = max(geometry.overhang_m - params.concrete_cover_cm / 100.0, 0.0)
     interior_anchor = required_ld / 100.0

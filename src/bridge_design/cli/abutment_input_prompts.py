@@ -191,6 +191,7 @@ def _collect_soil(
     geometry: AbutmentGeometryInputs,
     element_label: str = "estribo",
     shared_bearing_soil: AbutmentSoilInputs | None = None,
+    *, fixed_backface_angle: float | None = None,
 ) -> AbutmentSoilInputs:
     default = AbutmentSoilInputs()
     default_h_eq = equivalent_vehicular_surcharge_height_m(geometry.retained_height_m)
@@ -219,7 +220,7 @@ def _collect_soil(
         print(f"Calculo automatico: theta={wall_vertical_front_angle_deg(geometry):.8f} grados; cara exterior vertical y ensanche hacia el relleno.")
         print("Pulse Enter o escriba auto para adoptarlo; ingrese 90 para trasdos vertical u otro angulo compatible.")
         print("El trasdos inclinado admite beta=0; theta debe ser compatible con los espesores.")
-    wall_backface_angle = _prompt_wall_backface_angle(
+    wall_backface_angle = fixed_backface_angle if fixed_backface_angle is not None else _prompt_wall_backface_angle(
         friction_angle,
         wall_soil_friction,
         backfill_slope,

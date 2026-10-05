@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from bridge_design.domain.abutment import mononobe_okabe_active_coefficient
 from bridge_design.domain.connected_geometry import global_x
+from bridge_design.domain.connected_2_inputs import is_connected_2
 from bridge_design.reporting.deck_docx import _add_native_equation, _body, _table
 from bridge_design.reporting.connected_report_details import mathematical_symbols
 
@@ -27,16 +28,26 @@ def write_load_criteria(document, result):
 
     document.add_heading("4.1. Peso propio y carga vertical del relleno", level=2)
     formulas(document, "w_DC(x) = gamma_c*b*t(x)", "w_EV(x) = gamma_s*b*h_s(x)")
-    _body(document, "γ_c y γ_s son los pesos unitarios del concreto y del relleno; t(x) es el espesor y "
+    weight_note = ("γ_c y γ_s son los pesos unitarios del concreto y del relleno; t(x) es el espesor y "
           "h_s(x) la altura efectiva de suelo sobre el concreto. El peso propio actúa verticalmente hacia abajo "
           "en pantallas, parapetos, cajuelas, zapatas, transiciones y losa central. "
           "Los espesores variables se integran por elemento. La cajuela conserva la excentricidad de su centroide "
           "respecto del eje FRAME mediante un momento equivalente.")
-    _body(document, "EV se aplica en talones y en la zona posterior de transición de cajuela según el perfil real "
+    soil_note = ("EV se aplica en talones y en la zona posterior de transición de cajuela según el perfil real "
           "del relleno. Si el suelo frontal supera la cara superior de zapata, también carga la puntera y su "
           "transición. La reducción local de EV responde al volumen ocupado por el concreto, no a un cambio "
           "del peso unitario. La losa central y sus transiciones tienen DC; la geometría ingresada no define "
           "relleno ni sobrecarga vertical de suelo sobre ellas. El relleno no incluye nuevamente el volumen de cajuela.")
+    if is_connected_2(data):
+        weight_note = ("γ_c y γ_s son los pesos unitarios del concreto y del relleno; t(x) es el espesor "
+                       "y h_s(x) la altura efectiva de suelo. DC incluye la base uniforme completa, "
+                       "las pantallas trapezoidales y los parapetos. Se integra el espesor variable de "
+                       "la pantalla y se conserva la excentricidad de su peso respecto al eje FRAME.")
+        soil_note = ("EV actúa únicamente sobre los talones exteriores, con relleno hasta la coronación "
+                     "del parapeto. El tramo interior de la zapata combinada queda sin relleno ni sobrecarga vertical de suelo. "
+                     "No existen punteras interiores ni transiciones de espesor en la base.")
+    _body(document, weight_note)
+    _body(document, soil_note)
 
     document.add_heading("4.2. Sobrecarga del relleno", level=2)
     formulas(document, "q_LS = gamma_s*h_eq + q_peatonal", "w_LS = b*q_LS", "p_LS = Ka*q_LS")

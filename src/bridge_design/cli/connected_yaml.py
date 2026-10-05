@@ -91,13 +91,13 @@ def boolean(data, name, default):
     return value
 
 
-def side_inputs(data, foundation_soil):
+def side_inputs(data, foundation_soil, *, geometry_defaults=None):
     shared_soil = dict(mapping(data, "suelo_sismo"))
     shared_soil.update(
         qadm_capacidad_portante_kg_cm2=foundation_soil.allowable_tn_m2 / kg_cm2_to_tn_m2(1.0),
         fs_capacidad_portante_nominal=foundation_soil.nominal_bearing_fs)
     try:
-        side = abutment_inputs_from_yaml({**data, "suelo_sismo": shared_soil}, geometry_defaults=connected_geometry_defaults(),
+        side = abutment_inputs_from_yaml({**data, "suelo_sismo": shared_soil}, geometry_defaults=geometry_defaults or connected_geometry_defaults(),
                                          load_defaults=connected_load_defaults())
     except (TypeError, ValueError) as error:
         raise ValueError(f"Datos de estribo invalidos: {error}") from error
@@ -109,7 +109,7 @@ def side_inputs(data, foundation_soil):
     return replace(side, reinforcement=reinforcement)
 
 
-def connected_inputs_from_yaml(raw):
+def connected_inputs_from_yaml(raw, *, geometry_defaults=None):
     if raw.get("comando", "diseno-estribos-conectados") != "diseno-estribos-conectados":
         raise ValueError("El YAML no corresponde a diseno-estribos-conectados.")
     if raw.get("version_esquema", 1) != 1:
@@ -137,7 +137,8 @@ def connected_inputs_from_yaml(raw):
         # Read previous files without changing their simultaneous reactions;
         # ConnectedInputs rejects incompatible geometry/materials/detailing.
         left_raw, right_raw = mapping(raw, "estribo_izquierdo", True), mapping(raw, "estribo_derecho", True)
-    left, right = side_inputs(left_raw, foundation_soil), side_inputs(right_raw, foundation_soil)
+    left, right = (side_inputs(side, foundation_soil, geometry_defaults=geometry_defaults)
+                   for side in (left_raw, right_raw))
     materials_raw = mapping(foundation, "materiales_losa")
     materials = abutment_inputs_from_yaml({"materiales": materials_raw}).materials if materials_raw else left.materials
     paired = []

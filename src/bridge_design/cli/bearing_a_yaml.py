@@ -10,6 +10,7 @@ def bearing_a_template() -> dict:
     return {
         "proyecto": "Diseño de apoyo elastomérico Método A",
         "identificador": "A1",
+        "alcance": "completo",
         "acciones": {
             "dc_tn": 65.0, "dw_tn": 5.0, "ll_sin_im_tn": 22.0, "pl_tn": 0.0,
             "im_tn": 0.0, "reaccion_minima_tn": None,
@@ -19,12 +20,13 @@ def bearing_a_template() -> dict:
             "longitud_expansion_m": 30.0, "zona_climatica": "sierra",
             "temperatura_instalacion_c": 25.0,
             "temperatura_minima_c": None, "temperatura_maxima_c": None,
-            "retraccion_cm": 0.9, "postensado_cm": 1.0, "otros_cm": 0.0,
+            "retraccion_cm": 0.9, "postensado_cm": 0.0, "otros_cm": 0.0,
             "gamma_tu": 1.2, "alpha_por_c": 10.8e-6,
             "usar_rango_completo": False,
         },
         "geometria": {
-            "ancho_cm": 45.0, "largo_cm": 30.0,
+            "ancho_cm": 45.0, "largo_cm": 30.0, "altura_total_cm": None,
+            "seleccion": "medida", "recubrimiento_lateral_cm": 0.0, "rotacion_catalogo_rad": None,
             "capa_interior_cm": 1.5, "capa_exterior_cm": 0.8,
             "numero_capas_interiores": 4, "zuncho_cm": 0.2,
             "largo_maximo_busqueda_cm": 120.0, "maximo_capas_busqueda": 20,
@@ -42,7 +44,7 @@ def bearing_a_template() -> dict:
             "resistencia_diseno_longitudinal_tn": None,
             "resistencia_diseno_transversal_tn": None, "fuente_resistencia": "", "mu": 0.2,
         },
-        "compresion": {"fuente": "", "tipo": "fabricante", "shore_a": 60, "puntos": []},
+        "compresion": {"metodo": "serquen", "fuente": "", "tipo": "fabricante", "shore_a": 60, "puntos": []},
         "junta_limite_cm": 0.3175,
     }
 
@@ -52,6 +54,7 @@ def bearing_a_reference_example() -> dict:
     data = bearing_a_template()
     data["proyecto"] = "Comprobación del problema 4 1 de APOYOS pdf"
     data["identificador"] = "EJEMPLO_REFERENCIAL"
+    data["movimientos"]["postensado_cm"] = 1.0  # Solo regresión académica del ejemplo original.
     data["acciones"]["fuente"] = "APOYOS.pdf p. 234, problema 4.1, Arturo Rodríguez Serquén"
     data["conexiones"]["as_sitio"] = 0.0
     data["conexiones"]["restriccion_transversal"] = False
@@ -112,6 +115,11 @@ def bearing_a_from_yaml(data: dict) -> BearingAInputs:
         "movimientos": ("longitud_expansion_m", "zona_climatica", "temperatura_instalacion_c"),
         "geometria": ("ancho_cm",), "materiales": ("shore_a",), "concreto": ("fc_kg_cm2",),
     }
+    scope = data.get("alcance", "completo")
+    if scope not in {"completo", "neopreno"}:
+        raise ValueError("alcance: completo o neopreno.")
+    if scope == "neopreno":
+        required.pop("concreto")
     for section, keys in required.items():
         if not isinstance(data.get(section), dict) or any(k not in data[section] for k in keys):
             raise ValueError(f"Faltan datos obligatorios en {section}: {', '.join(keys)}")
@@ -137,6 +145,8 @@ def bearing_a_from_yaml(data: dict) -> BearingAInputs:
         raise ValueError("compresion.tipo: fabricante o referencia.")
     compression = CompressionCurve(str(curve["fuente"]),_int(curve,"shore_a"),tuple(parsed_points),str(curve["tipo"])) if points else None
     return BearingAInputs(
+        neoprene_only=scope == "neopreno",
+        compression_method=str(curve["metodo"]),
         actions=BearingAActions(*(_float(a,k) for k in ("dc_tn","dw_tn","ll_sin_im_tn","pl_tn","im_tn")),_float(a,"reaccion_minima_tn",True),str(a["fuente"])),
         movements=BearingMovements(
             span_length_m=_float(m,"longitud_expansion_m"),temperature=temp,
@@ -145,6 +155,9 @@ def bearing_a_from_yaml(data: dict) -> BearingAInputs:
             alpha_per_c=_float(m,"alpha_por_c"),use_install_to_min=not _bool(m,"usar_rango_completo"),
         ),
         geometry=BearingAGeometry(
+            total_height_cm=_float(g,"altura_total_cm",True),
+            selection_mode=str(g["seleccion"]), cover_cm=_float(g,"recubrimiento_lateral_cm"),
+            catalog_rotation_rad=_float(g,"rotacion_catalogo_rad",True),
             width_cm=_float(g,"ancho_cm"),length_cm=_float(g,"largo_cm",True),
             interior_cm=_float(g,"capa_interior_cm",True),exterior_cm=_float(g,"capa_exterior_cm",True),
             interior_layers=_int(g,"numero_capas_interiores",True),steel_cm=_float(g,"zuncho_cm",True),

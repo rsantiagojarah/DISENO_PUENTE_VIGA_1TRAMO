@@ -18,7 +18,7 @@ from bridge_design.domain.elastomeric_bearing import (
     BearingMovements, ElastomerGrade, compressive_strain, shape_factor_rectangular,
 )
 
-CALCULATION_VERSION = "metodo-a-mtc2018-1.0"
+CALCULATION_VERSION = "metodo-a-serquen-2.0"
 MTC_URL = "https://portal.mtc.gob.pe/transportes/caminos/normas_carreteras/manuales.html"
 SIGMA_LIMIT = 87.9  # kgf/cm², 1.25 ksi redondeado según APOYOS.pdf
 HS_MIN = 2.54 / 16  # cm, conversión exacta de 1/16 pulg
@@ -65,9 +65,13 @@ class BearingAGeometry:
     max_layers: int = 20
     nearly_square: bool = False
     principal_rotation_transverse: bool = True
+    total_height_cm: float | None = None
+    selection_mode: str = "medida"
+    cover_cm: float = 0.0
+    catalog_rotation_rad: float | None = None
 
     def __post_init__(self) -> None:
-        for key in ("width_cm", "length_cm", "interior_cm", "exterior_cm", "steel_cm", "max_length_cm"):
+        for key in ("width_cm", "length_cm", "interior_cm", "exterior_cm", "steel_cm", "max_length_cm", "total_height_cm"):
             v = getattr(self, key)
             if v is not None:
                 _number(v, key, positive=True)
@@ -77,6 +81,13 @@ class BearingAGeometry:
                 raise ValueError(f"{key}: entero de 1 a 100.")
         if self.max_length_cm > 500:
             raise ValueError("La búsqueda automática admite un largo máximo de 500 cm.")
+        if self.selection_mode not in {"medida", "usuales", "semirecubierto", "recubierto"}:
+            raise ValueError("Selección: medida, usuales, semirecubierto o recubierto.")
+        _number(self.cover_cm, "recubrimiento lateral")
+        if self.width_cm <= 2*self.cover_cm or (self.length_cm is not None and self.length_cm <= 2*self.cover_cm):
+            raise ValueError("El recubrimiento debe dejar un núcleo positivo.")
+        if self.catalog_rotation_rad is not None:
+            _number(self.catalog_rotation_rad, "rotación de catálogo")
         for key in ("nearly_square", "principal_rotation_transverse"):
             if type(getattr(self, key)) is not bool:
                 raise ValueError(f"{key}: se requiere verdadero o falso.")
@@ -182,8 +193,12 @@ class BearingAInputs:
     joint_limit_cm: float = 0.3175
     project: str = "Diseño de apoyo elastomérico"
     bearing_id: str = "A1"
+    neoprene_only: bool = False
+    compression_method: str = "elastico"
 
     def __post_init__(self) -> None:
+        if self.compression_method not in {"elastico", "serquen"}:
+            raise ValueError("Método de compresión: elastico o serquen.")
         if self.hardness not in (50, 60):
             raise ValueError("Sin PTFE este módulo admite Shore A 50 o 60; 70 fuera del alcance.")
         for key in ("fy_kg_cm2", "fc_kg_cm2", "concrete_phi", "joint_limit_cm"):
@@ -251,6 +266,8 @@ class BearingAResult:
             return "NO CONFORME"
         if any(s.status == "PENDIENTE" for s in self.checks):
             return "PENDIENTE"
+        if any(s.status == "CUMPLE (ESTIMADO)" for s in self.checks):
+            return "ESTIMADO"
         if any(s.status == "REFERENCIAL" for s in self.checks):
             return "REFERENCIAL"
         return "CONFORME"
@@ -274,11 +291,13 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
     grade = ElastomerGrade.from_hardness(i.hardness)
     steps: list[CalculationStep] = []
 
-    def add(id, section, title, formula, legend, substitution, value, unit, ref, *, limit=None, pending=False, note="", strict=False, referential=False):
+    def add(id, section, title, formula, legend, substitution, value, unit, ref, *, limit=None, pending=False, note="", strict=False, referential=False, estimated=False):
         status = "CALCULADO"
         if limit is not None:
             ok = value is not None and (value < limit if strict else value <= limit + 1e-10)
             status = "CUMPLE" if ok else "NO CUMPLE"
+            if ok and estimated:
+                status = "CUMPLE (ESTIMADO)"
             if ok and referential:
                 status = "REFERENCIAL"
         if pending:
@@ -293,16 +312,17 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
     permanent = a.dc_tn + a.dw_tn
     total = permanent + a.ll_tn + a.pl_tn + a.im_tn
     pu = 1.25*a.dc_tn + 1.50*a.dw_tn + 1.75*(a.ll_tn + a.pl_tn + a.im_tn)
-    area = l*w
+    lc, wc = l-2*g.cover_cm, w-2*g.cover_cm
+    area = lc*wc
     add("P", sec, "Reacción vertical de servicio", "P = DC + DW + LL + PL + IM", "DC y DW: cargas permanentes (Tn); LL y PL: cargas vivas (Tn); IM: incremento dinámico (Tn)", f"P = {a.dc_tn:g} + {a.dw_tn:g} + {a.ll_tn:g} + {a.pl_tn:g} + {a.im_tn:g}", total, "Tn", "MTC 2.4.5.3.1 Servicio I; " + a.source)
     add("PU", sec, "Reacción vertical en Resistencia I", "Pu = 1.25 DC + 1.50 DW + 1.75 (LL + PL + IM)", "Pu: reacción mayorada (Tn); acciones: reacciones por apoyo (Tn)", f"Pu = 1.25 ({a.dc_tn:g}) + 1.50 ({a.dw_tn:g}) + 1.75 ({a.ll_tn+a.pl_tn+a.im_tn:g})", pu, "Tn", "MTC Tabla 2.4.5.3.1-1; envolvente vertical máxima")
-    add("AREA", sec, "Área adoptada", "A = L W", "L: largo longitudinal (cm); W: ancho transversal (cm); A: área (cm²)", f"A = {l:g} ({w:g})", area, "cm²", "MTC 2.10.3.1; AASHTO 14.7.5.1")
+    add("AREA", sec, "Área adoptada", "A = (L - 2 c) (W - 2 c)", "L y W: planta exterior; c: recubrimiento lateral sin zuncho (cm); A: núcleo efectivo (cm²)", f"A = ({l:g} - 2 ({g.cover_cm:g})) ({w:g} - 2 ({g.cover_cm:g}))", area, "cm²", "MTC 2.10.3.1; AASHTO 14.7.5.1")
     add("AREA_REQ", sec, "Área requerida por esfuerzo máximo", "A_req = 1000 P / 87.9", "P: reacción de servicio (Tn); 1000: kgf/Tn; A_req: área (cm²)", f"A_req = 1000 ({total:g}) / 87.9", total*1000/SIGMA_LIMIT, "cm²", "MTC 2.10.4.3.2-8", limit=area)
     sigma = total*1000/area
     add("SIGMA", sec, "Compresión de servicio", "sigma_s = 1000 P / A", "sigma_s: compresión (kgf/cm²); P: servicio (Tn); A: área (cm²)", f"sigma_s = 1000 ({total:g}) / {area:g}", sigma, "kgf/cm²", "MTC 2.10.4.3.2-8; AASHTO 14.7.6.3.2-8", limit=SIGMA_LIMIT)
-    si, se = shape_factor_rectangular(l,w,hi), shape_factor_rectangular(l,w,he)
+    si, se = shape_factor_rectangular(lc,wc,hi), shape_factor_rectangular(lc,wc,he)
     for id, label, h, s in (("SI","interior",hi,si),("SE","exterior",he,se)):
-        add(id, sec, f"Factor de forma {label}", "S = L W / (2 h (L + W))", "S: factor de forma; h: espesor de la capa (cm); L y W: dimensiones (cm)", f"S = {l:g} ({w:g}) / (2 ({h:g}) ({l+w:g}))", s, "-", "MTC 2.10.3.1; AASHTO 14.7.5.1-1")
+        add(id, sec, f"Factor de forma {label}", "S = Lc Wc / (2 h (Lc + Wc))", "S: factor de forma; h: espesor de capa; Lc y Wc: núcleo efectivo sin recubrimiento lateral (cm)", f"S = {lc:g} ({wc:g}) / (2 ({h:g}) ({lc+wc:g}))", s, "-", "MTC 2.10.3.1; AASHTO 14.7.5.1-1")
     add("GS", sec, "Compresión limitada por factor de forma", "sigma_s <= 1.25 G_min S_i", "G_min: módulo mínimo (kgf/cm²); S_i: factor interior; sigma_s: kgf/cm²", f"{sigma:.6g} <= 1.25 ({grade.g_min_kg_cm2:g}) ({si:.6g})", sigma, "kgf/cm²", "MTC 2.10.4.3.2-7; Tabla 2.10.3.3.6-1", limit=1.25*grade.g_min_kg_cm2*si)
     sec = "Movimiento y composición"
     t = m.temperature
@@ -339,6 +359,11 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
         add(id,sec,title,formula,legend,sub,val,"cm","MTC 2.10.3.3.5 / 2.10.4.3.7; APOYOS.pdf pp. 232-233",limit=hs)
     height = hrt+(n+1)*hs
     add("HEIGHT",sec,"Altura total del apoyo","H = h_rt + (n + 1) h_s","H: altura (cm); h_s: zuncho (cm); n+1: número de zunchos",f"H = {hrt:g} + ({n}+1) ({hs:g})",height,"cm","MTC 2.10.4.3.6")
+    if g.total_height_cm is not None:
+        add("HEIGHT_TARGET",sec,"Altura total propuesta","abs(H - H_propuesta) <= 0.000001",
+            "H incluye todas las capas de elastómero y los zunchos; alturas en cm",
+            f"abs({height:.8g} - {g.total_height_cm:g})",abs(height-g.total_height_cm),"cm",
+            "Restricción geométrica propuesta por el usuario",limit=1e-6)
     for id, dim in (("STABILITY_L",l),("STABILITY_W",w)):
         add(id,sec,"Estabilidad en "+("L" if id.endswith("L") else "W"),"H <= d / 3","d: dimensión de planta (cm); H: altura total (cm)",f"{height:.6g} <= {dim:g} / 3",height,"cm","MTC 2.10.4.3.6",limit=dim/3)
     sec = "Compresión y deflexiones"
@@ -364,9 +389,10 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
                 formula = "epsilon_est = sigma / (3 G_min (1 + 2 k S^2))"
             strains[id] = eps
             add(id,sec,"Deformación "+layer+" por "+load,formula,"I y E: capa interior y exterior; D y T: permanente y total sin IM; epsilon: decimal; t: fracción interpolada",sub,eps,"-",ref)
-    pending = not source_valid
+    estimated = i.neoprene_only and i.compression_curve is None
+    pending = not source_valid and not estimated
     referential = source_valid and i.compression_curve.kind == "referencia"
-    add("STRAIN_CHECK",sec,"Deformación de capa interior sin impacto","epsilon_IT <= 0.09","epsilon_IT: deformación interior por DC+DW+LL+PL sin IM",f"epsilon_IT = {strains['EPS_IT']}",strains["EPS_IT"],"-","MTC 2.10.4.3.3",limit=.09,pending=pending,referential=referential,note=compression_note or ("Faltan curvas de compresión trazables del producto." if pending else "Fuente: "+i.compression_curve.source))
+    add("STRAIN_CHECK",sec,"Deformación de capa interior sin impacto","epsilon_IT <= 0.09","epsilon_IT: deformación interior por DC+DW+LL+PL sin IM",f"epsilon_IT = {strains['EPS_IT']}",strains["EPS_IT"],"-","MTC 2.10.4.3.3",limit=.09,pending=(strains["EPS_IT"] is None or (i.compression_curve is None and not estimated)),referential=(i.compression_curve is not None and i.compression_curve.kind == "referencia"),estimated=estimated,note=("Cálculo automático con modelo elástico aproximado; no acredita propiedades del producto." if estimated else compression_note) or ("Faltan curvas de compresión trazables del producto." if pending else "Fuente: "+i.compression_curve.source))
     delta_d = None if strains["EPS_ID"] is None or strains["EPS_ED"] is None else n*hi*strains["EPS_ID"]+2*he*strains["EPS_ED"]
     delta_t = None if strains["EPS_IT"] is None or strains["EPS_ET"] is None else n*hi*strains["EPS_IT"]+2*he*strains["EPS_ET"]
     delta_ll = None if delta_d is None or delta_t is None else delta_t-delta_d
@@ -378,7 +404,7 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
         ("CREEP","Deflexión diferida por creep","delta_creep = C_d delta_D",creep,f"{grade.creep_ratio:g} ({delta_d})"),
     ):
         add(id,sec,title,formula,"delta: cm; epsilon: deformación decimal; C_d: razón creep de tabla por dureza",sub,v,"cm","MTC 2.10.3.3.6; Tabla 2.10.3.3.6-1")
-    add("JOINT",sec,"Deflexión relativa en junta","delta_LL + delta_creep <= delta_lim","delta_lim: límite adoptado para la junta (cm); incluye creep de forma conservadora",f"{delta_ll} + {creep} <= {i.joint_limit_cm:g}",None if delta_ll is None or creep is None else delta_ll+creep,"cm","C14.7.5.3.6; APOYOS.pdf p. 238; límite recomendado de junta",limit=i.joint_limit_cm,pending=pending,referential=referential,note="Estimación pendiente de curvas" if pending else "Recomendación de junta adoptada; exigir compatibilidad con la junta real.")
+    add("JOINT",sec,"Deflexión relativa en junta","delta_LL + delta_creep <= delta_lim","delta_lim: límite adoptado para la junta (cm); incluye creep de forma conservadora",f"{delta_ll} + {creep} <= {i.joint_limit_cm:g}",None if delta_ll is None or creep is None else delta_ll+creep,"cm","C14.7.5.3.6; APOYOS.pdf p. 238; límite recomendado de junta",limit=i.joint_limit_cm,pending=pending,referential=referential,estimated=estimated,note="Cálculo automático estimado; verificar compatibilidad con la junta real." if estimated else "Estimación pendiente de curvas" if pending else "Recomendación de junta adoptada; exigir compatibilidad con la junta real.")
     sec = "Fuerzas horizontales y conexiones"
     hu = grade.g_max_kg_cm2*area*ds/hrt/1000
     pmin = a.min_vertical_tn if a.min_vertical_tn is not None else a.dc_tn
@@ -387,6 +413,13 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
     add("FRICTION",sec,"Fricción disponible en servicio","F_f = mu P_min","mu: fricción; P_min: mínima reacción concomitante (Tn); sin dato se usa solo DC",f"{c.friction_mu:g} ({pmin:g})",friction,"Tn","AASHTO C14.8.3.1; APOYOS.pdf p. 239")
     needs_anchor = hu > friction+1e-10
     add("SLIP",sec,"Deslizamiento o retención en servicio","H_serv <= R_ret","R_ret: fricción o resistencia documentada de retención; se exige H completo si la fricción resulta insuficiente",f"{hu:.6g} <= {friction:.6g}" if not needs_anchor else f"Retención para H completo = {hu:.6g}; resistencia = {c.resistance_longitudinal_tn}",hu,"Tn","MTC 2.10.4.3.8; AASHTO 14.8.3",limit=friction if not needs_anchor else c.resistance_longitudinal_tn,pending=needs_anchor and c.resistance_longitudinal_tn is None,note="Retención requerida con libertad de movimiento; no bloquear la expansión con el anclaje.")
+    if i.neoprene_only:
+        steps.pop()
+        add("SLIP",sec,"Fricción del apoyo en servicio","H_serv <= F_f",
+            "H_serv: reacción por deformación; F_f: fricción disponible, ambas en Tn",
+            f"{hu:.6g} <= {friction:.6g}",hu,"Tn","APOYOS.pdf p. 239; C14.8.3.1",
+            limit=friction,note="Fricción insuficiente: requiere retención externa, fuera de este dimensionamiento." if needs_anchor else "Fricción suficiente para esta comprobación de servicio.")
+        return tuple(s for s in steps if s.id != "PU")
     for direction, restrained, explicit, strength, capacity in (
         ("L",c.restrained_longitudinal,c.eq_longitudinal_tn,c.strength_longitudinal_tn,c.resistance_longitudinal_tn),
         ("T",c.restrained_transverse,c.eq_transverse_tn,c.strength_transverse_tn,c.resistance_transverse_tn),
@@ -419,26 +452,46 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
 
 def design_bearing_a(inputs: BearingAInputs) -> BearingAResult:
     """Verificar lo adoptado o buscar un candidato sin modificar datos manuales."""
+    if inputs.compression_curve is None and inputs.compression_method == "serquen":
+        from bridge_design.domain.serquen_bearings import serquen_compression_curve
+        inputs = replace(inputs, compression_curve=serquen_compression_curve(inputs.hardness))
     g = inputs.geometry
+    if g.selection_mode in {"semirecubierto", "recubierto"}:
+        from bridge_design.domain.serquen_selection import select_catalog_bearing
+        return select_catalog_bearing(inputs)
     payload = json.dumps(asdict(inputs),sort_keys=True,ensure_ascii=False,allow_nan=False)
     digest = sha256(payload.encode("utf-8")).hexdigest()
     fully_manual = all(getattr(g,k) is not None for k in ("length_cm","interior_cm","exterior_cm","interior_layers","steel_cm"))
+    if fully_manual and g.selection_mode == "usuales":
+        from bridge_design.domain.serquen_bearings import USUAL_LAYERS
+        if g.interior_cm not in USUAL_LAYERS or abs(g.steel_cm-USUAL_LAYERS[g.interior_cm])>1e-9:
+            raise ValueError("La pareja caucho/zuncho no pertenece a los espesores usuales de Serquén p.224; use modo medida para verificarla.")
     if fully_manual:
         return BearingAResult(inputs,g,_evaluate(inputs,g),1,"Geometría manual conservada exactamente; se verifican todos los incumplimientos.",digest)
     total = sum((inputs.actions.dc_tn,inputs.actions.dw_tn,inputs.actions.ll_tn,inputs.actions.pl_tn,inputs.actions.im_tn))
-    start = max(1,ceil(total*1000/SIGMA_LIMIT/g.width_cm))
+    start = max(1,ceil(total*1000/SIGMA_LIMIT/(g.width_cm-2*g.cover_cm)+2*g.cover_cm))
     lengths = (g.length_cm,) if g.length_cm is not None else tuple(float(x) for x in range(start,int(g.max_length_cm)+1))
-    layers = (g.interior_cm,) if g.interior_cm is not None else (.5,.8,1.0,1.2,1.5,2.0)
+    from bridge_design.domain.serquen_bearings import USUAL_LAYERS
+    layers = (g.interior_cm,) if g.interior_cm is not None else (tuple(USUAL_LAYERS) if g.selection_mode == "usuales" else (.5,.8,1.0,1.2,1.5,2.0))
     counts = (g.interior_layers,) if g.interior_layers is not None else range(1,g.max_layers+1)
     best = None
     evaluated = 0
     for l in lengths:
         at_length = []
-        for hi,n in product(layers,counts):
+        steel_options = (g.steel_cm,) if g.steel_cm is not None else ((.2,.3,.4,.5,.6,.8,1.0) if g.total_height_cm is not None and g.selection_mode == "medida" else (None,))
+        for hi,n,trial_hs in product(layers,counts,steel_options):
             he = g.exterior_cm if g.exterior_cm is not None else max((x for x in (.25,.4,.5,.8,1.0,1.2) if x<=.7*hi),default=.5*hi)
-            sigma = total*1000/(l*g.width_cm)
-            hs_req = max(HS_MIN,3*max(hi,he)*sigma/inputs.fy_kg_cm2,2*max(hi,he)*(inputs.actions.ll_tn+inputs.actions.pl_tn+inputs.actions.im_tn)*1000/(l*g.width_cm)/FATIGUE_LIMIT)
-            hs = g.steel_cm if g.steel_cm is not None else max(.2,ceil(hs_req*10-1e-12)/10)
+            sigma = total*1000/((l-2*g.cover_cm)*(g.width_cm-2*g.cover_cm))
+            hs_req = max(HS_MIN,3*max(hi,he)*sigma/inputs.fy_kg_cm2,2*max(hi,he)*(inputs.actions.ll_tn+inputs.actions.pl_tn+inputs.actions.im_tn)*1000/((l-2*g.cover_cm)*(g.width_cm-2*g.cover_cm))/FATIGUE_LIMIT)
+            hs = trial_hs if trial_hs is not None else max(.2,ceil(hs_req*10-1e-12)/10)
+            if g.selection_mode == "usuales":
+                if hi not in USUAL_LAYERS or (g.steel_cm is not None and abs(g.steel_cm-USUAL_LAYERS[hi])>1e-9):
+                    continue
+                hs = USUAL_LAYERS[hi]
+            if g.total_height_cm is not None and g.exterior_cm is None:
+                he = (g.total_height_cm - n*hi - (n+1)*hs)/2
+                if he <= 0 or he > .7*hi + 1e-9:
+                    continue
             candidate = replace(g,length_cm=l,interior_cm=hi,exterior_cm=he,interior_layers=n,steel_cm=hs)
             steps = _evaluate(inputs,candidate)
             evaluated += 1
@@ -449,8 +502,10 @@ def design_bearing_a(inputs: BearingAInputs) -> BearingAResult:
                     continue
                 at_length.append((next(s.value for s in steps if s.id=="HEIGHT"),n,hi,candidate,steps))
         if at_length:
-            best = min(at_length,key=lambda t:t[:3])
+            best = min(at_length,key=lambda t:(round(t[0],9),t[3].steel_cm,t[1],t[2]) if g.total_height_cm is not None else t[:3])
             break  # mínimo largo, luego altura y cantidad de capas
+    if best is None and g.total_height_cm is not None:
+        raise ValueError(f"No se encontró composición compatible con H total={g.total_height_cm:g} cm y L={g.length_cm if g.length_cm is not None else 'automático'} cm dentro de la búsqueda. Revise la altura, planta o capas; no se modifica la altura propuesta. H incluye elastómero y zunchos.")
     if best is None:
-        raise ValueError("No existe candidato dentro de los límites de búsqueda. Aumente planta/límites o revise movimiento, capas y cobertura de curvas; no se altera la geometría ingresada.")
-    return BearingAResult(inputs,best[3],best[4],evaluated,"Selección discreta: menor largo, luego menor altura y número de capas; capacidades externas se verifican aparte.",digest)
+        raise ValueError("No existe candidato dentro de los límites de búsqueda y cobertura de curvas (Serquén: S entre 3 y 12). Aumente planta/límites o revise movimiento, capas y cobertura de curvas; no se altera la geometría ingresada.")
+    return BearingAResult(inputs,best[3],best[4],evaluated,"Selección discreta: menor largo y altura; con H fija se prioriza menor espesor de acero, luego capas. Alcance: solo apoyo de neopreno. Modo: "+g.selection_mode if inputs.neoprene_only else "Selección discreta: menor largo, luego menor altura y número de capas; capacidades externas se verifican aparte.",digest)

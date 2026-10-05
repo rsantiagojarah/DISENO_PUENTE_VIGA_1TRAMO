@@ -2,6 +2,7 @@
 
 from math import hypot, ceil
 from PIL import Image, ImageDraw
+from bridge_design.domain.connected_2_inputs import is_connected_2
 
 from bridge_design.reporting.connected_case_groups import case_label
 from bridge_design.reporting.connected_chart_geometry import BLUE, RED, GRAY, GREEN, draw_structure, font
@@ -50,20 +51,28 @@ def deformation_chart(result, path):
 
 
 def reinforcement_chart(result, path):
+    individual = is_connected_2(result.inputs)
     rows = ceil(len(result.reinforcement)/2)
     canvas = Image.new("RGB", (2000, 180+rows*230), "white")
     draw = ImageDraw.Draw(canvas)
     draw.text((80, 30), "Armadura adoptada por cara", font=font(44), fill=BLUE)
-    draw.text((80, 90), "Esquemas de panel sin escala | Ambas caras iguales | Sin doblados ni empalmes", font=font(27), fill=GRAY)
+    draw.text((80, 90), "Esquemas de panel sin escala | " +
+              ("Distribuciones independientes por cara" if individual else "Ambas caras iguales") +
+              " | Sin doblados ni empalmes", font=font(27), fill=GRAY)
     for i, steel in enumerate(result.reinforcement):
         x, y = 80+(i%2)*970, 170+(i//2)*230
         draw.text((x, y), steel.region, fill=BLUE, font=font(30))
         draw.rectangle((x, y+50, x+220, y+170), outline=GRAY, width=2)
-        for line in range(6):
-            draw.line((x+20+36*line, y+60, x+20+36*line, y+160), fill=RED, width=3)
-        for line in range(4):
-            draw.line((x+10, y+65+28*line, x+210, y+65+28*line), fill=GREEN, width=2)
-        draw.text((x+250, y+55), f"Principal {steel.bar_label} @ {steel.spacing_m:.3f} m", fill=RED, font=font(26))
-        draw.text((x+250, y+95), f"Transversal {steel.transverse_bar_label} @ {steel.transverse_spacing_m:.3f} m", fill=GREEN, font=font(26))
+        horizontal = steel.direction in ("Horizontal", "Transversal")
+        if not individual or not horizontal:
+            for line in range(6):
+                draw.line((x+20+36*line, y+60, x+20+36*line, y+160), fill=RED, width=3)
+        if not individual or horizontal:
+            for line in range(4):
+                draw.line((x+10, y+65+28*line, x+210, y+65+28*line), fill=GREEN, width=2)
+        draw.text((x+250, y+55), f"{'Acero' if individual else 'Principal'} {steel.bar_label} @ {steel.spacing_m:.3f} m", fill=RED, font=font(26))
+        detail = (f"Direccion: {steel.direction}" if individual else
+                  f"Transversal {steel.transverse_bar_label} @ {steel.transverse_spacing_m:.3f} m")
+        draw.text((x+250, y+95), detail, fill=GREEN, font=font(26))
         draw.text((x+250, y+135), f"As por cara {steel.area_per_face_cm2_m:.3f} cm2/m", fill=GRAY, font=font(26))
     canvas.save(path)

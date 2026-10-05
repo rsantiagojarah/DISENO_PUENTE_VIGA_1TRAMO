@@ -56,7 +56,7 @@ def test_small_adopted_plan_and_invalid_layers_remain_visible():
 
 
 def test_missing_curves_and_seismic_resistance_cannot_pass():
-    r = design_bearing_a(bearing_a_from_yaml(bearing_a_template()))
+    r = design_bearing_a(replace(bearing_a_from_yaml(bearing_a_template()), compression_method="elastico"))
     assert r.status == "PENDIENTE"
     assert r.step("STRAIN_CHECK").status == "PENDIENTE"
     assert r.step("CONNECTION_T").status == "PENDIENTE"
@@ -239,7 +239,10 @@ def test_hash_changes_and_json_keeps_all_source_and_results():
 def test_cli_template_calculation_and_report_exports(tmp_path,capsys):
     from bridge_design.cli.bearing_a_cli import main
     yaml = tmp_path/"modelo.yaml"
-    assert main(["ejemplo",str(yaml)]) == 0
+    from bridge_design.cli.yaml_io import save_yaml_file
+    fixture = bearing_a_reference_example()
+    fixture["movimientos"]["postensado_cm"] = 0.0
+    save_yaml_file(yaml, fixture)
     audit = tmp_path/"calculo.json"
     word = tmp_path/"memoria.docx"
     assert main(["input",str(yaml),"--word",str(word),"--json",str(audit)]) == 0
@@ -282,3 +285,189 @@ def test_console_command_registered():
     with open("pyproject.toml","rb") as stream:
         scripts = tomllib.load(stream)["project"]["scripts"]
     assert scripts["diseno-apoyos-A"] == "bridge_design.cli.bearing_a_cli:main"
+
+
+def test_cast_in_place_command_rejects_prestressing(tmp_path, capsys):
+    from bridge_design.cli.bearing_a_cli import main, run_bearing_a
+    from bridge_design.cli.yaml_io import save_yaml_file
+    with pytest.raises(ValueError, match="postensado_cm debe ser 0"):
+        run_bearing_a(example_inputs(), no_word=True)
+    path = tmp_path / "postensado.yaml"
+    save_yaml_file(path, bearing_a_reference_example())
+    assert main(["input", str(path), "--sin-word"]) == 2
+    assert main(["ejemplo", str(tmp_path / "ejemplo.yaml")]) == 2
+    assert not (tmp_path / "ejemplo.yaml").exists()
+
+
+def test_cast_in_place_manual_requires_shrinkage_and_skips_prestress(monkeypatch):
+    from bridge_design.cli.bearing_a_cli import collect_bearing_a_inputs
+    prompts = []
+    shrinkage_answers = iter(["", "nan", "-1", "0.24"])
+    def answer(prompt):
+        prompts.append(prompt)
+        if "IM incremento dinámico" in prompt:
+            return "5"
+        if "Acortamiento por retracción calculado" in prompt:
+            return next(shrinkage_answers)
+        return ""
+    monkeypatch.setattr("builtins.input", answer)
+    i = collect_bearing_a_inputs()
+    assert i.movements.prestress_shortening_cm == 0
+    assert i.movements.shrinkage_cm == .24
+    assert not any("Acortamiento por postensado" in p for p in prompts)
+    assert not any("f'c pedestal" in p for p in prompts)
+    assert not any("Coeficiente sísmico" in p for p in prompts)
+
+
+def test_cast_in_place_template_has_zero_prestress():
+    i = bearing_a_from_yaml(bearing_a_template())
+    assert i.movements.prestress_shortening_cm == 0
+
+
+def test_exterior_manual_defaults_preserve_combined_live_load(monkeypatch):
+    from bridge_design.cli.bearing_a_cli import collect_bearing_a_inputs
+    prompts = []
+    def answer(prompt):
+        prompts.append(prompt)
+        if "Acortamiento por retracción calculado" in prompt:
+            return "0.45"
+        return ""
+    monkeypatch.setattr("builtins.input", answer)
+    i = collect_bearing_a_inputs()
+    assert i.actions.dc_tn == 27.470
+    assert i.actions.dw_tn == .169
+    assert i.actions.pl_tn == 4.669
+    assert i.actions.im_tn == 5.427
+    assert i.actions.ll_tn == 16.444
+    assert "composición por confirmar" in i.actions.source
+    r = design_bearing_a(i)
+    assert r.value("P") == pytest.approx(54.179)
+    assert any("IM incremento dinámico" in p and "5.427" in p for p in prompts)
+    assert not any("LL+IM vehicular combinado" in p for p in prompts)
+
+
+def test_proposed_total_height_and_length_are_preserved():
+    i = example_inputs()
+    g = replace(i.geometry, length_cm=30, total_height_cm=8.6,
+        interior_cm=None, exterior_cm=None, interior_layers=None, steel_cm=None)
+    r = design_bearing_a(replace(i, geometry=g, compression_curve=None))
+    assert r.adopted.length_cm == 30
+    assert r.value("HEIGHT") == pytest.approx(8.6)
+    assert r.step("HEIGHT_TARGET").status == "CUMPLE"
+    assert r.value("HEIGHT") == pytest.approx(r.adopted.interior_layers*r.adopted.interior_cm +
+        2*r.adopted.exterior_cm + (r.adopted.interior_layers+1)*r.adopted.steel_cm)
+
+
+def test_incompatible_proposed_height_is_not_silently_changed():
+    i = example_inputs()
+    manual = replace(i.geometry, total_height_cm=7.5)
+    r = design_bearing_a(replace(i, geometry=manual))
+    assert r.step("HEIGHT_TARGET").status == "NO CUMPLE"
+    assert r.value("HEIGHT") == 8.6
+    automatic = replace(manual, total_height_cm=.1, interior_cm=None,
+        exterior_cm=None, interior_layers=None, steel_cm=None)
+    with pytest.raises(ValueError, match="No se encontró composición compatible"):
+        design_bearing_a(replace(i, geometry=automatic))
+
+
+def test_manual_proposed_height_skips_individual_layers(monkeypatch):
+    from bridge_design.cli.bearing_a_cli import collect_bearing_a_inputs
+    prompts = []
+    def answer(prompt):
+        prompts.append(prompt)
+        if "Altura TOTAL" in prompt:
+            return "7.5"
+        if "Largo longitudinal propuesto" in prompt:
+            return "30"
+        if "Acortamiento por retracción calculado" in prompt:
+            return "0.45"
+        return ""
+    monkeypatch.setattr("builtins.input", answer)
+    i = collect_bearing_a_inputs()
+    assert i.geometry.total_height_cm == 7.5
+    assert i.geometry.length_cm == 30
+    assert i.geometry.interior_cm is None
+    assert not any("Espesor de UNA" in p for p in prompts)
+
+
+def test_yaml_total_height_roundtrip_into_geometry():
+    data = bearing_a_template()
+    data["geometria"]["altura_total_cm"] = 7.5
+    assert bearing_a_from_yaml(data).geometry.total_height_cm == 7.5
+
+
+def test_neoprene_scope_excludes_pedestal_and_connections_but_keeps_slip():
+    i = replace(example_inputs(), neoprene_only=True)
+    r = design_bearing_a(i)
+    assert r.value("HU") == pytest.approx(9.092898)
+    assert r.value("HEIGHT") == 8.6
+    assert r.step("SLIP").status == "CUMPLE"
+    assert not {"PU", "A2", "CONCRETE", "EQ_L", "EQ_T", "CONNECTION_L", "CONNECTION_T"} & {s.id for s in r.steps}
+    low_friction = replace(i, connections=replace(i.connections, friction_mu=.01))
+    bad = design_bearing_a(low_friction)
+    assert bad.step("SLIP").status == "NO CUMPLE"
+    assert "retención externa" in bad.step("SLIP").note
+
+
+def test_neoprene_cli_yaml_template_excludes_external_data(tmp_path):
+    from bridge_design.cli.bearing_a_cli import main, run_bearing_a
+    from bridge_design.cli.yaml_io import load_yaml_file
+    path = tmp_path / "neopreno.yaml"
+    assert main(["output", str(path)]) == 0
+    data = load_yaml_file(path)
+    assert "concreto" not in data
+    assert data["conexiones"] == {"mu": .2}
+    r = run_bearing_a(bearing_a_from_yaml(data), no_word=True)
+    assert r.inputs.neoprene_only
+    assert "CONNECTION_T" not in {s.id for s in r.steps}
+
+
+def test_neoprene_word_excludes_external_checks(tmp_path):
+    from bridge_design.reporting.bearing_a_docx import generate_bearing_a_docx
+    from docx import Document
+    r = design_bearing_a(replace(example_inputs(), neoprene_only=True))
+    doc = Document(generate_bearing_a_docx(r, tmp_path / "neopreno.docx"))
+    text = "\n".join([p.text for p in doc.paragraphs] +
+        [c.text for t in doc.tables for row in t.rows for c in row.cells])
+    assert "CONNECTION_T" not in text and "CONCRETE" not in text
+    assert "As / número de tramos" not in text
+    assert "SLIP" in text
+
+
+def test_neoprene_automatic_estimate_computes_without_claiming_certification():
+    i = replace(example_inputs(), neoprene_only=True, compression_curve=None, compression_method="elastico")
+    r = design_bearing_a(i)
+    assert r.status == "ESTIMADO"
+    assert not r.overall_ok
+    for key in ("STRAIN_CHECK", "JOINT"):
+        assert r.step(key).status == "CUMPLE (ESTIMADO)"
+        assert r.value(key) <= r.step(key).limit
+    bad = design_bearing_a(replace(i, joint_limit_cm=.00001))
+    assert bad.step("JOINT").status == "NO CUMPLE"
+    assert bad.status == "NO CONFORME"
+
+
+def test_neoprene_supplied_curve_outside_coverage_remains_pending():
+    i = replace(example_inputs(), neoprene_only=True)
+    curve = CompressionCurve("Datos incompletos", 60, ((6,0,0),(6,1,.001)), "referencia")
+    r = design_bearing_a(replace(i, compression_curve=curve))
+    assert r.step("STRAIN_CHECK").status == "PENDIENTE"
+    assert r.step("STRAIN_CHECK").value is None
+
+
+def test_graph_readings_are_available_without_yaml(monkeypatch):
+    from bridge_design.cli.bearing_a_cli import collect_bearing_a_inputs
+    def answer(prompt):
+        if "Curvas: Enter=" in prompt:
+            return "G"
+        if "Acortamiento por retracción calculado" in prompt:
+            return "0.45"
+        if "Deformación" in prompt:
+            return "4" if "total" in prompt else "3"
+        return ""
+    monkeypatch.setattr("builtins.input", answer)
+    i = collect_bearing_a_inputs()
+    r = design_bearing_a(i)
+    assert r.value("EPS_IT") == pytest.approx(.04)
+    assert r.value("EPS_ID") == pytest.approx(.03)
+    assert r.step("STRAIN_CHECK").status == "REFERENCIAL"

@@ -1,96 +1,114 @@
-# Diseño de apoyos elastoméricos Método A
+# Dimensionamiento de apoyos de neopreno - Método A
 
-`diseno-apoyos-A` calcula apoyos rectangulares reforzados con zunchos de acero según el Manual de Puentes MTC 2018, artículo 2.10.4. Genera una memoria Word con el formato de `diseno-apoyos-neopreno` y un registro JSON reproducible. La referencia académica es el archivo APOYOS.pdf de Arturo Rodríguez Serquén, páginas impresas 229 a 239.
+`diseno-apoyos-A` dimensiona un apoyo rectangular zunchado sin agujeros ni PTFE para un puente de concreto armado construido en sitio. Incluye geometría, movimientos, compresión, capas, zunchos por servicio y fatiga, estabilidad, deflexiones y fricción. No dimensiona ni verifica el pedestal ni las conexiones sísmicas externas. La fricción insuficiente se informa expresamente.
 
 ## Ejecución
 
-Desde la carpeta del proyecto, con el paquete instalado mediante `python -m pip install -e . --no-deps`:
-
 ```powershell
 diseno-apoyos-A
-diseno-apoyos-A --help
 diseno-apoyos-A output modelo_apoyos_A.yaml
-diseno-apoyos-A input modelo_apoyos_A.yaml
+diseno-apoyos-A input modelo_apoyos_A.yaml --sin-word
 diseno-apoyos-A input modelo_apoyos_A.yaml --word memoria_A.docx --json calculo_A.json
-diseno-apoyos-A input modelo_apoyos_A.yaml --sin-word --json calculo_A.json
 ```
 
-Sin argumentos, el programa pide los datos en la terminal. Con `input` u `output` sin ruta abre un selector de YAML. Después del cálculo abre el diálogo para guardar Word, salvo que se indique `--word` o `--sin-word`. Cancelar el Word conserva los resultados de consola y permite exportar JSON.
+Sin argumentos se ingresan los datos en consola. Se conserva la exportación Word y JSON desde el mismo registro numérico. El comando aplica alcance neopreno incluso a los YAML antiguos de alcance completo. El motor interno conserva las comprobaciones externas para compatibilidad, pero el comando no las ejecuta.
 
-Si el comando todavía no está registrado, se puede ejecutar su módulo desde esta carpeta:
+## Salida de terminal en cuadros
+
+La salida predeterminada organiza el resumen, cargas, composición, resultados principales, verificaciones y observaciones en cuadros de texto. En las verificaciones se muestra valor, límite, uso del límite y estado. Las deformaciones unitarias se presentan en porcentaje; el uso del límite es otro porcentaje (valor/límite), no la deformación. Las unidades se mantienen visibles y los datos faltantes se muestran como tales.
+
+Por defecto, después del resumen se desarrolla cada cálculo en un cuadro con fórmula, variables y unidades, reemplazo numérico, resultado, comparación con el límite, uso porcentual, estado y referencia. No es necesario activar ninguna opción. Para solicitar solamente el resumen:
 
 ```powershell
-python -m bridge_design.cli.bearing_a_cli input modelo_apoyos_A.yaml --sin-word
+diseno-apoyos-A --resumen
+diseno-apoyos-A input modelo_apoyos_A.yaml --sin-word --resumen
 ```
 
-## Alcance y unidades
+El formato se ajusta entre 72 y 112 columnas. Los cálculos, los estados, el Word y el JSON no cambian por este formato de presentación.
 
-Se considera un apoyo rectangular sin agujeros ni PTFE, bajo compresión, con Shore A 50 o 60. L es longitudinal y W transversal. La rotación principal debe ocurrir alrededor del eje transversal. Otros tipos de apoyo, levantamiento y superficies deslizantes requieren un modelo diferente.
+## Compresión automática con Serquén
 
-Las fuerzas se ingresan por apoyo en toneladas-fuerza (Tn), con 1 Tn = 1000 kgf. Los esfuerzos son kgf/cm² y los espesores son cm. La longitud de expansión es la distancia efectiva desde el punto fijo, en m; no necesariamente la luz completa. LL se ingresa sin impacto y el incremento IM se declara por separado. IM participa en esfuerzos de servicio y Resistencia I del concreto, pero se excluye del límite de deformación por compresión de MTC 2.10.4.3.3.
+Enter en la pregunta de curvas usa las gráficas de Serquén p.231, Fig. C14.7.6.3.3-1, para Shore A 50 o 60. Se incorporan las seis curvas de factor de forma S=3,4,5,6,9,12 para cada dureza. Se interpola linealmente en esfuerzo y luego en S, sin extrapolar. Los esfuerzos de la figura se convierten de ksi a kgf/cm² con 70.306957964; los porcentajes se dividen entre 100.
 
-## Geometría manual y selección automática
+El registro muestra los puntos y fracciones utilizados. La digitalización es una lectura referencial, no una curva de ensayo de producto. Se conservan las cuatro lecturas de la p.238 únicamente como comprobación independiente del ejemplo, sin imponerlas a otras geometrías. La tolerancia de contraste del ejemplo es 0.15 puntos porcentuales de deformación; no constituye una cota del error en toda la gráfica.
 
-Las dimensiones ingresadas se conservan exactamente. Un apoyo insuficiente produce verificaciones `NO CUMPLE`; el programa no aumenta su tamaño ni recorta sus capas para hacerlo cumplir.
+También se puede escribir `G` para ingresar lecturas propias, `E` para utilizar explícitamente la aproximación elástica anterior, o una ruta YAML con curvas del fabricante. Las curvas suministradas tienen prioridad sobre el método automático. Una curva insuficiente o una consulta fuera de cobertura no se sustituye silenciosamente por otra fórmula.
 
-Para buscar automáticamente, escribir `null` en los valores no adoptados de `geometria`: `largo_cm`, `capa_interior_cm`, `capa_exterior_cm`, `numero_capas_interiores` y `zuncho_cm`. El ancho siempre se declara. La búsqueda prueba espesores interiores de 0.5, 0.8, 1.0, 1.2, 1.5 y 2.0 cm, exteriores compatibles, largos enteros en cm y hasta el límite de capas configurado. El zuncho se redondea hacia arriba a incrementos de 1 mm, con mínimo práctico de 2 mm. Debe confirmarse la disponibilidad del fabricante.
+En YAML:
 
-Se elige el menor largo con una composición viable, luego la menor altura y cantidad de capas. Se verifica por separado el concreto y las resistencias externas. Si no hay candidato dentro de los límites, el programa devuelve un error explícito. Con curvas declaradas, el candidato debe quedar dentro de su cobertura.
+```yaml
+compresion:
+  metodo: serquen  # o elastico
+  fuente: ''
+  tipo: fabricante
+  shore_a: 60
+  puntos: []
+```
 
-El límite normativo de aplicabilidad es `S_i²/n_eff < 22`. Se adopta además el criterio conservador del comentario transcrito en APOYOS.pdf: 20 para tres o más capas interiores y 16 para apoyos cuadrados o clasificados como casi cuadrados. Un apoyo exactamente cuadrado activa automáticamente 16; el usuario debe clasificar los casi cuadrados con `casi_cuadrado: true`.
+Con puntos vacíos y método serquen se carga la referencia incorporada para la dureza del apoyo. Con puntos explícitos se utilizan esos puntos, su tipo y procedencia. Cada S necesita origen `[S, 0, 0]` y al menos otro punto de esfuerzo/deformación. La dureza debe coincidir. Para curvas propias, la deformación se expresa como decimal.
 
-## Compresión y respaldo de los datos
+## Selección geométrica
 
-La sección `compresion` admite tablas con puntos `[S, sigma_kg_cm2, epsilon_decimal]`. Por ejemplo, una deformación de 4.45 % se ingresa como `0.0445`. Cada factor S debe tener el origen `[S, 0, 0]` y al menos otro punto, con esfuerzos únicos crecientes y deformaciones no decrecientes.
+El largo L es longitudinal; W es transversal. La altura H incluye todo el caucho y todo el acero. Los valores propuestos se conservan, sin ajustarlos silenciosamente.
 
-Se interpola linealmente primero en esfuerzo y después en S. El registro conserva los puntos que rodean cada consulta y sus fracciones de interpolación. No se extrapola. Una consulta fuera de la tabla deja la deformación y sus verificaciones pendientes.
+| Modo | Función |
+|---|---|
+| medida | Composición a medida; prueba capas y zunchos, y calcula el espesor exterior compatible con H si se propone. |
+| usuales | Parejas hri/hs de p.224: 8/2, 10/3, 12/3 y 15/4 mm; no equivalen por sí solas a un producto comercial. |
+| semirecubierto | Filas carreteras de las tablas pp.225-227. |
+| recubierto | Filas carreteras de p.228, con 5 mm de recubrimiento lateral según la descripción p.224. |
 
-Con `tipo: fabricante`, indicar la procedencia del ensayo, producto, lote, dureza y revisión aplicables. El programa comprueba la consistencia numérica; la identificación y autenticidad del certificado deben verificarse contra el producto. Con `tipo: referencia`, la tabla sirve para una comprobación académica y produce estado `REFERENCIAL`.
+Para búsqueda YAML, fijar ancho y las dimensiones deseadas y dejar en `null` las variables libres:
 
-Sin tabla se calcula una estimación elástica de predimensionamiento, identificada como tal. Sus verificaciones quedan `PENDIENTE`: esa expresión no se presenta como una curva normativa ni como un ensayo del fabricante.
+```yaml
+geometria:
+  ancho_cm: 40
+  largo_cm: 30
+  altura_total_cm: 7.5
+  seleccion: medida
+  capa_interior_cm: null
+  capa_exterior_cm: null
+  numero_capas_interiores: null
+  zuncho_cm: null
+  rotacion_catalogo_rad: null
+```
 
-## Conexiones y concreto
+En modo medida con H fija se prueban también espesores de acero mayores que el mínimo: 2,3,4,5,6,8 y 10 mm. La búsqueda prioriza menor largo y altura; para la misma H fija, menor espesor de acero, luego menos capas. Los espesores resultantes requieren confirmación de fabricación. Una composición totalmente manual se verifica sin cambiarla. Una H manual incompatible produce NO CUMPLE; una búsqueda sin solución devuelve error explícito.
 
-Para un tramo, la fuerza sísmica de conexión puede calcularse como `As` por la carga permanente tributaria en cada dirección restringida. Para varios tramos deben ingresarse las fuerzas del análisis. La envolvente horizontal de Resistencia I se ingresa desde el análisis del puente y debe incluir frenado, temperatura y las combinaciones pertinentes.
+## Catálogo de Serquén
 
-`GA·Delta/h` es una reacción horizontal de servicio, no una resistencia sísmica. Si la fricción es insuficiente, se exige retención para la reacción horizontal completa. No se descuenta fricción ni reacción térmica de la demanda sísmica. La retención debe permitir el movimiento del apoyo expansivo.
+Se transcribieron 119 filas de planta/capacidad para carreteras: 96 semirecubiertas y 23 recubiertas. Se incluyen solo las columnas de composición que tienen rotación legible y al menos una capa interior. El n del catálogo cuenta zunchos; el programa usa `capas interiores = n - 1` y dos capas exteriores de medio espesor interior, siguiendo pp.224-228.
 
-Las resistencias longitudinal y transversal son resistencias **de diseño** de dispositivos externos. Su fuente debe identificar una memoria o certificado que cubra acero, soldaduras/pernos, anclajes, concreto y la trayectoria resistente. Este comando verifica esas capacidades declaradas; no dimensiona los elementos externos de esa memoria. Cuando son necesarias y no se suministran, la conexión queda `PENDIENTE`.
+El catálogo usa el lado corto como L en la dirección del movimiento. No se intercambian los ejes automáticamente porque la capacidad de rotación depende de la orientación. Se compara la carga de servicio con N tabulado en kN (1 Tn = 9.80665 kN), el desplazamiento con u en mm y la rotación de servicio con alpha en milirradianes. La rotación de análisis debe ingresarse en radianes. Sin ella, la comprobación específica de catálogo queda pendiente, aunque la rotación implícita del Método A se compruebe geométricamente.
 
-Se verifica el aplastamiento del pedestal con Resistencia I. Por defecto `A2=A1`; solo declarar un A2 mayor cuando su geometría similar, concéntrica y contenida en el pedestal esté justificada. El programa rechaza como verificación un A2 menor al área cargada.
+Los apoyos recubiertos conservan dimensiones exteriores para identificar la fila; el área efectiva y S usan el núcleo descontando los 5 mm laterales. La memoria identifica esa hipótesis; el detalle del fabricante debe confirmarla. Las capacidades tabuladas no reemplazan las verificaciones del Método A. Las columnas en negrita del libro no son las únicas que se pueden consultar.
 
-## Resultados y estados
+Las gráficas no cubren S mayor que 12. Algunos apoyos de catálogo tienen factores exteriores por encima de ese valor: en esos casos se conservan los controles calculables y se informa la falta de cobertura para las deflexiones, sin extrapolar. La selección prioriza menos comprobaciones pendientes, luego menor L y H. No se atribuye conformidad a una comprobación sin datos.
 
-La memoria contiene entradas, geometría, movimiento, compresión, zunchos por servicio y fatiga, estabilidad, deflexión instantánea y diferida, fricción, conexiones, aplastamiento y esquema de capas. Cada operación conserva fórmula, leyenda, sustitución, resultado, unidad y referencia. Los controles incluyen límite y ratio cuando puede calcularse.
+Hay posibles erratas en el documento: por ejemplo, p.226 muestra 10.0 mrad para la tercera composición de lado 100 mm después de 30 y 60; esa casilla se excluye, sin inventar 90. Las otras cifras tabuladas se transcriben como aparecen (incluidas las excepciones de desplazamiento); además siempre se verifica el límite de corte del Método A. No se extrapolan casillas vacías ni se asume disponibilidad comercial actual.
 
-Los estados globales, en orden de prioridad, son:
+## Entradas del proyecto
+
+Las fuerzas son reacciones por apoyo, en Tn; longitudes en cm y m; esfuerzos en kgf/cm². En consola se proponen DC=27.470, DW=0.169, PL=4.669, LL=16.444 e IM=5.427 Tn. Esta separación LL/IM supone 33% de impacto sobre vehículo sin carril dentro de 21.871 Tn; permanece identificada como hipótesis por confirmar. El YAML conserva sus propias cargas.
+
+La longitud efectiva es desde el punto de movimiento nulo, no necesariamente la luz completa. La retracción se ingresa desde el cálculo o hipótesis declarada del tablero; el programa no la obtiene de las gráficas del elastómero. El postensado se fija en cero y el comando rechaza valores distintos de cero. La comprobación interna del ejemplo postensado 4.1 se conserva como regresión, no como plantilla para este comando.
+
+## Estados y alcance de la conclusión
 
 | Estado | Significado |
 |---|---|
-| NO CONFORME | Al menos una verificación incumple. |
-| PENDIENTE | Faltan datos o respaldo para alguna verificación. |
-| REFERENCIAL | Se utilizan datos académicos de compresión. |
-| CONFORME | Todas las verificaciones cumplen con los datos y fuentes declarados. |
+| NO CONFORME | Existe al menos un incumplimiento numérico. |
+| PENDIENTE | Falta una consulta dentro de la cobertura o un dato necesario. |
+| ESTIMADO | Controles favorables con la aproximación elástica elegida expresamente. |
+| REFERENCIAL | Controles favorables con gráficas, tablas o lecturas referenciales; la consola indica CUMPLE según la referencia. |
+| CONFORME | Todas las comprobaciones incluidas cumplen con las fuentes declaradas; no es certificación independiente del producto. |
 
-El JSON conserva todas las entradas normalizadas, las dimensiones realmente adoptadas, 40 registros de cálculo, la versión del algoritmo y el SHA256 de las entradas. El Word y la consola se generan a partir de ese mismo registro. El hash identifica entradas; no certifica ni firma el diseño.
+Las figuras del libro permiten reproducir el procedimiento académico y contrastar resultados; no sustituyen la documentación del apoyo fabricado. Ni el hash ni una prueba automatizada certifican el proyecto.
 
-## Comprobación con el PDF
+## Fuente y validación
 
-El archivo `ejemplo_apoyos_A_serquen.yaml` reproduce el problema 4.1. Puede regenerarse y ejecutarse:
+Fuente aportada: `568062706-PUENTES-con-AASHTO-LRFD-2020-9th-Edition-Arturo-Rodriguez-Serquen.pdf`, extracto de 17 páginas, impresas 223-239. SHA256: `06e99d60cb5bc0ef43f2f87b848ce27a7f57a1bef8ce0bfcffffbb8428573f2e`.
 
-```powershell
-diseno-apoyos-A ejemplo ejemplo_apoyos_A_serquen.yaml
-diseno-apoyos-A input ejemplo_apoyos_A_serquen.yaml --word memoria_ejemplo_A.docx --json ejemplo_A.json
-```
+Datos incorporados: `src/bridge_design/domain/serquen_bearings.py`. La imagen de las curvas tiene 614x1004 píxeles; el archivo documenta la calibración de ejes. Las lecturas se revisaron superponiéndolas a las curvas. Para el problema 4.1, la digitalización da delta total aproximadamente 0.319 cm frente a 0.323 cm del libro, y delta de carga viva más creep 0.151 cm frente a 0.153 cm. Las pruebas conservan además el contraste exacto con las cuatro lecturas originales de la p.238.
 
-Resultados de control: servicio 92 Tn; planta 300 × 450 mm; cuatro capas interiores de 15 mm; dos exteriores de 8 mm; cinco zunchos de 2 mm; altura 86 mm; movimiento 3.6408 cm; reacción horizontal 9.092898 Tn. Se utilizan las cuatro lecturas de deformación del cuadro del PDF, no una digitalización general de sus gráficas. Los resultados conservan todos los decimales y pueden diferir ligeramente de los redondeos del libro.
-
-El ejemplo tiene estado `REFERENCIAL`. Su fuente no define sismo y se desactivan esas demandas únicamente para reproducir el ejercicio; no debe usarse como configuración sísmica de un puente real.
-
-Las pruebas automatizadas incluyen esta comparación, geometrías insuficientes sin modificación, límites estrictos, curvas fuera de cobertura, temperaturas de expansión, IM, datos no finitos, resistencias sísmicas insuficientes, búsqueda acotada y exportaciones Word/JSON.
-
-## Fuentes
-
-[Manual de Puentes MTC 2018 en el portal oficial](https://portal.mtc.gob.pe/transportes/caminos/normas_carreteras/manuales.html), artículos 2.10.4, 2.10.3.3.5, 2.10.3.3.6, 2.4.3.9.2, 2.4.3.11.8, 2.4.5.3.1 y 2.8.1.4. Los artículos AASHTO indicados corresponden a las correlaciones de esa edición del Manual.
-
-APOYOS.pdf, Arturo Rodríguez Serquén, páginas impresas 229 a 239: procedimiento de Método A y problema 4.1.
+La validación cubre unidades, interpolación, ausencia de extrapolación, ambas durezas, selección usual y de catálogo, preservación de dimensiones, recubrimiento, rotación faltante/excesiva, geometrías insuficientes y exportación de resultados.

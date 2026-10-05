@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from PIL import Image, ImageDraw
+from bridge_design.domain.connected_2_inputs import is_connected_2
 
 from bridge_design.reporting.connected_chart_geometry import BLUE, RED, GRAY, GREEN, draw_structure, font
 from bridge_design.reporting.connected_frame_charts import frame_envelope_chart
@@ -67,7 +68,8 @@ def geometry_chart(result, path):
     def point(position, height):
         return 130 + position * scale, base_y - height * scale
 
-    draw.text((95, 40), "Estribos conectados con cimentacion continua", fill=BLUE, font=font(42))
+    title = "Estribos conectados 2 - base uniforme" if is_connected_2(data) else "Estribos conectados con cimentacion continua"
+    draw.text((95, 40), title, fill=BLUE, font=font(42))
     draw.text((95, 100), f"Franja 1.00 m | ks = {data.soil.subgrade_tn_m3:g} Tn/m3 | "
               f"{len(mesh.frame.springs)} resortes | Empuje activo en ambos lados",
               fill=GRAY, font=font(26))
@@ -114,6 +116,10 @@ def save_connected_charts(result, directory):
     paths.update(save_service_load_charts(result, destination))
     deformation_chart(result, paths["deformada"])
     reinforcement_chart(result, paths["armado"])
+    if any(s.foundation_reinforcement_cut is not None for s in result.reinforcement):
+        from bridge_design.reporting.connected_cut_charts import foundation_cut_chart
+        paths["cortes_zapata"] = destination / "cortes_zapata.png"
+        foundation_cut_chart(result, paths["cortes_zapata"])
     for index, group in enumerate(combination_groups(result), 1):
         for field in ("axial", "shear", "moment"):
             key = f"envolvente_{index}_{field}"

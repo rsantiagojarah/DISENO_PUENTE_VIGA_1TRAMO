@@ -75,7 +75,7 @@ def _diagram(result: BearingAResult) -> BytesIO:
     d.text((850,730),f"{g.interior_layers} capas interiores de {g.interior_cm*10:g} mm",font=small,fill="black")
     d.text((850,775),f"2 capas exteriores de {g.exterior_cm*10:g} mm",font=small,fill="black")
     d.text((850,820),f"{g.interior_layers+1} zunchos de {g.steel_cm*10:g} mm",font=small,fill="black")
-    d.text((100,920),"Esquema del nucleo zunchado; el detalle de retencion externa se verifica por separado.",font=small,fill="black")
+    d.text((100,920),"Esquema de capas; dimensiones y recubrimientos según la geometría adoptada.",font=small,fill="black")
     stream = BytesIO()
     canvas.save(stream,format="PNG")
     stream.seek(0)
@@ -166,15 +166,17 @@ def generate_bearing_a_docx(result: BearingAResult, output_path: str | Path) -> 
         ("Norma de cálculo","Manual de Puentes MTC 2018, Artículo 2.10.4"),
         ("Fecha de emisión",datetime.now(timezone(timedelta(hours=-5))).strftime("%d/%m/%Y")),
     ),widths=(42,117),accent=True)
-    _body(doc,"La memoria desarrolla la geometría, las acciones, el movimiento horizontal, la compresión, los zunchos, la estabilidad, las conexiones y el aplastamiento del concreto. Estado del cálculo: "+result.status+". Las verificaciones pendientes y referenciales se identifican expresamente en el resumen.")
+    _body(doc,"Alcance: dimensionamiento del apoyo de neopreno, incluidas capas, zunchos, deformaciones, estabilidad y fricción. Pedestal y conexiones externas fuera de alcance. Estado: "+result.status if result.inputs.neoprene_only else "La memoria desarrolla la geometría, las acciones, el movimiento horizontal, la compresión, los zunchos, la estabilidad, las conexiones y el aplastamiento del concreto. Estado del cálculo: "+result.status+". Las verificaciones pendientes y referenciales se identifican expresamente en el resumen.")
     doc.add_page_break()
     doc.add_heading("Contenido",1)
     groups = tuple(dict.fromkeys(s.section for s in result.steps))
     contents = (("1","Bases de diseño y entradas"),) + tuple((str(j+2),name) for j,name in enumerate(groups)) + (("7","Resumen de verificaciones"),("8","Diseño adoptado y detalle de capas"),("9","Trazabilidad y referencias"))
     _table(doc,("Sección","Contenido"),contents,widths=(25,134),accent=True)
     doc.add_heading("1 Bases de diseño y entradas",1)
-    _body(doc,"Se considera un apoyo rectangular zunchado sin agujeros ni superficie deslizante PTFE, sometido a compresión. L es longitudinal y W transversal. El alcance requiere rotación principal alrededor del eje transversal. Los certificados del producto, la geometría del pedestal y las resistencias externas deben corresponder al apoyo identificado.")
-    _body(doc,"Los esfuerzos se expresan en kgf/cm² y las fuerzas en toneladas-fuerza (Tn), con 1 Tn = 1000 kgf. No se aplica redondeo intermedio. La compresión para el límite de deformación excluye IM; los esfuerzos y el aplastamiento usan las acciones declaradas. La envolvente Resistencia I horizontal debe incluir las combinaciones de frenado y temperatura del modelo.")
+    if result.inputs.movements.prestress_shortening_cm == 0:
+        _body(doc,"Alcance de diseno-apoyos-A: concreto armado construido en sitio, sin postensado. La retracción se ingresa desde el cálculo del tablero.")
+    _body(doc,"Apoyo rectangular zunchado sin agujeros ni PTFE. L longitudinal y W transversal; rotación principal alrededor del eje transversal. Se requiere respaldo de las propiedades del elastómero." if result.inputs.neoprene_only else "Se considera un apoyo rectangular zunchado sin agujeros ni superficie deslizante PTFE, sometido a compresión. L es longitudinal y W transversal. El alcance requiere rotación principal alrededor del eje transversal. Los certificados del producto, la geometría del pedestal y las resistencias externas deben corresponder al apoyo identificado.")
+    _body(doc,"Fuerzas en Tn; longitudes en cm; esfuerzos en kgf/cm². La deformación por compresión excluye IM. Las demandas y capacidades de conexiones externas no se evalúan." if result.inputs.neoprene_only else "Los esfuerzos se expresan en kgf/cm² y las fuerzas en toneladas-fuerza (Tn), con 1 Tn = 1000 kgf. No se aplica redondeo intermedio. La compresión para el límite de deformación excluye IM; los esfuerzos y el aplastamiento usan las acciones declaradas. La envolvente Resistencia I horizontal debe incluir las combinaciones de frenado y temperatura del modelo.")
     _table(doc,("Parámetro","Valor"),(
         ("Procedencia de cargas",i.actions.source),
         ("Acciones DC / DW / LL / PL / IM",f"{i.actions.dc_tn:g} / {i.actions.dw_tn:g} / {i.actions.ll_tn:g} / {i.actions.pl_tn:g} / {i.actions.im_tn:g} Tn"),
@@ -184,12 +186,14 @@ def generate_bearing_a_docx(result: BearingAResult, output_path: str | Path) -> 
         ("Retracción / postensado / otros",f"{i.movements.shrinkage_cm:g} / {i.movements.prestress_shortening_cm:g} / {i.movements.other_permanent_cm:g} cm"),
         ("Movimiento térmico",("Rango completo" if not i.movements.use_install_to_min else "Desde instalación")+f"; gamma_TU={i.movements.gamma_tu:g}; alpha={i.movements.alpha_per_c:g}/°C"),
         ("G mínimo / máximo",f"{({50:(6.68,9.14),60:(9.14,14.06)}[i.hardness])[0]:g} / {({50:(6.68,9.14),60:(9.14,14.06)}[i.hardness])[1]:g} kgf/cm²"),
+        *(((("Fy zunchos",f"{i.fy_kg_cm2:g} kgf/cm²"),)) if i.neoprene_only else (
         ("Fy zunchos / f'c concreto",f"{i.fy_kg_cm2:g} / {i.fc_kg_cm2:g} kgf/cm²; phi={i.concrete_phi:g}"),
         ("As / número de tramos",f"{i.connections.as_site:g} / "+("un tramo" if i.connections.single_span else "varios tramos")),
         ("Restricción longitudinal / transversal",("Sí" if i.connections.restrained_longitudinal else "No")+" / "+("Sí" if i.connections.restrained_transverse else "No")),
+        )),
         ("Fricción",f"mu={i.connections.friction_mu:g}"),
-        ("Fuente de resistencia de conexiones",i.connections.resistance_source or "Sin memoria de resistencia externa"),
-        ("Modelo de compresión",i.compression_curve.source if i.compression_curve else "Estimación elástica pendiente de curvas de producto"),
+        *(() if i.neoprene_only else (("Fuente de resistencia de conexiones",i.connections.resistance_source or "Sin memoria de resistencia externa"),)),
+        ("Modelo de compresión",i.compression_curve.source if i.compression_curve else "Cálculo elástico automático estimado; sin curvas de producto" if i.neoprene_only else "Estimación elástica pendiente de curvas de producto"),
         ("Selección",result.selection_note+f" Candidatos evaluados: {result.candidates}."),
     ),widths=(65,94))
     if i.compression_curve:
@@ -207,7 +211,7 @@ def generate_bearing_a_docx(result: BearingAResult, output_path: str | Path) -> 
         "Sin datos" if s.limit is None else ("< " if s.strict else "<= ")+f"{s.limit:.5g} {s.unit}",
         "-" if s.ratio is None else f"{s.ratio:.3f}",s.status,
     ) for s in result.checks),widths=(53,30,29,17,30))
-    _body(doc,"Estado global: "+result.status+". NO CONFORME identifica incumplimientos; PENDIENTE identifica verificaciones sin respaldo suficiente; REFERENCIAL identifica datos de un ejemplo académico. CONFORME requiere que todas las comprobaciones cumplan con las fuentes de entrada declaradas.")
+    _body(doc,"Estado global: "+result.status+". NO CONFORME identifica incumplimientos; ESTIMADO identifica comprobaciones favorables calculadas mediante aproximación elástica, sin acreditar propiedades del producto; PENDIENTE identifica verificaciones sin datos suficientes; REFERENCIAL indica cumplimiento numérico con gráficas, tablas o lecturas académicas; no certifica el producto. CONFORME requiere que todas las comprobaciones cumplan con las fuentes de entrada declaradas.")
     doc.add_heading("8 Diseño adoptado y detalle de capas",1)
     doc.add_picture(_diagram(result),width=Mm(159))
     _body(doc,"Las capas interiores tienen igual espesor y dos caras adheridas; las exteriores tienen una cara adherida. Cada zuncho se adhiere al elastómero. Los planos de fabricación deben definir protección de cantos, recubrimiento lateral, tolerancias, paralelismo y la retención compatible con el movimiento. No se consideran agujeros ni diseño de PTFE en este módulo.")

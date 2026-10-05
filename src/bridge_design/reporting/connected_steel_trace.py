@@ -35,7 +35,9 @@ def steel_tables(steel, audit):
         if row is not None:
             rows.append((name, source(row), number(row[ratio])))
     yield AuditTable(f"{steel.region}: secciones gobernantes independientes", ("Control", "Origen y ubicacion", "Indice"), tuple(rows),
-                     "Cada control usa su propio caso y seccion; no se combinan maximos independientes. N se incluye en beta; no se verifica interaccion N-M. Caras e interiores; transiciones incluidas en losa central.")
+                     "Cada control usa su propio caso y seccion; no se combinan maximos independientes. N se incluye en beta; no se verifica interaccion N-M. " +
+                     ("Se incluyen todas las secciones de la zapata combinada." if steel.base_region == "Zapata combinada" else
+                      "Se incluyen las caras y secciones interiores de la region."))
     rows = []
     for limit_state in sorted({row["demand"]["limit_state"] for row in audit["areas"]}):
         candidates = [row for row in audit["areas"] if row["demand"]["limit_state"] == limit_state]

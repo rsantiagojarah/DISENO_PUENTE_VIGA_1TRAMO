@@ -3,6 +3,8 @@
 from pathlib import Path
 from docx import Document
 from bridge_design.domain.anchorage_status import anchorage_passes
+from bridge_design.domain.connected_2_inputs import is_connected_2
+from bridge_design.reporting.connected_2_geometry import connected_2_geometry_rows
 
 from bridge_design.domain.connected_reinforcement import DESIGN_SCOPE_NOTE
 from bridge_design.reporting.connected_docx_layout import SECTIONS, connected_front_matter, connected_summary_and_references, report_reinforcement
@@ -18,6 +20,7 @@ def write_connected_docx(result, path, charts):
     document = Document(Path(__file__).parent / "templates" / "connected_reference.docx")
     connected_front_matter(document, result)
     data, mesh = result.inputs, result.mesh
+    uniform = is_connected_2(data)
     audit = build_connected_audit(result)
 
     def section(number):
@@ -29,7 +32,8 @@ def write_connected_docx(result, path, charts):
     bearing_failures = sum(c.bearing_status != "OK" for c in result.foundation_checks)
     pending = sum(not anchorage_passes(s.anchor_status) for s in reinforcement if s.role == "primary")
     _body(document, "Se documentan el análisis estático y seudoestático, el contacto con el terreno y el armado "
-          "adoptado de dos estribos con cajuela unidos mediante una cimentación continua zapata–losa–zapata. "
+          + ("adoptado de dos estribos iguales con pantalla de espesor variable y cimentación continua uniforme. "
+             if uniform else "adoptado de dos estribos con cajuela unidos mediante una cimentación continua zapata–losa–zapata. ") +
           "La memoria permite seguir las cargas desde su origen hasta las comprobaciones gobernantes.")
     _body(document, f"Se resolvieron {len(result.results)} combinaciones; se registran {failures} distribuciones "
           f"de acero con controles no conformes, {bearing_failures} casos de presión no conformes y "
@@ -44,9 +48,21 @@ def write_connected_docx(result, path, charts):
 
     section(2)
     _picture(document, charts["geometria"], "Geometría del conjunto y ubicación de los resortes reales")
-    _body(document, f"Separación libre {data.clear_span_m:.3f} m; longitud total {data.total_length_m:.3f} m; "
+    geometry_note = (f"Separación libre {data.clear_span_m:.3f} m; longitud total {data.total_length_m:.3f} m; "
           f"losa de {data.slab_thickness_m:.3f} m; transiciones {data.left_transition_m:.3f} y "
           f"{data.right_transition_m:.3f} m. Origen en el extremo izquierdo y la cara superior de cimentación.")
+    if uniform:
+        geometry_note = (f"Luz libre superior {data.upper_clear_span_m:.3f} m; luz libre inferior {data.clear_span_m:.3f} m; "
+                         f"ancho total {data.total_length_m:.3f} m; espesor uniforme {data.slab_thickness_m:.3f} m. "
+                         "Origen en el extremo izquierdo y la cara superior de cimentación.")
+    _body(document, geometry_note)
+    if uniform:
+        _body(document, "Modelo ver_2l de estribos conectados 2. El trasdós es vertical; la cara interior "
+              "se inclina entre la base y el asiento. El relleno exterior llega a la coronación del parapeto "
+              "y no existe relleno interior sobre la zapata combinada. Los talones exteriores, los tramos bajo las pantallas "
+              "y el tramo entre estribos forman una única zapata combinada de espesor uniforme. "
+              "El armado superior e inferior se diseña con todas las secciones de esa zapata continua. "
+              "No se define una puntera interior ni un bloque o transición bajo el asiento.")
     labels = (("retained_height_m", "Altura de relleno desde fondo de zapata"),
               ("footing_width_m", "Ancho de zapata"), ("footing_thickness_m", "Espesor de zapata"),
               ("toe_length_m", "Longitud de puntera"), ("heel_length_m", "Longitud de talón"),
@@ -59,11 +75,12 @@ def write_connected_docx(result, path, charts):
               ("small_batter_width_m", "Transición frontal t1"), ("backfill_step_width_m", "Retiro posterior t2"),
               ("front_soil_depth_m", "Altura de suelo frontal desde fondo de zapata"),
               ("bridge_seat_to_bearing_height_m", "Brazo adicional para frenado"))
-    _table(document, ("Dimensión en metros", "Ambos estribos"),
-           [(label, f"{getattr(data.left.geometry, key):.3f}")
+    geometry_rows = [(label, f"{getattr(data.left.geometry, key):.3f}")
             for key, label in labels] + [
                 ("Espesor de losa de fondo central que une las zapatas", f"{data.slab_thickness_m:.3f}"),
-           ], widths=(110, 50), font_size=10)
+           ]
+    _table(document, ("Dimensión en metros", "Ambos estribos"),
+           connected_2_geometry_rows(data) if uniform else geometry_rows, widths=(110, 50), font_size=10)
     m = data.left.materials
     _table(document, ("Material", "Valor común"), (
         ("f'c kgf/cm²", f"{m.concrete_strength_kg_cm2:.1f}"),
@@ -75,7 +92,8 @@ def write_connected_docx(result, path, charts):
           f"qadm={data.soil.allowable_tn_m2:.3f} tn/m²; FS nominal={data.soil.nominal_bearing_fs:.3f}. "
           f"Recubrimiento de pantalla izquierdo/derecho {data.left.reinforcement.stem_cover_cm:.2f}/"
           f"{data.right.reinforcement.stem_cover_cm:.2f} cm; zapata {data.left.reinforcement.footing_cover_cm:.2f}/"
-          f"{data.right.reinforcement.footing_cover_cm:.2f} cm; losa {data.slab_cover_cm:.2f} cm.")
+          f"{data.right.reinforcement.footing_cover_cm:.2f} cm" +
+          (" en toda la zapata combinada." if uniform else f"; losa {data.slab_cover_cm:.2f} cm."))
 
     section(3)
     write_model_description(document, result)
@@ -99,7 +117,8 @@ def write_connected_docx(result, path, charts):
                ((name, *(f"{getattr(loads, key):.3f}" for key in
                           ("pdc_tn_m", "pdw_tn_m", "ppl_tn_m", "pll_im_tn_m", "braking_tn_m")))
                 for name, loads in (("Izquierda", left), ("Derecha", right))), widths=(35, 25, 25, 25, 25, 25))
-    _body(document, "Cada variante Ia o Ib se aplica globalmente a ambos estribos, losa y transiciones, sin "
+    _body(document, ("Cada variante Ia o Ib se aplica globalmente a ambos estribos y la zapata combinada, sin "
+          if uniform else "Cada variante Ia o Ib se aplica globalmente a ambos estribos, losa y transiciones, sin ") +
           "cruces entre regiones. Las reacciones izquierda y derecha son del mismo posicionamiento del tablero; "
           "no se cruzan máximos independientes. Se revisan ambos sentidos globales de frenado y sismo.")
     _body(document, "Evento Extremo I A utiliza PAE+0,5PIR; B utiliza max(0,5PAE,EH)+PIR. "
@@ -154,7 +173,7 @@ def write_connected_docx(result, path, charts):
     write_group_bearing(document, result, charts)
 
     from bridge_design.reporting.connected_distribution_report import write_distributed_design
-    write_distributed_design(document, result, reinforcement, audit)
+    write_distributed_design(document, result, reinforcement, audit, charts)
 
     section(10)
     force_error = max(max(abs(r.equilibrium_error[0]), abs(r.equilibrium_error[1])) for r in result.results)

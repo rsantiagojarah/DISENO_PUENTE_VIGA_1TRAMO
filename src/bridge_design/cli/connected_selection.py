@@ -6,6 +6,7 @@ from bridge_design.cli.ascii_tables import audit_block_title, boxed_table
 from bridge_design.cli.connected_prompts import yes_no
 from bridge_design.domain.connected_options import check_principal_area_choice, choice_from_steel
 from bridge_design.domain.connected_reinforcement import ConnectedBarChoice, ConnectedSteelChoice, DESIGN_SCOPE_NOTE
+from bridge_design.reporting.connected_cut_report import format_foundation_cut
 from bridge_design.domain.rebar_catalog import (
     REINFORCING_BAR_CATALOG, ReinforcementCaseOptions, ReinforcementSpacingOption,
     reinforcing_bar_by_label,
@@ -19,6 +20,8 @@ def format_connected_options(groups):
              "As req y As prov en cm2/m.",
              "Estado de opciones: solo area requerida por flexion y minimos frente al area proporcionada.",
              "Cortante, fisuracion y anclaje se verifican con la distribucion elegida en el resumen final."]
+    if any(g.adopted.foundation_reinforcement_cut is not None for g in groups):
+        lines.append("En la zapata longitudinal, Z permite elegir continuo + adicional intercalado y verificar cada zona con sus esfuerzos locales.")
     for group in groups:
         options = []
         for item, steel in enumerate(group.principal, 1):
@@ -36,19 +39,25 @@ def format_connected_options(groups):
                 lines.append(group.adopted.stem_reinforcement_cut.notes)
         if group.transverse is not None:
             lines.extend(["", *_format_spacing_option_table(group.transverse)])
+        lines.extend(format_foundation_cut(group.adopted))
     return "\n".join(lines)
 
 
 def _principal_choice(result, group):
+    from bridge_design.cli.connected_foundation_selection import allows_foundation_zones, prompt_foundation_zones
+    zonal = allows_foundation_zones(result, group)
     default = choice_from_steel(group.adopted)
     default_item = next((item for item, option in enumerate(group.principal, 1)
                          if option.bar_label == default.principal.bar_label
                          and abs(option.spacing_m-default.principal.spacing_m) < 1e-8), None)
     while True:
-        raw = input(f"{group.region} - elija item [{default_item}] (P=personalizado): ").strip()
+        modes = "P=personalizado, Z=continuo + adicional por zonas" if zonal else "P=personalizado"
+        raw = input(f"{group.region} - elija item [{default_item}] ({modes}): ").strip()
         if not raw:
-            return default.principal
+            return default if default.foundation_continuous else default.principal
         try:
+            if zonal and raw.lower() == "z":
+                return prompt_foundation_zones(result, group)
             if raw.lower() in ("p", "personalizado", "personalizada"):
                 print("Barras: " + ", ".join(bar.label for bar in REINFORCING_BAR_CATALOG))
                 label = input(f"Barra [{default.principal.bar_label}]: ").strip() or default.principal.bar_label
@@ -81,6 +90,9 @@ def collect_connected_selection(result, groups):
         print(f"\n{group.region.upper()}")
         print("Enter conserva la propuesta; el cumplimiento final se verifica despues de elegir las distribuciones.")
         principal = _principal_choice(result, group)
+        if isinstance(principal, ConnectedSteelChoice):
+            selected[group.region] = principal
+            continue
         if group.transverse is None:
             selected[group.region] = ConnectedSteelChoice(principal, principal)
             continue
@@ -114,7 +126,11 @@ def format_connected_selection(result):
             rows.append((f"{steel.region} - {direction}", "USUARIO" if choice and choice.is_custom else "TABLA",
                          label, f"{spacing:.3f}", f"{required:.3f}", f"{provided:.3f}",
                          "OK" if provided+1e-8 >= required else "NO"))
-    return "\n".join(boxed_table(
+    lines = boxed_table(
         ("Caso", "Origen", "Barra", "s (m)", "As req", "As prov", "Estado"), rows,
         aligns=("left", "center", "center", "right", "right", "right", "center"),
-        title="ACEROS SELECCIONADOS - ESTRIBOS COMBINADOS"))
+        title="ACEROS SELECCIONADOS - ESTRIBOS COMBINADOS")
+    if any(c.foundation_continuous for c in result.selected_reinforcement.values()):
+        lines.append("En el armado por zonas, esta tabla muestra el TOTAL donde coinciden continuo y adicional. "
+                     "Las tablas de cortes identifican cada familia y verifican los tramos con solo acero continuo.")
+    return "\n".join(lines)

@@ -5,6 +5,7 @@ from math import ceil, isclose
 
 from bridge_design.codes.mtc_2018 import calculate_concrete_elastic_modulus_kg_cm2
 from bridge_design.domain.abutment import _stem_thickness_at_height_m
+from bridge_design.domain.connected_2_inputs import is_connected_2
 from bridge_design.domain.frame_types import FrameElement, FrameModel, FrameNode, VerticalSpring
 from bridge_design.domain.wall_friction import _back_x
 from bridge_design.domain.transverse_slab import kg_cm2_to_tn_m2
@@ -48,6 +49,8 @@ def stem_centroid(data, side_index, height):
 
 
 def foundation_section(data, position):
+    if is_connected_2(data):
+        return data.left.geometry.footing_thickness_m, "Zapata combinada", data.left.materials
     left_end = data.left.geometry.footing_width_m
     right_start = data.total_length_m - data.right.geometry.footing_width_m
     if position < left_end:

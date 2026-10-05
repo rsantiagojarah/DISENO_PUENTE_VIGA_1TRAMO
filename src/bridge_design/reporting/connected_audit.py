@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from bridge_design.domain.abutment import _concrete_components, _soil_components
 from bridge_design.domain.connected_reinforcement import section_demands
 from bridge_design.domain.connected_steel_audit import region_audit
+from bridge_design.domain.connected_2_inputs import is_connected_2
 from bridge_design.reporting.abutment_docx_detail import concrete_geometry_rows
 
 
@@ -48,7 +49,8 @@ def input_tables(result):
         tuple((key, number(value)) for key, value in asdict(data).items()
               if not isinstance(value, (dict, list, tuple))) +
         tuple((f"suelo.{key}", number(value)) for key, value in asdict(data.soil).items()) +
-        tuple((f"material_losa.{key}", number(value)) for key, value in asdict(data.slab_materials).items()),
+        tuple((f"{'material_zapata_combinada' if is_connected_2(data) else 'material_losa'}.{key}", number(value))
+              for key, value in asdict(data.slab_materials).items()),
         "Recubrimientos internos en cm. Longitudes de anclaje disponibles por region se detallan con el acero."))
     tables.append(AuditTable("Propiedades FRAME por elemento", ("Elem./region", "Nodos", "A m2", "I m4", "E Tn/m2", "Offset m"),
         tuple((f"{index}: {element.region}", f"{element.start}-{element.end}", number(element.area),
@@ -86,7 +88,7 @@ def load_tables(result):
         "Coulomb activo; ka: plano virtual; stem_ka: cara real. k_ae es referencia positiva; "
         "cada direccion sismica se ensambla separadamente en A/B. EH=Ka*gamma*H^2/2; "
         "LS=Ka*q*H. Los cuadros siguientes incluyen componentes verticales y transferencia al talon. "
-        "Combinaciones globales: Ia o Ib se aplica a ambos estribos, losa y transiciones, sin cruces por region. "
+        "Combinaciones globales: Ia o Ib se aplica a ambos estribos y toda la cimentacion, sin cruces por region. "
         "Servicio I y Evento Extremo I tambien actuan simultaneamente sobre toda la estructura."))
     for index, (case, solved) in enumerate(zip(result.cases, result.results), 1):
         rows = tuple((name, number(factor), number(horizontal), number(vertical), number(moment))

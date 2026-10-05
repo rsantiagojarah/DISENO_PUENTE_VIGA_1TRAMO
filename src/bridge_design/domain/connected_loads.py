@@ -74,8 +74,11 @@ def gravity_builders(data, mesh):
         element = model.elements[index]
         first, last = model.nodes[element.start], model.nodes[element.end]
         middle = (first.x + last.x) / 2
-        _thickness, region, materials = foundation_section(data, middle)
-        owner = "0" if region == "Zapata izquierda" else "1" if region == "Zapata derecha" else "s"
+        _thickness, _region, materials = foundation_section(data, middle)
+        # Load ownership follows position, independently of reinforcement regions.
+        # The combined footing still carries exterior backfill at both ends.
+        owner = ("0" if middle < data.left.geometry.footing_width_m else
+                 "1" if middle > data.total_length_m-data.right.geometry.footing_width_m else "s")
 
         def foundation_weight(station):
             position = first.x + station * (last.x - first.x)

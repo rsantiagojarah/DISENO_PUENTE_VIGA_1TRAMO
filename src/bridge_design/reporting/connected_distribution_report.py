@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 import re
+from bridge_design.domain.connected_2_inputs import is_connected_2
 
 from bridge_design.reporting.connected_docx_layout import SECTIONS
 from bridge_design.reporting.connected_design_calculations import write_checks, write_temperature
@@ -35,20 +36,27 @@ def anchor_geometry_description(note):
                   lambda match: f'{float(match.group()):.{precision}f}', note)
 
 
-def write_distributed_design(document, result, reinforcement, audit):
+def write_distributed_design(document, result, reinforcement, audit, charts=None):
     grouped = distribution_groups(reinforcement)
+    uniform = is_connected_2(result.inputs)
     document.add_heading('8. ' + SECTIONS[7], level=1)
     _body(document, 'Se define un único armado de estribo, que se coloca tanto en el izquierdo como en el derecho. '
           'Cada distribución se verifica con todas las secciones de ambos lados; flexión, cortante, '
           'servicio y anclaje conservan su propio origen gobernante. El diseño utiliza la envolvente general '
           'del punto 6 y los esfuerzos simultáneos de cada sección. Cada control gobernante del acero elegido '
           'se desarrolla con expresión, definición de símbolos, sustitución numérica y conclusión.')
-    _body(document, 'La cara exterior de pantallas y parapetos tiene el mínimo por temperatura; si el análisis '
+    _body(document, ('La zapata combinada tiene un armado longitudinal superior y otro inferior, '
+          'cada uno diseñado con la envolvente de toda su longitud, incluidos los tramos bajo las pantallas. '
+          'El acero transversal se selecciona por cara. El punto 9 utiliza los casos de Servicio I.'
+          if uniform else 'La cara exterior de pantallas y parapetos tiene el mínimo por temperatura; si el análisis '
           'produce momentos que la traccionan, se comprueba también esa demanda. Talón y puntera conservan '
           'una distribución longitudinal gobernante por zona, continua en las caras superior e inferior. '
-          'Los transversales se eligen por separado. El punto 9 utiliza únicamente los casos de Servicio I.')
+          'Los transversales se eligen por separado. El punto 9 utiliza únicamente los casos de Servicio I.'))
     for i, (region, records) in enumerate(grouped.items(), 1):
         document.add_heading(f'8.{i}. {region}', level=2)
+        if region == "Zapata combinada" and charts and "cortes_zapata" in charts:
+            from bridge_design.reporting.deck_docx import _picture
+            _picture(document, charts["cortes_zapata"], "Cortes calculados del refuerzo superior central e inferior de extremos")
         _table(document, ('Distribución', 'Cara', 'As req cm²/m', 'Barra @ s m', 'As prov cm²/m', 'Estado'),
                ((s.region.split(' - ', 1)[-1], s.face, f'{s.required_as_cm2_m:.3f}',
                  f'{s.bar_label} @ {s.spacing_m:.3f}', f'{s.area_per_face_cm2_m:.3f}', s.status)
@@ -61,6 +69,8 @@ def write_distributed_design(document, result, reinforcement, audit):
             _body(document, 'Origen del armado: ' + ('selección personalizada del usuario.' if choice and choice.principal.is_custom
                   else 'selección de tabla confirmada.' if choice else 'propuesta de tabla.'))
             write_governing_checks(document, steel, audit['steel'][steel.region])
+            from bridge_design.reporting.connected_cut_report import write_foundation_cut
+            write_foundation_cut(document, steel)
             if steel.region == 'Pantalla - vertical relleno':
                 document.add_heading('Opción de corte de acero principal de pantalla', level=4)
                 cut = steel.stem_reinforcement_cut
@@ -84,12 +94,16 @@ def write_distributed_design(document, result, reinforcement, audit):
         write_temperature(document, records, audit)
 
     document.add_heading('9. ' + SECTIONS[8], level=1)
-    _body(document, 'La fisuración y el desarrollo utilizan la barra y separación elegidas. La longitud recta '
+    _body(document, ('La fisuración y el desarrollo utilizan la barra y separación elegidas. La zapata '
+          'combinada utiliza barras continuas y comprueba el espacio recto disponible en las secciones '
+          'gobernantes de resistencia. Pantallas y parapetos conservan el detalle de anclaje compartido. '
+          'Los cortes calculados se desarrollan en el punto 8. Los empalmes requieren su detalle particular.'
+          if uniform else 'La fisuración y el desarrollo utilizan la barra y separación elegidas. La longitud recta '
           'disponible sigue el detalle continuo definido: pantalla dentro del espesor de zapata, '
           'losa dentro del ancho de zapata y parapeto en toda la altura del estribo, menos recubrimiento. '
           'Las barras de talón y puntera cruzan la pantalla hasta el borde opuesto de zapata. '
           'Estas longitudes requieren disponer las barras con esa continuidad. '
-          'El punto 8 presenta opciones de corte de pantalla; no se generan empalmes.')
+          'El punto 8 presenta opciones de corte de pantalla; no se generan empalmes.'))
     _body(document, 'Sin tracción por flexión en Servicio I, la ecuación de separación por fisuración no '
           'gobierna. Se conservan los límites de acero mínimo y separación por temperatura. '
           'El estado de anclaje compara por separado ld recto y ld gancho con la longitud disponible. '
@@ -124,6 +138,7 @@ def write_distributed_design(document, result, reinforcement, audit):
             if steel.anchor_geometry_note and steel.anchor_geometry_note not in geometry_notes:
                 geometry_notes.add(steel.anchor_geometry_note)
                 _body(document, anchor_geometry_description(steel.anchor_geometry_note))
-    _body(document, 'Se mantiene la continuidad del acero entre pantalla y zapata y entre zapatas, '
-          'transiciones y losa. Los anclajes rectos insuficientes requieren resolver su detalle; los ganchos '
+    _body(document, ('Se mantiene la continuidad del acero entre las pantallas y la zapata combinada. '
+          if uniform else 'Se mantiene la continuidad del acero entre pantalla y zapata y entre zapatas, transiciones y losa. ') +
+          'Los anclajes rectos insuficientes requieren resolver su detalle; los ganchos '
           'y empalmes requieren comprobar acomodo, interferencias y longitudes útiles.')

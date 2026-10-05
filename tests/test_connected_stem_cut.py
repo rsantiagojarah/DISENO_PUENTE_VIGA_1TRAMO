@@ -80,6 +80,37 @@ def test_exterior_vertical_steel_has_no_cut(cut_model):
     assert connected_stem_reinforcement_cut(data, mesh, steel, demands) is None
 
 
+def test_command_2_retains_exactly_twenty_cm_and_recalculates_height(cut_model):
+    from bridge_design.cli.connected_2_yaml import connected_2_inputs_from_yaml, connected_2_yaml_template
+    _, mesh, steel, demands = cut_model
+    data = connected_2_inputs_from_yaml(connected_2_yaml_template(example=True))
+    steel.bar_label, steel.area_per_face_cm2_m = '1"', 50.0
+    bar = reinforcing_bar_by_label(steel.bar_label)
+    depth = 100 * _stem_thickness_at_height_m(data.right, 2-1e-8)
+    capacity = section_check(replace(demands[5], depth_cm=depth), data.right,
+                             data.right.reinforcement.stem_cover_cm, bar, .2)["capacity"]
+    demands = tuple(replace(d, moment=1.05*capacity) if d.element == 5 else d for d in demands)
+    cut = connected_stem_reinforcement_cut(data, mesh, steel, demands)
+    assert cut is not None and cut.status == "OK"
+    assert cut.continuous_every_n_bars == 2
+    assert cut.upper_spacing_m == .2 and cut.upper_provided_as_cm2_m == 25
+    assert cut.theoretical_cut_height_m == pytest.approx(2, abs=1e-7)
+    assert cut.constructive_cut_height_m == pytest.approx(2.5, abs=1e-7)
+    # Peaks anywhere above the cut still reject the requested remaining grid.
+    peak = (*demands, replace(demands[-1], limit_state="service", moment=500))
+    assert connected_stem_reinforcement_cut(data, mesh, steel, peak) is None
+
+
+@pytest.mark.parametrize("spacing,minimum", [(.125, 5), (.2, 5), (.1, 26)])
+def test_command_2_does_not_substitute_another_continuous_grid(cut_model, spacing, minimum):
+    from bridge_design.cli.connected_2_yaml import connected_2_inputs_from_yaml, connected_2_yaml_template
+    _, mesh, steel, demands = cut_model
+    data = connected_2_inputs_from_yaml(connected_2_yaml_template(example=True))
+    steel.bar_label, steel.spacing_m, steel.temperature_cm2_m = '1"', spacing, minimum
+    steel.area_per_face_cm2_m = 5 / spacing
+    assert connected_stem_reinforcement_cut(data, mesh, steel, demands) is None
+
+
 def test_selection_recalculates_proposal_and_exports_it(tmp_path):
     import json
     from bridge_design.cli.connected_output import format_connected_result
@@ -91,6 +122,7 @@ def test_selection_recalculates_proposal_and_exports_it(tmp_path):
 
     analysis = solve_connected_abutments(ConnectedInputs(FoundationSoil(3000, .5, 26.7),
                                         mesh_size_m=1, include_without_bridge=False))
+    assert all(s.foundation_reinforcement_cut is None for s in analysis.reinforcement)
     # Isolate the selection/cut pipeline from the foundation's loaded checks.
     analysis = replace(analysis, results=tuple(replace(case, sections=tuple(
         replace(row, moment=0, shear=0) for row in case.sections)) for case in analysis.results))

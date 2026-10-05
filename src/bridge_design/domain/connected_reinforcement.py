@@ -5,11 +5,14 @@ from math import isfinite
 from bridge_design.domain.anchorage_status import anchorage_status
 from bridge_design.codes.mtc_2018 import mtc_tension_development_length_cm
 from bridge_design.domain.abutment import (
-    AbutmentStemReinforcementCut, _single_stem_reinforcement_cut,
+    AbutmentStemReinforcementCut,
     _hooked_development_length_cm, _temperature_mtc_bounded, _stem_temperature_result, _footing_temperature_result,
 )
 from bridge_design.domain.connected_geometry import foundation_section, stem_centroid
 from bridge_design.domain.abutment import _stem_thickness_at_height_m
+from bridge_design.domain.connected_stem_cut import connected_stem_reinforcement_cut
+from bridge_design.domain.connected_foundation_cut import FoundationReinforcementCut, connected_foundation_reinforcement_cut
+from bridge_design.domain.connected_2_inputs import is_connected_2
 from bridge_design.domain.connected_section_checks import section_check
 from bridge_design.domain.connected_steel_audit import area_requirements
 from bridge_design.domain.rebar_catalog import REINFORCING_BAR_CATALOG, SpacingGrid, reinforcing_bar_by_label
@@ -33,6 +36,7 @@ class ConnectedBarChoice:
 class ConnectedSteelChoice:
     principal: ConnectedBarChoice
     transverse: ConnectedBarChoice
+    foundation_continuous: ConnectedBarChoice | None = None
 
 
 @dataclass(frozen=True)
@@ -89,11 +93,14 @@ class ConnectedSteel:
     role: str = "primary"
     part: str = ""
     stem_reinforcement_cut: AbutmentStemReinforcementCut | None = None
+    foundation_reinforcement_cut: FoundationReinforcementCut | None = None
 
 
 def region_inputs(data, region):
     from bridge_design.domain.connected_distributions import base_region
     region = base_region(region)
+    if region == "Zapata combinada":
+        return data.left, data.left.reinforcement.footing_cover_cm, data.total_length_m
     if region in ("Losa central", "Transicion izquierda", "Transicion derecha"):
         from dataclasses import replace
         return replace(data.left, materials=data.slab_materials), data.slab_cover_cm, data.connector_length_m
@@ -166,7 +173,7 @@ def region_setup(data, region, demands):
 def temperature_for_region(region, demands, inputs, grid, panel_length):
     if region.startswith("Pantalla"):
         return _stem_temperature_result(inputs)
-    if region.startswith("Zapata"):
+    if region.startswith("Zapata") and not region.startswith("Zapata combinada"):
         return _footing_temperature_result(inputs)
     return max((_temperature_mtc_bounded(d.depth_cm, panel_length*100,
                inputs.materials.steel_yield_kg_cm2, grid) for d in demands),
@@ -195,6 +202,9 @@ def design_region(data, mesh, region, demands, selection=None, *, distribution=N
     if not region_has_reinforcement_design(region):
         raise ValueError(f"Region excluida del diseno de acero: {region}.")
     inputs, cover, grid, temperature, candidates = region_setup(data, region, demands)
+    if selection is not None and selection.foundation_continuous is not None:
+        from bridge_design.domain.connected_foundation_zones import validate_foundation_zone_choice
+        validate_foundation_zone_choice(data, region, selection, grid, cover, demands)
     reinforcement = inputs.reinforcement
     selected = candidates[-1]
     if distribution is not None and selection is None:
@@ -295,6 +305,10 @@ def design_region(data, mesh, region, demands, selection=None, *, distribution=N
                 anchor_source="Acero minimo de temperatura/distribucion", anchor_geometry_note="")
     if mesh is not None and steel.region == "Pantalla - vertical relleno" and steel.role == "primary":
         steel = replace(steel, stem_reinforcement_cut=connected_stem_reinforcement_cut(data, mesh, steel, demands))
+    if mesh is not None and is_connected_2(data) and steel.base_region == "Zapata combinada" and steel.role == "primary":
+        continuous = selection.foundation_continuous if selection else None
+        steel = replace(steel, foundation_reinforcement_cut=connected_foundation_reinforcement_cut(
+            data, mesh, steel, demands, continuous=continuous))
     return steel
 
 
@@ -309,82 +323,3 @@ def design_connected_reinforcement(data, mesh, results, selections=None):
         raise ValueError(f"Regiones de acero no reconocidas: {', '.join(sorted(unknown))}.")
     return tuple(design_region(data, mesh, item.label, item.demands, selections.get(item.label), distribution=item)
                  for item in distributions)
-
-
-def connected_stem_reinforcement_cut(data, mesh, steel, demands):
-    """Adapt FRAME envelopes by face to the individual-abutment cutoff engine.
-
-    Retain whole elements at a proposed cut. Check every recovered extremum at
-    the thinnest section of its element, so the search cannot discard a peak or
-    rely on monotone bending. Heights stop at the transition to the cajuela.
-    """
-    if steel.region != "Pantalla - vertical relleno" or steel.status != "OK":
-        return None
-    bar = reinforcing_bar_by_label(steel.bar_label)
-    records = []
-    for demand in demands:
-        element = mesh.frame.elements[demand.element]
-        first, last = (mesh.frame.nodes[n] for n in (element.start, element.end))
-        side = data.right if element.region.endswith("derecha") else data.left
-        start, end = sorted((first.y, last.y))
-        # One-sided geometric values retain the correct thickness at steps.
-        depth = 100 * min(_stem_thickness_at_height_m(side, y)
-                          for y in (start + 1e-8, end - 1e-8))
-        records.append((end, side, replace(demand, depth_cm=depth)))
-    if not records:
-        return None
-    height = min(max(end for end, side, _ in records if side is inputs)
-                 for inputs in (data.left, data.right)
-                 if any(side is inputs for _, side, _ in records))
-    inputs = data.left
-    cache = {}
-
-    def checked(area):
-        if area not in cache:
-            spacing = bar.area_cm2 / area
-            cache[area] = [(end, side, demand, section_check(
-                demand, side, side.reinforcement.stem_cover_cm, bar, spacing))
-                for end, side, demand in records]
-        return cache[area]
-
-    def remaining(y, area):
-        rows = [row for row in checked(area) if row[0] > y + 1e-9]
-        # At the upper limit retain terminal-element checks: no empty envelope.
-        return rows or [row for row in checked(area) if abs(row[0] - height) < 1e-8]
-
-    def satisfies(y, area, diameter):
-        return area + 1e-9 >= steel.temperature_cm2_m and all(
-            max(row[3][key] for key in ("flexure_ratio", "shear_ratio", "crack_ratio")) <= 1 + 1e-8
-            for row in remaining(y, area))
-
-    grid = SpacingGrid(inputs.reinforcement.spacing_step_m,
-                       inputs.reinforcement.minimum_spacing_m,
-                       min(0.30, inputs.reinforcement.maximum_spacing_m))
-
-    def governing(y, area):
-        rows = [row for row in remaining(y, area) if row[2].limit_state != "service"]
-        return max(rows, key=lambda row: row[3]["flexure_ratio"])
-
-    def design_at_height(y, diameter, area):
-        _, side, demand, values = governing(y, area)
-        areas = area_requirements((demand,), side, side.reinforcement.stem_cover_cm, bar)[0]
-        minimum = max(steel.temperature_cm2_m, areas["minimum_area"])
-        return (abs(demand.moment), values["effective"], areas["flexural_area"], minimum,
-                max(minimum, areas["flexural_area"]), values["required_moment"])
-
-    cut = _single_stem_reinforcement_cut(
-        inputs, steel.bar_label, steel.spacing_m, steel.area_per_face_cm2_m,
-        steel.temperature_cm2_m, steel.required_straight_anchor_cm / 100.0,
-        height, satisfies, design_at_height, maximum_spacing_m=grid.maximum_m,
-        resistance_at_height=lambda y, area, diameter: governing(y, area)[3]["capacity"],
-    )
-    if cut is None:
-        return None
-    _, _, demand, _ = governing(cut.theoretical_cut_height_m, cut.upper_provided_as_cm2_m)
-    source_region = mesh.frame.elements[demand.element].region
-    return replace(cut, thickness_at_cut_cm=demand.depth_cm,
-        notes=cut.notes + " Envolvente FRAME de ambos lados por cara: flexion, cortante, servicio y minimos. "
-        f"Comprobacion de flexion del tramo superior: {source_region}; {demand.case}; "
-        f"elemento {demand.element}; s/L={demand.station:.3f}, con espesor minimo del elemento. "
-        "Corte conservador por elementos completos; longitudes hasta el inicio de transicion de cajuela. "
-        "La opcion no sustituye el armado uniforme seleccionado ni el detalle de union con la cajuela.")

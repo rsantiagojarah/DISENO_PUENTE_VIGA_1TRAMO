@@ -108,6 +108,21 @@ def geometric_anchorage(data, mesh, region, demands, inputs, cover, bar, spacing
     """
     geometry = inputs.geometry
     footing_cover = inputs.reinforcement.footing_cover_cm
+    if region == "Zapata combinada":
+        # Reuse the existing path checker and the same governing strength
+        # sections as the area audit; development lengths are calculated once
+        # by the shared steel designer, independently of this available space.
+        from bridge_design.domain.connected_steel_audit import area_requirements
+        from bridge_design.domain.connected_reinforcement import SectionDemand
+        sections = area_requirements(demands, inputs, cover, bar)
+        spaces = [straight_space(data, mesh, region, SectionDemand(**row["demand"]), cover, bar.diameter_cm)
+                  for row in sections]
+        if not spaces:
+            return None, "Sin secciones de resistencia para comprobar el anclaje de la zapata combinada."
+        available, note = min(spaces, key=lambda item: item[0])
+        return available, ("Barras continuas en la zapata combinada; espacio recto en las secciones "
+                           "gobernantes de resistencia. " + note +
+                           " Los cortes y empalmes requieren comprobar sus extremos particulares.")
     if region.startswith("Pantalla"):
         available = max(0.0, geometry.footing_thickness_m*100-footing_cover)
         return available, ("Detalle continuo definido: pantalla anclada en la zapata; "

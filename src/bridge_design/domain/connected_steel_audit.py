@@ -74,7 +74,7 @@ def region_audit(result, steel, demands):
             if abs(local_x(result.inputs, side_index, row["x"]) - face_x) < 1e-7:
                 row["section_location"] = "Cara de pantalla, lado " + steel.part
         row["side"] = ("Izquierdo" if element.region.endswith("izquierda") else
-                       "Derecho" if element.region.endswith("derecha") else "Losa central")
+                       "Derecho" if element.region.endswith("derecha") else element.region)
         positive = demand["moment"] >= 0
         row["face"] = (("Inferior" if positive else "Superior") if start.y == end.y else
                        "Hacia cauce" if positive == element.region.endswith("izquierda") else "Hacia relleno")

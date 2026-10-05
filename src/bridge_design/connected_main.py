@@ -1,7 +1,9 @@
 """New command for the analysis and design of abutments with continuous foundation."""
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from bridge_design.cli.connected_output import format_connected_result
 from bridge_design.cli.connected_prompts import collect_connected_inputs
@@ -13,13 +15,26 @@ from bridge_design.domain.connected_options import apply_connected_selections, c
 from bridge_design.reporting.connected_export import export_connected_results
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(prog="diseno-estribos-conectados",
-        description="Dos estribos con cajuela, cimentacion FRAME continua y Winkler solo a compresion.")
+@dataclass(frozen=True)
+class ConnectedCommand:
+    command: str
+    output_name: str
+    description: str
+    collect_inputs: Callable
+    inputs_from_yaml: Callable
+    yaml_template: Callable
+
+
+def main(argv=None, *, profile=None):
+    profile = profile or ConnectedCommand(
+        "diseno-estribos-conectados", "estribos_conectados",
+        "Dos estribos con cajuela, cimentacion FRAME continua y Winkler solo a compresion.",
+        collect_connected_inputs, connected_inputs_from_yaml, connected_yaml_template)
+    parser = argparse.ArgumentParser(prog=profile.command, description=profile.description)
     parser.add_argument("modo", choices=("input", "output"), nargs="?", help="Leer YAML o crear plantilla editable")
     parser.add_argument("archivo", nargs="?", type=Path)
     parser.add_argument("--ejemplo", action="store_true", help="En output, incluir ks referencial para pruebas")
-    parser.add_argument("--resultados", type=Path, default=Path("output/estribos_conectados"))
+    parser.add_argument("--resultados", type=Path, default=Path("output") / profile.output_name)
     parser.add_argument("--sin-word", action="store_true", help="Generar TXT, JSON, CSV y graficos sin memoria Word")
     parser.add_argument("--automatico", action="store_true", help="Con YAML: conservar acero propuesto y guardar Word sin dialogos")
     parser.add_argument("--verificar-malla", action="store_true", help="Comparar con el doble de intervalos entre resortes")
@@ -32,15 +47,16 @@ def main(argv=None):
         parser.error("--automatico requiere la ruta del archivo YAML.")
     try:
         if args.modo == "output":
-            path = args.archivo or select_yaml_save_path("Guardar modelo de estribos conectados", "modelo_estribos_conectados.yaml")
-            save_yaml_file(path, connected_yaml_template(example=args.ejemplo))
+            path = args.archivo or select_yaml_save_path("Guardar modelo de " + profile.output_name.replace("_", " "),
+                                                       f"modelo_{profile.output_name}.yaml")
+            save_yaml_file(path, profile.yaml_template(example=args.ejemplo))
             print(f"Plantilla YAML guardada en: {path}")
             return
         if args.modo == "input":
-            path = args.archivo or select_yaml_open_path("Abrir modelo de estribos conectados")
-            inputs = connected_inputs_from_yaml(load_yaml_file(path))
+            path = args.archivo or select_yaml_open_path("Abrir modelo de " + profile.output_name.replace("_", " "))
+            inputs = profile.inputs_from_yaml(load_yaml_file(path))
         else:
-            inputs = collect_connected_inputs()
+            inputs = profile.collect_inputs()
         print("Resolviendo FRAME, contacto y diseno de ambas caras...")
         result = solve_connected_abutments(inputs, check_mesh=args.verificar_malla)
         if not args.automatico:
@@ -60,7 +76,7 @@ def main(argv=None):
             print("\n4. GENERACION DE LA MEMORIA DE CALCULO")
             if args.automatico:
                 from bridge_design.reporting.connected_docx import write_connected_docx
-                path = write_connected_docx(result, destination / "memoria_estribos_conectados.docx", charts)
+                path = write_connected_docx(result, destination / f"memoria_{profile.output_name}.docx", charts)
                 print(f"Memoria Word guardada en: {path.resolve()}")
             else:
                 from bridge_design.reporting.connected_word_dialog import generate_connected_docx_with_dialog

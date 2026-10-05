@@ -15,7 +15,7 @@ movimientos:
   temperatura_minima_c: null
   temperatura_maxima_c: null
   retraccion_cm: 0.9
-  postensado_cm: 1.0
+  postensado_cm: 0.0
   otros_cm: 0.0
   gamma_tu: 1.2
   alpha_por_c: 1.08e-05

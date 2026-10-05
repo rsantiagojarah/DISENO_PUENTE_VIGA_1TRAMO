@@ -9,6 +9,7 @@ from docx.shared import Pt
 from bridge_design.reporting.connected_case_groups import case_label
 from bridge_design.domain.connected_reinforcement import region_has_reinforcement_design
 from bridge_design.domain.anchorage_status import anchorage_passes
+from bridge_design.domain.connected_2_inputs import is_connected_2
 
 from bridge_design.reporting.abutment_docx import _configure_abutment_header_footer, _labels
 from bridge_design.reporting.deck_docx import (
@@ -43,7 +44,8 @@ def connected_front_matter(document, result):
     title_border = title_properties.find(qn("w:pBdr"))
     if title_border is not None:
         title_properties.remove(title_border)
-    labels = replace(_labels(is_pure_wall=False), header="MEMORIA DE CÁLCULO · ESTRIBOS CONECTADOS")
+    uniform = is_connected_2(result.inputs)
+    labels = replace(_labels(is_pure_wall=False), header="MEMORIA DE CÁLCULO · ESTRIBOS CONECTADOS" + (" 2" if uniform else ""))
     _configure_abutment_header_footer(document, labels)
     data = result.inputs
     paragraph = document.add_paragraph()
@@ -54,14 +56,14 @@ def connected_front_matter(document, result):
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     paragraph.paragraph_format.line_spacing = 1.0
     paragraph.paragraph_format.space_before = Pt(42)
-    paragraph.add_run("Memoria de cálculo\nde estribos conectados")
+    paragraph.add_run("Memoria de cálculo\nde estribos conectados" + (" 2" if uniform else ""))
     document.add_paragraph("Geometría · empujes · contacto · diseño estructural · detalle", style="Subtitle")
     paragraph = document.add_paragraph()
     paragraph.paragraph_format.space_before = Pt(32)
     paragraph.paragraph_format.space_after = Pt(4)
     _format_run(paragraph.add_run("DOCUMENTO TÉCNICO DE DISEÑO"), 11, bold=True, color=TEAL)
     _table(document, ("Dato", "Descripción"), (
-        ("Sistema", "Dos estribos con cajuela y cimentación continua FRAME 2D"),
+        ("Sistema", "Estribos iguales con base uniforme FRAME 2D" if uniform else "Dos estribos con cajuela y cimentación continua FRAME 2D"),
         ("Franja de cálculo", "1,00 m"),
         ("Separación libre", f"{data.clear_span_m:.2f} m"),
         ("Longitud de cimentación", f"{data.total_length_m:.2f} m"),
@@ -132,6 +134,9 @@ def connected_summary_and_references(document, result):
         ("auditoria.txt", "desarrollo detallado de entradas, cargas, contacto y cálculos de armado"),
     ):
         _body(document, f"{name}: {description}.")
+    if is_connected_2(result.inputs):
+        _body(document, "cortes_zapata.csv: estados y coordenadas calculadas de los cortes superior e inferior. "
+              "cortes_zapata.png: disposición de los refuerzos adicionales que resultaron aplicables.")
     _body(document, "Estos archivos constituyen los anexos electrónicos; las tablas por nudo y elemento no se "
           "repiten en el cuerpo de la memoria. Se generan mediante la exportación de resultados del módulo.")
     _body(document, "Si se acompaña una exportación a SAP2000, deben registrarse archivo, versión y unidades de "

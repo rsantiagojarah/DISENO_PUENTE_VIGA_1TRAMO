@@ -16,6 +16,7 @@ def format_audit_step(step, code):
 
 
 def format_connected_audit(result, audit):
+    from bridge_design.reporting.connected_cut_report import format_foundation_cut
     lines = []
     for index, (key, title) in enumerate((("inputs", "DATOS Y MODELO"), ("loads", "CARGAS Y COMBINACIONES"),
                                          ("foundation", "CONTACTO Y CAPACIDAD PORTANTE")), 1):
@@ -45,5 +46,6 @@ def format_connected_audit(result, audit):
             lines.extend(format_audit_table(table))
         for step_index, step in enumerate(steel_steps(steel, detail), 1):
             lines.extend(format_audit_step(step, f"4.{index}.{step_index}"))
+        lines.extend(format_foundation_cut(steel))
     lines.extend(audit_block_title("5", "RESUMEN DE RESULTADOS Y ARMADURAS", 112))
     return "\n".join(lines)

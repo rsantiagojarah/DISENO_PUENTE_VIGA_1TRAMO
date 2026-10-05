@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 from bridge_design.domain.anchorage_status import anchorage_passes
+from bridge_design.domain.connected_2_inputs import is_connected_2
+from bridge_design.reporting.connected_2_geometry import connected_2_geometry_rows
 
 from bridge_design.cli.abutment_ascii_output import _format_input_summary, _format_stem_reinforcement_cut_option
 from bridge_design.cli.ascii_tables import audit_block_title, audit_subtitle, boxed_table, key_value_box
@@ -9,6 +11,7 @@ from bridge_design.domain.connected_reinforcement import DESIGN_SCOPE_NOTE
 from bridge_design.domain.connected_distributions import reinforcement_demands
 from bridge_design.domain.connected_steel_audit import region_audit
 from bridge_design.reporting.connected_case_groups import case_label
+from bridge_design.reporting.connected_cut_report import format_foundation_cut
 
 
 def format_connected_result(result):
@@ -16,6 +19,8 @@ def format_connected_result(result):
     lines = [*audit_block_title("3", "ANALISIS Y DISENO DE ESTRIBOS CONECTADOS", 112),
              "FRAME 2D - FRANJA 1.00 m. N positivo = traccion. Armado comun para ambos estribos por cara y direccion.",
              DESIGN_SCOPE_NOTE]
+    if is_connected_2(data):
+        lines.append("ESTRIBOS CONECTADOS 2 - BASE UNIFORME - GEOMETRIA ver_2l.pdf EDITABLE")
     lines.extend(_input_summary(result))
     lines.extend(audit_subtitle("3.2", "CONTACTO Y CAPACIDAD PORTANTE", 112))
     lines.extend(("qmax del analisis con resortes: R / area tributaria.",
@@ -62,7 +67,10 @@ def _input_summary(result):
     lines = audit_subtitle("3.1", "DATOS INGRESADOS Y CONSIDERADOS", 112)
     for label, side in (("COMUN - ARMADO PARA AMBOS LADOS", data.left),):
         lines.extend(audit_subtitle("", f"ESTRIBO {label}", 112))
-        lines.extend(_format_input_summary(SimpleNamespace(inputs=side)))
+        if is_connected_2(data):
+            lines.extend(key_value_box("GEOMETRIA COMUN - DIMENSIONES EN m", connected_2_geometry_rows(data)))
+        else:
+            lines.extend(_format_input_summary(SimpleNamespace(inputs=side)))
         material, soil = side.materials, side.soil
         lines.extend(key_value_box("MATERIALES, RELLENO Y SISMO", (
             ("Resistencia del concreto f'c", f"{material.concrete_strength_kg_cm2:.3f} kgf/cm2"),
@@ -84,10 +92,18 @@ def _input_summary(result):
          for field, label in (("pdc_tn_m", "PDC"), ("pdw_tn_m", "PDW"), ("ppl_tn_m", "PPL"),
                              ("pll_im_tn_m", "PLL+IM"), ("braking_tn_m", "BR"))),
         title="REACCIONES SIMULTANEAS DEL TABLERO POR LADO"))
-    lines.extend(key_value_box("CIMENTACION CONTINUA Y MODELO", (
-        ("Separacion libre / longitud total", f"{data.clear_span_m:.3f} / {data.total_length_m:.3f} m"),
+    uniform = is_connected_2(data)
+    foundation_rows = (("Espesor uniforme de zapata combinada", f"{data.slab_thickness_m:.3f} m"),) if uniform else (
         ("Espesor losa central", f"{data.slab_thickness_m:.3f} m"),
         ("Longitud transicion izquierda / derecha", f"{data.left_transition_m:.3f} / {data.right_transition_m:.3f} m"),
+    )
+    cover_row = ("Recubrimientos pantalla / zapata combinada", f"{data.left.reinforcement.stem_cover_cm:g} / "
+                 f"{data.left.reinforcement.footing_cover_cm:g} cm") if uniform else (
+        "Recubrimientos pantalla / zapata / losa", f"{data.left.reinforcement.stem_cover_cm:g} / "
+        f"{data.left.reinforcement.footing_cover_cm:g} / {data.slab_cover_cm:g} cm")
+    lines.extend(key_value_box("CIMENTACION CONTINUA Y MODELO", (
+        ("Separacion libre / longitud total", f"{data.clear_span_m:.3f} / {data.total_length_m:.3f} m"),
+        *foundation_rows,
         ("Condicion sin tablero", "SI" if data.include_without_bridge else "NO"),
         ("Nudos con resorte en cimentacion", len(mesh.frame.springs)),
         ("Nudos FRAME / elementos / casos", f"{len(mesh.frame.nodes)} / {len(mesh.frame.elements)} / {len(result.results)}"),
@@ -97,8 +113,7 @@ def _input_summary(result):
         ("Referencia horizontal Ux=0", f"Nudo {mesh.reference_node}; x={data.reference_position_m:.3f} m"),
         ("Contacto", "Resortes solo a compresion; Uy sin restriccion fija; giro libre"),
         ("Offsets de seccion", "SI" if data.section_offsets else "NO"),
-        ("Recubrimientos pantalla / zapata / losa", f"{data.left.reinforcement.stem_cover_cm:g} / "
-         f"{data.left.reinforcement.footing_cover_cm:g} / {data.slab_cover_cm:g} cm"),
+        cover_row,
     )))
     return lines
 
@@ -151,6 +166,7 @@ def _steel_summary(result):
             ("Estado flexion, cortante, servicio y minimos", steel.status),
         )))
     for steel in result.reinforcement:
+        lines.extend(format_foundation_cut(steel))
         if steel.region == "Pantalla - vertical relleno" and steel.role == "primary":
             lines.append(f"Propuesta de corte del acero elegido - {steel.region}")
             lines.extend(_format_stem_reinforcement_cut_option(steel))

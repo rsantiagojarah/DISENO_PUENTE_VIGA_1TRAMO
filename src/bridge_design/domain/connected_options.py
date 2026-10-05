@@ -60,8 +60,11 @@ def check_principal_area_choice(result, region, choice):
 
 
 def choice_from_steel(steel):
+    cut = steel.foundation_reinforcement_cut
+    continuous = (ConnectedBarChoice(steel.bar_label, cut.requested_continuous_spacing_m)
+                  if cut and cut.requested_continuous_spacing_m is not None else None)
     return ConnectedSteelChoice(ConnectedBarChoice(steel.bar_label, steel.spacing_m),
-                                ConnectedBarChoice(steel.transverse_bar_label, steel.transverse_spacing_m))
+                                ConnectedBarChoice(steel.transverse_bar_label, steel.transverse_spacing_m), continuous)
 
 
 def connected_reinforcement_options(result):

@@ -32,9 +32,10 @@ def distribution_demands(data, mesh, grouped):
     # The central slab reinforcement also covers its tapered transitions, using
     # each section's actual depth and the slab materials/cover.
     grouped = dict(grouped)
-    grouped["Losa central"] = tuple(grouped.get("Losa central", ())) + tuple(
-        d for region in ("Transicion izquierda", "Transicion derecha")
-        for d in grouped.get(region, ()))
+    transitions = tuple(d for region in ("Transicion izquierda", "Transicion derecha")
+                        for d in grouped.get(region, ()))
+    if "Losa central" in grouped or transitions:
+        grouped["Losa central"] = tuple(grouped.get("Losa central", ())) + transitions
     distributions = []
     ordered = sorted(grouped, key=lambda r: ((0 if r.startswith("Pantalla") else
         1 if r.startswith("Zapata") else 2 if r.startswith("Losa") else 3),
@@ -59,7 +60,7 @@ def distribution_demands(data, mesh, grouped):
             for face in ("Relleno", "Exterior"):
                 distributions.append(Distribution(f"{region} - horizontal {face.lower()}", region,
                     face, "Horizontal", "temperature", _temperature_demands(demands)))
-        elif region.startswith("Zapata"):
+        elif region.startswith("Zapata") and region != "Zapata combinada":
             index = 0 if region.endswith("izquierda") else 1
             front = side.geometry.toe_length_m
             back = front + side.geometry.lower_stem_thickness_m
@@ -87,7 +88,9 @@ def distribution_demands(data, mesh, grouped):
             for face in ("Superior", "Inferior"):
                 distributions.append(Distribution(f"{region} - transversal {face.lower()}", region,
                     face, "Transversal", "temperature", _temperature_demands(demands)))
-        elif region == "Losa central":
+        elif region in ("Losa central", "Zapata combinada"):
+            # A combined footing uses every foundation section, including those
+            # beneath the walls, with one longitudinal distribution per face.
             for face in ("Superior", "Inferior"):
                 positive = face == "Inferior"
                 chosen = tuple(replace(d, moment=d.moment if (d.moment >= 0) == positive else 0.0,
