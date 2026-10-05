@@ -7,7 +7,91 @@ del programa. La franja tiene 1,00 m de ancho perpendicular al plano del modelo.
 Todas las dimensiones de ambos lados son editables; el PDF de referencia no
 impone cotas al cálculo.
 
+## Distribución de resortes
+
+La entrada solicita la **cantidad total de nudos con resorte en la cimentación**
+(41 por defecto, mínimo 4). En YAML se usa `cantidad_nudos_cimentacion` dentro de
+`cimentacion`, en lugar de `paso_malla_m`.
+
+El reparto conserva exactamente la cantidad pedida y coloca siempre un resorte
+en cada extremo exterior de talón y bajo el eje de cada estribo. Los nudos son
+equidistantes dentro de tres tramos: extremo izquierdo–eje izquierdo, entre
+ejes y eje derecho–extremo derecho. La separación puede cambiar de un tramo a
+otro para respetar esos puntos; el reparto es simétrico si la geometría lo es.
+
+Los cambios de sección, límites del relleno y la restricción horizontal pueden
+añadir nudos auxiliares al FRAME, pero no añaden resortes. Cada rigidez se calcula
+como `ks * área tributaria`, tomando la mitad de la distancia al resorte vecino
+a cada lado. La suma de áreas corresponde a la franja completa de cimentación.
+Los gráficos dibujan todos los resortes reales y la salida distingue su cantidad
+del número total de nudos estructurales.
+
+Los YAML antiguos con `paso_malla_m` siguen siendo compatibles. Si se proporciona
+también `cantidad_nudos_cimentacion`, prevalece la cantidad. `--verificar-malla`
+compara el modelo solicitado con `2*N-1` nudos con resorte.
+
 ## Uso
+
+La ejecución interactiva sigue el procedimiento del módulo de estribos individuales:
+
+1. Ingreso de geometría, materiales, suelo, sismo y cargas de ambos estribos;
+   cimentación, nudos con resorte y brazo adicional de frenado.
+   Se usa el par de reacciones ya ingresado; la consola no solicita pares
+   adicionales ni longitudes disponibles de anclaje. Las longitudes rectas
+   disponibles siguen el detalle continuo definido para los estribos conectados:
+   pantalla relleno y exterior, `D-r`; talón, `B-longitud_talon-r`, cruzando la
+   pantalla hacia el borde de puntera; puntera, `B-longitud_puntera-r`, cruzando
+   hacia el borde de talón. Losa superior e inferior: ancho de zapata menos
+   recubrimiento. Parapeto relleno y exterior: altura total desde fondo de zapata
+   menos recubrimiento. Las barras deben disponerse continuas según ese detalle;
+   estas longitudes no representan la menor distancia a los dos extremos desde
+   una estación FRAME. Se compara cada longitud disponible con ld recto y ld gancho
+   con la condicion ld gancho <= ld recto. El estado muestra `RECTO Y CON GANCHO`,
+   `SOLO GANCHO` o `NO CUMPLE`; sin longitud acreditada queda `PENDIENTE DETALLE`.
+   Estos estados verifican longitudes; el acomodo y doblado de ganchos y los empalmes
+   requieren detalle. Una longitud útil explícita en YAML conserva prioridad.
+2. Análisis preliminar y tablas de distribuciones de acero, con áreas requeridas,
+   áreas proporcionadas, exceso de acero y marca `RECOM.`, con el mismo formato
+   de tabla de estribos individuales. Se muestran las opciones que cumplen el
+   área por flexión y mínimos. La tabla no presenta índices de corte ni fisuración.
+   El usuario elige por ítem o
+   ingresa barra y separación personalizadas; Enter conserva la propuesta.
+3. Recálculo con los aceros elegidos, cuadro de selección y resumen de contacto,
+   capacidad portante, envolvente general NVM, flexión, cortante, servicio,
+   mínimos, acero transversal, anclajes y equilibrio numérico. El cuadro de selección
+   distingue `TABLA` y `USUARIO` y comprueba áreas. El resumen final muestra tablas
+   de concepto/valor con Mu, Md, Mr, Vu, Vr y sus secciones gobernantes, y tablas
+   separadas de fisuración (fs, límite y separaciones) y desarrollo/anclaje.
+   Todas estas verificaciones usan la barra y separación elegidas.
+4. Exportación de resultados y elección del nombre y ubicación del Word mediante
+   la misma ventana de guardado del módulo individual. Cancelar la ventana omite
+   el Word y conserva los resultados exportados.
+
+Se eligen 16 distribuciones cuando existe puntera, con un unico armado comun para ambos estribos:
+cuatro en pantalla y cuatro en parapeto (vertical relleno/exterior y horizontal relleno/exterior),
+cuatro en zapata (talón, puntera, transversal superior/inferior) y cuatro en la losa
+(longitudinal y transversal, superior/inferior). Cada cara principal utiliza su
+envolvente con signo. La cara exterior se dimensiona por mínimos y por flexión si
+el FRAME produce tracción en ella. Talón y puntera conservan el criterio individual
+de una distribución longitudinal gobernante por zona, continua en ambas caras.
+Los mínimos de pantallas y zapatas reutilizan las funciones del módulo individual;
+los longitudinales de zapatas y losa usan el cortante simplificado, y los verticales
+el procedimiento general. La fisuración compara fs real con su límite y usa
+fs acotado por el límite para el espaciamiento, como en estribos individuales.
+Las transiciones y cajuelas permanecen en el modelo FRAME con su geometría,
+rigidez y cargas. Su armado queda excluido del diseño, recomendaciones,
+selección de acero, verificaciones de servicio/anclaje y cuadros de resumen
+de la consola y la memoria.
+En consola los materiales se ingresan una sola vez y se comparten entre ambos
+estribos, sus zapatas y la losa. La geometria se ingresa una sola vez y es comun a ambos lados.
+Los recubrimientos de pantallas, cajuelas, parapetos, zapatas y losa se adoptan
+internamente en 7,5 cm; no se solicitan en la consola.
+Las separaciones mínima y máxima y el incremento son internos, iguales a los
+del módulo individual: 0,10 m, 0,30 m y 0,025 m respectivamente. La distribución
+adoptada se elige posteriormente en las tablas de acero o se ingresa personalizada.
+Las propuestas que no cumplen se identifican expresamente; conservarlas para
+revisión no modifica su estado. `--automatico` conserva la propuesta sin solicitar
+selección, para ejecuciones desde YAML.
 
 ### Nombres de combinaciones
 
@@ -66,7 +150,7 @@ por región. Se puede conservar la propuesta, elegir un ítem o ingresar barra y
 separación personalizadas, igual que en estribos. El programa recalcula flexión,
 corte, fisuración, mínimos y desarrollo con el acero adoptado. Las alternativas
 que no cumplen se identifican; conservarlas para revisión no aprueba el diseño.
-Al terminar se pregunta si se desea generar Word y se abre el diálogo para
+Al terminar se abre el diálogo para
 elegir su nombre y ubicación. Cancelar no elimina los demás resultados.
 También se puede ejecutar mediante:
 
@@ -82,9 +166,12 @@ diseno-estribos-conectados output ejemplo.yaml --ejemplo
 diseno-estribos-conectados input ejemplo.yaml --resultados output/ejemplo_conectados
 ```
 
-La plantilla normal deja **balasto y fricción de interfaz sin valor**. Son
-obligatorios. `--ejemplo` introduce expresamente `ks=3000 Tn/m³` y `mu=0.50`, que
-no constituyen datos geotécnicos del proyecto. Los materiales, parámetros
+La plantilla normal deja **el balasto sin valor**; es obligatorio.
+`--ejemplo` introduce expresamente `ks=3000 Tn/m³`, que no constituye un dato
+geotécnico del proyecto. No se solicita fricción de interfaz suelo-concreto,
+porque deslizamiento no forma parte de las verificaciones del reporte.
+Los YAML anteriores que contienen el coeficiente siguen siendo compatibles.
+Los materiales, parámetros
 sísmicos y brazo adicional de frenado también son referenciales, no datos del PDF.
 No se deduce el balasto de la presión admisible.
 
@@ -139,7 +226,7 @@ Todas estas dimensiones siguen siendo editables para otros modelos.
 
 ## Geometría
 
-Las secciones `estribo_izquierdo` y `estribo_derecho` utilizan las claves YAML del
+El bloque comun `estribo` utiliza las claves YAML del
 comando `diseno-estribos`, incluyendo cajuela, parapeto, t1, t2 y transición.
 La puntera mira hacia el vano y el talón hacia el relleno exterior. La coordenada
 local del estribo existente se refleja en el lado izquierdo; el resultado global
@@ -248,14 +335,16 @@ y sus sobrecargas presentes. No equivale a todas las fases constructivas.
 
 - Se recuperan N, V, M con signos, incluyendo los extremos internos de las
   cargas polinómicas, y se verifican las demandas simultáneas por sección/caso.
-- La armadura principal se selecciona del catálogo existente, con dos caras
-  iguales. Se diseña por flexión y cortante, sin interacción axial–momento,
+- La armadura se selecciona del catálogo existente, independientemente por cara
+  y dirección. Se diseña por flexión y cortante, sin interacción axial–momento,
   por decisión del usuario. La flexión reutiliza la función del estribo individual:
   sección rectangular, acero de la cara traccionada y phi limitado por deformación,
   sin acreditar la contribución del acero de la cara comprimida.
 - Se mantienen el mínimo de flexión y la armadura por temperatura/retracción.
   La armadura transversal por cara se dimensiona por el mínimo correspondiente.
-- El corte emplea el procedimiento general compartido, sin término axial.
+- El corte emplea el procedimiento general compartido en verticales y el
+  general también en zapatas y losa, incluyendo 0.5 Nu en la deformación longitudinal.
+  Nu es positivo en tracción; la deformación negativa se limita a cero.
   Si el concreto no resiste, se informa NO CUMPLE.
 - Servicio reutiliza la estimación del estribo individual `fs = |Ms|/(As*0.90*d)`.
   Se revisan tensión de acero y espaciamiento de fisuración, sin efecto axial.
@@ -264,9 +353,12 @@ y sus sobrecargas presentes. No equivale a todas las fases constructivas.
   por offsets cuando están activadas. Un estado OK solo acredita las comprobaciones
   ejecutadas: no demuestra capacidad axial ni que su efecto sea despreciable.
 - Se calculan las longitudes de desarrollo recto y con gancho reutilizando las
-  funciones existentes. Las longitudes útiles deben ingresarse por región en
-  `longitudes_rectas_anclaje_disponibles_m`; de lo contrario el estado es
-  PENDIENTE DETALLE. La longitud con gancho no aprueba automáticamente su acomodo.
+  funciones existentes. La longitud recta disponible se estima desde las secciones
+  críticas de ambas caras hasta los extremos compatibles con la geometría y el
+  recubrimiento; no se permite atravesar un cambio de sección fuera del concreto.
+  Se compara la menor longitud a ambos lados con ld. Las longitudes verificadas
+  de `longitudes_rectas_anclaje_disponibles_m` conservan prioridad cuando se ingresan
+  en YAML. La longitud con gancho no aprueba automáticamente su acomodo.
 - Deslizamiento global: `H_d=abs(Rx)` frente a `phi*mu*sum(R_vertical)` de la misma
   combinación. No se agrega resistencia pasiva ni dentellón.
 - Contacto: `q_i=R_i/area_i`, superficie activa, asentamientos y levantamientos.
@@ -329,25 +421,73 @@ Por defecto se escribe en `output/estribos_conectados`:
 - `elementos.csv`, `nodos.csv`, `esfuerzos.csv` y `cargas_combinadas.csv` con
   unidades explícitas.
 - Figuras de geometría y contacto de la cimentación completa.
+- Memoria Word con el nombre y ubicación elegidos en la ventana de guardado,
+  después de seleccionar el acero, con el formato aprobado de referencia.
+  Con `--automatico` se guarda `memoria_estribos_conectados.docx` en resultados.
 - `modelo_axial.png`, `modelo_cortante.png` y `modelo_momento.png`: cada diagrama
   se dibuja sobre la estructura completa, con ambos estribos, cajuelas, zapatas,
   transiciones, losa y resortes. Estas mismas figuras se incorporan al Word.
 
 Los diagramas usan la misma escala geométrica en x/y y una escala de esfuerzos
 común para todos los elementos de cada figura. Azul identifica el mínimo y rojo
-el máximo de resistencia y evento extremo. La ordenada positiva sigue la normal
+el máximo de todas las combinaciones, incluido Servicio I. La ordenada positiva sigue la normal
 local: arriba en la cimentación e izquierda en ambas pantallas. Se indican los
 extremos globales con su caso y los extremos de cimentación y de cada estribo.
 Las curvas se trazan por elemento, sin unir saltos ni ramas distintas, e incluyen
 las estaciones de extremos internos de todas las combinaciones. No son una
 deformada ni un único estado simultáneo: cada extremo puede proceder de otro caso.
 
-La memoria Word opcional se guarda donde se elija al finalizar. Reutiliza el
+La memoria Word solicita nombre y ubicación después de cada ejecución interactiva de
+análisis, salvo que se indique `--sin-word`. Se actualiza con los datos y el acero
+de esa ejecución. Reutiliza el
 formato de estribos: A4, márgenes de 25,4 mm, Arial Narrow 11, título de portada
 22, interlineado 1,5, contenido justificado, portada, índice, encabezado,
 paginación, secciones numeradas, tablas y ecuaciones nativas de Word.
-`--sin-word` omite la pregunta y generación de Word, pero no la selección de acero;
-`--resultados RUTA` cambia la carpeta de TXT, JSON, CSV y gráficos.
+La memoria se organiza en doce apartados: bases y alcance; geometría, materiales
+y suelo; idealización y resortes; determinación y aplicación de cargas; casos
+simultáneos y combinaciones; resultados estructurales; contacto y geotecnia;
+concreto armado por región; desarrollo y detalle; verificación numérica;
+resumen y conclusiones; referencias y anexos. Explica el método de análisis y
+los criterios, las fórmulas y la aplicación de DC, EV, LS, EH, EQ y BR al FRAME,
+sin ejemplos numéricos por nudo ni descomposiciones de pesos repetidas. Documenta
+las hipótesis de empuje activo, reducción sísmica, transferencia al talón y
+altura de frenado que requieren sustento del proyecto. Las figuras de cargas, deformada nodal
+de servicio y esquemas de armadura no se incorporan al Word.
+
+Las tablas se reservan para comparaciones: geometría común de ambos estribos,
+materiales, factores, reacciones simultáneas, resultados geotécnicos y resumen
+del armado. No se duplican tablas de entradas, auditoría, nudos ni elementos;
+los desarrollos detallados quedan en los anexos TXT, JSON y CSV. Los esquemas
+de acero no definen longitudes de corte, doblados, empalmes ni acomodo de ganchos.
+Las verificaciones del acero elegido se desarrollan como la memoria de referencia:
+expresión, definición de símbolos, sustitución numérica y conclusión para cada
+control gobernante de flexión, cortante, servicio y anclaje. Se conserva el caso y
+la sección de cada control, usando la envolvente de todas las combinaciones y
+ambos estribos. La temperatura se desarrolla por región y conserva las áreas
+colocadas en cada cara y dirección. La fisuración sin tracción de servicio se identifica como no
+gobernante, sin calcular separaciones artificiales. Las conclusiones identifican
+las distribuciones que no cumplen y los anclajes rectos insuficientes.
+Los casos se identifican por el nombre de la combinación. Las envolventes NVM
+se separan en Resistencia Ia, Resistencia Ib, Servicio I y Evento Extremo I por
+cada par simultáneo y por condición con o sin tablero. Evento Extremo I reúne
+A/B y ambos sentidos sísmicos. Al final del apartado 6 se presenta la envolvente
+general NVM de todas las combinaciones, referencia para el diseño del apartado 8.
+El concreto armado se desarrolla una sola vez por región, con sus controles
+gobernantes y los esfuerzos simultáneos de cada sección. Se omiten los diseños
+de transiciones y cajuelas, sus apartados de servicio y detallado y sus filas de resumen.
+
+El apartado 7 presenta cuatro envolventes de presiones y asentamientos:
+Resistencia Ia, Resistencia Ib, Servicio I y Evento Extremo I. Cada una reúne
+todos sus casos con y sin tablero. Las presiones proceden del análisis de cada
+caso mediante reacción del resorte dividida por su área tributaria. Se desarrolla
+qlím y se verifica la presión máxima de cada envolvente. Se declara la hipótesis
+de capacidad nominal FS·qadm y no se acredita cumplimiento de asentamientos sin
+un límite admisible. El Word no desarrolla
+deslizamiento ni utiliza Meyerhof como demanda de presión.
+La presión límite mantiene la aproximación nominal FS·qadm ya implementada.
+`--sin-word` omite la generación de Word, pero no la selección de acero;
+`--resultados RUTA` cambia la carpeta de TXT, JSON, CSV y gráficos. El Word
+interactivo solicita ubicación mediante ventana; en modo automático usa esa carpeta.
 Para automatización explícita sin preguntas, usar `input ARCHIVO --automatico`:
 conserva la propuesta de acero y guarda Word en la carpeta de resultados.
 Combinar con `--sin-word` para omitirlo. Los archivos de resultados registran
@@ -372,3 +512,64 @@ geometría asimétrica, refinamiento, compatibilidad de secciones RC y la CLI.
 - [FHWA GEC 6 Shallow Foundations](https://www.fhwa.dot.gov/engineering/geotech/pubs/010943.pdf), deslizamiento y fricción de interfaz.
 
 Estas referencias documentan la formulación; OpenSees no es una dependencia.
+
+## Armado comun de estribo
+
+El YAML nuevo contiene un solo bloque `estribo` para geometria, materiales, suelo
+y criterios de armado. `cargas_tablero_derecho` permite modificar las reacciones
+del derecho sin duplicar geometria. Los archivos antiguos con `estribo_izquierdo`
+y `estribo_derecho` siguen siendo legibles cuando geometria, materiales y criterios
+de armado coinciden; una incompatibilidad produce un error explicito.
+
+El FRAME conserva los dos estribos, las cargas simultaneas y sus resortes. Se
+identifican primero las caras fisicas de cada lado y luego se agrupan sus
+secciones en Pantalla, Zapata y Parapeto. Cada distribucion comun se comprueba
+en todas las secciones de ambos lados y todos los casos, manteniendo M y V
+simultaneos. Las verificaciones de flexion, cortante y servicio conservan su
+propio lado, elemento y combinacion gobernante, visibles en consola y Word.
+Las longitudes rectas disponibles siguen el detalle continuo definido: pantalla
+en zapata, losa dentro del ancho de zapata y parapeto en toda la altura del estribo,
+menos recubrimiento. Talon y puntera cruzan la pantalla hasta el borde opuesto
+de zapata; no se limita el anclaje al propio voladizo. Una eleccion de acero comun
+se aplica a ambos lados; la losa conserva sus cuatro distribuciones propias.
+
+
+## Opcion de corte de acero de pantalla
+
+Las tablas de opciones y el resumen final presentan un corte solo para el
+acero vertical del relleno de pantalla, calculado con la distribucion
+propuesta o elegida. El acero vertical exterior conserva su distribucion
+continua y no genera propuesta de corte en consola, JSON ni memoria Word.
+Se reutiliza el motor de estribos individuales: misma barra, continuidad de
+una de cada N barras, altura teorica, prolongacion ld, altura constructiva y
+longitudes de barras cortadas y continuas. Se exporta en `resultados.json`
+y en la memoria Word. Es una opcion de detalle; el armado uniforme sigue
+siendo la distribucion seleccionada para las verificaciones generales.
+
+El adaptador conectado comprueba la envolvente FRAME de ambos lados por cara,
+incluidos flexion, cortante, servicio y minimos en todo el tramo superior.
+Conserva elementos completos y su espesor menor al buscar el corte, sin
+suponer que la demanda disminuye monotonamente con la altura. La propuesta
+puede ser conservadora y depende de la malla del analisis. Las alturas parten
+de la cara superior de zapata y las longitudes llegan al inicio de la
+transicion de cajuela: el parapeto conserva su distribucion independiente.
+El detalle de union con la cajuela se resuelve aparte.
+
+`NO APLICA` indica que no hay reduccion admisible con el acero elegido o que
+la distribucion no cumple sus comprobaciones. `NO CONVIENE` indica que la
+prolongacion de desarrollo lleva el corte al extremo superior del tramo.
+Una seleccion nueva recalcula la opcion; el programa no impone el corte.
+
+
+### Secciones de diseño de zapatas
+
+Talón y puntera se separan por las caras físicas de la pantalla. Los elementos
+bajo la pantalla no pertenecen a ninguna de las dos distribuciones. Se conserva
+el valor de N, V y M del elemento inmediatamente exterior a cada cara, sin
+aprovechar el traslado de la sección de cortante por compresión en el apoyo.
+También se revisan las estaciones interiores y los extremos recuperados por el
+FRAME, con sus esfuerzos simultáneos. Cada control selecciona su propio máximo
+de utilización. Las transiciones inferiores se comprueban con el armado de la
+losa central, sus materiales y recubrimiento, usando el espesor de cada sección.
+Los reportes identifican las caras y las transiciones cuando gobiernan.
+Esta modificación no incorpora interacción axial-momento en flexión.

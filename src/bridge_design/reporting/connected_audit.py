@@ -64,11 +64,14 @@ def load_tables(result):
         for kind, components in (("Concreto", _concrete_components(side)), ("Relleno", _soil_components(side))):
             gamma = (side.materials.concrete_unit_weight_kg_m3 if kind == "Concreto"
                      else side.materials.soil_unit_weight_kg_m3) / 1000
-            rows = tuple((part.name, number(part.value_tn_m / gamma), number(gamma), number(part.value_tn_m), number(part.arm_m),
-                          number(part.value_tn_m * part.arm_m)) for part in components)
+            # Fixed decimal places per numeric column make the comparison
+            # readable. Keep full-precision domain values for every operation.
+            rows = tuple((part.name, *(f"{value:.3f}" for value in (
+                part.value_tn_m / gamma, gamma, part.value_tn_m, part.arm_m,
+                part.value_tn_m * part.arm_m))) for part in components)
             tables.append(AuditTable(f"{label} / {kind}: descomposicion geometrica", ("Componente", "Area m2", "Gamma Tn/m3", "Peso Tn/m", "Brazo local m", "W*x Tn.m/m"),
-                rows + (("SUMA", "-", "-", number(sum(part.value_tn_m for part in components)), "-",
-                         number(sum(part.value_tn_m * part.arm_m for part in components))),),
+                rows + (("SUMA", "-", "-", f"{sum(part.value_tn_m for part in components):.3f}", "-",
+                         f"{sum(part.value_tn_m * part.arm_m for part in components):.3f}"),),
                 "W = volumen de franja * peso unitario. Brazo local desde puntera, no coordenada global. "
                 "Control geometrico del estribo individual; las acciones efectivamente ensambladas se muestran por combinacion."))
             if kind == "Concreto":
@@ -120,7 +123,8 @@ def foundation_tables(result):
 
 def build_connected_audit(result):
     from bridge_design.reporting.connected_earth_trace import earth_steps
-    grouped = section_demands(result.inputs, result.mesh, result.results)
+    from bridge_design.domain.connected_distributions import reinforcement_demands
+    grouped = reinforcement_demands(result.inputs, result.mesh, result.results)
     return {"inputs": input_tables(result), "loads": load_tables(result),
             "earth": tuple(earth_steps(result)),
             "foundation": foundation_tables(result),

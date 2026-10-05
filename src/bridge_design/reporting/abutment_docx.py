@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
+from bridge_design.domain.anchorage_status import anchorage_passes
 
 from bridge_design.domain.abutment import (
     ABUTMENT_KEY_REFERENCE,
@@ -1060,4 +1061,5 @@ def _status_comment(status: str, ok_text: str) -> str:
 
 
 def _is_ok(status: str) -> bool:
-    return str(status).strip().upper() in {"OK", "CUMPLE", "ADECUADO"}
+    value = str(status).strip().upper()
+    return value in {"OK", "CUMPLE", "ADECUADO"} or anchorage_passes(value)

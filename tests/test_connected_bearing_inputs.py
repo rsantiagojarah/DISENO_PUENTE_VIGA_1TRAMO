@@ -13,7 +13,7 @@ def test_connected_bearing_entered_once_and_shared_with_foundation(monkeypatch, 
 
     def answer(prompt):
         prompts.append(prompt)
-        if prompt.startswith("Usar los mismos datos"):
+        if prompt.startswith("Usar las mismas reacciones"):
             return "s" if same_right else "n"
         if prompt.startswith("qadm capacidad"):
             return "1.35"
@@ -38,15 +38,21 @@ def test_connected_bearing_entered_once_and_shared_with_foundation(monkeypatch, 
     assert data.left.soil.bearing_capacity_factor_fs == data.right.soil.bearing_capacity_factor_fs == 4
     assert data.soil.nominal_bearing_fs == 4
     assert data.soil.subgrade_tn_m3 == 620
-    assert data.right.geometry.retained_height_m == (10.7 if same_right else 11.2)
+    assert data.right.geometry == data.left.geometry
+    assert data.right.geometry.retained_height_m == 10.7
+    assert sum(prompt.startswith("H activo") for prompt in prompts) == 1
     assert "1.35 kg/cm2 = 13.5 Tn/m2" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("legacy", (False, True))
 def test_yaml_has_one_authoritative_bearing_input_and_loads_legacy_files(legacy):
     raw = connected_yaml_template(example=True)
+    if legacy:
+        common = raw.pop("estribo")
+        raw["estribo_izquierdo"] = deepcopy(common)
+        raw["estribo_derecho"] = deepcopy(common)
     raw["suelo_cimentacion"].update(qadm_tn_m2=13.5, fs_capacidad_nominal=4)
-    for name in ("estribo_izquierdo", "estribo_derecho"):
+    for name in (("estribo_izquierdo", "estribo_derecho") if legacy else ("estribo",)):
         assert "qadm_capacidad_portante_kg_cm2" not in raw[name]["suelo_sismo"]
         assert "fs_capacidad_portante_nominal" not in raw[name]["suelo_sismo"]
         if legacy:

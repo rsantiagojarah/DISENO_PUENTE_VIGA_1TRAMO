@@ -1712,13 +1712,14 @@ def _calc(document, title, formula, legend, substitution, result, comment, refer
     run = technical.add_run(comment)
     _format_run(run, 9.0, color=technical_color)
 
-    citation = document.add_paragraph(style="Normal")
-    citation.paragraph_format.space_before = Pt(0)
-    citation.paragraph_format.space_after = Pt(7)
-    run = citation.add_run("Referencia normativa: ")
-    _format_run(run, 8.6, bold=True, color=GRAY)
-    run = citation.add_run(reference)
-    _format_run(run, 8.6, italic=True, color=GRAY)
+    if reference and reference.strip():
+        citation = document.add_paragraph(style="Normal")
+        citation.paragraph_format.space_before = Pt(0)
+        citation.paragraph_format.space_after = Pt(7)
+        run = citation.add_run("Referencia normativa: ")
+        _format_run(run, 8.6, bold=True, color=GRAY)
+        run = citation.add_run(reference)
+        _format_run(run, 8.6, italic=True, color=GRAY)
 
 
 def _legend_items(legend: str) -> tuple[str, ...]:
@@ -1839,6 +1840,16 @@ def _append_math_expression(parent, expression: str) -> None:
             parent.append(_math_run(f" {operator} "))
             _append_math_expression(parent, right)
             return
+    # Explicitly grouped fractional factors are a product, not a nested
+    # denominator. This preserves the two factors in the general shear beta.
+    product = _split_top_level(expression, ("·",))
+    if product is not None:
+        left, operator, right = product
+        if all(_has_outer_group(part, "(", ")") and "/" in part for part in (left, right)):
+            _append_math_expression(parent, left[1:-1])
+            parent.append(_math_run(f" {operator} "))
+            _append_math_expression(parent, right[1:-1])
+            return
     split = _split_top_level(expression, ("/",))
     if split is not None:
         numerator, _, denominator = split
@@ -1874,15 +1885,17 @@ def _append_math_expression(parent, expression: str) -> None:
     caret = _find_top_level_operator(expression, "^")
     if caret is not None:
         base_start = _superscript_base_start(expression, caret)
+        exponent_end = _superscript_exponent_end(expression, caret + 1)
         if base_start > 0:
             _append_math_expression(parent, expression[:base_start])
         superscript = OxmlElement("m:sSup")
         base = OxmlElement("m:e")
         exponent = OxmlElement("m:sup")
         _append_math_expression(base, expression[base_start:caret])
-        _append_math_expression(exponent, expression[caret + 1 :])
+        _append_math_expression(exponent, expression[caret + 1 :exponent_end])
         superscript.extend((base, exponent))
         parent.append(superscript)
+        _append_math_expression(parent, expression[exponent_end:])
         return
     parent.append(_math_run(expression))
 
@@ -1916,8 +1929,8 @@ def _split_top_level(expression: str, operators: tuple[str, ...]):
 def _slash_is_fraction(expression: str, index: int) -> bool:
     left = expression[:index].rstrip()
     right = expression[index + 1 :].lstrip()
-    unit_numerators = ("Tn", "Tn·m", "kg", "cm", "cm²", "m", "m²")
-    unit_denominators = ("m", "m²", "cm", "cm²", "s")
+    unit_numerators = ("Tn", "tn", "Tn·m", "tn·m", "kgf", "kg", "cm", "cm²", "m", "m²")
+    unit_denominators = ("m", "m²", "m³", "m⁴", "cm", "cm²", "s")
     if any(left.endswith(unit) for unit in unit_numerators) and right.startswith(unit_denominators):
         return False
     if right and right[0].isdigit():
@@ -1965,9 +1978,32 @@ def _superscript_base_start(expression: str, caret: int) -> int:
                 if depth == 0:
                     return index
     index = end
-    while index >= 0 and expression[index] not in " =+−·;/([":
+    while index >= 0 and expression[index] not in " =+−-*·;/([":
         index -= 1
     return index + 1
+
+
+def _superscript_exponent_end(expression: str, start: int) -> int:
+    """Keep following factors and units outside a power's exponent."""
+    position = start
+    while position < len(expression) and expression[position].isspace():
+        position += 1
+    if position < len(expression) and expression[position] in "([{":
+        opener = expression[position]
+        closer = {"(": ")", "[": "]", "{": "}"}[opener]
+        depth = 0
+        for index in range(position, len(expression)):
+            if expression[index] == opener:
+                depth += 1
+            elif expression[index] == closer:
+                depth -= 1
+                if depth == 0:
+                    return index + 1
+    if position < len(expression) and expression[position] in "+-−":
+        position += 1
+    while position < len(expression) and expression[position] not in " *·;/^=+−-":
+        position += 1
+    return position
 
 
 def _math_run(text_value: str):
@@ -2003,6 +2039,8 @@ def _table(document, headers, rows, *, widths, font_size=8.3, accent=False) -> N
     table.alignment = WD_TABLE_ALIGNMENT.CENTER if accent else WD_TABLE_ALIGNMENT.LEFT
     table.autofit = False
     table.style = "Table Grid"
+    for column, width in zip(table.columns, widths):
+        column.width = Mm(width)
     for index, (cell, header, width) in enumerate(zip(table.rows[0].cells, headers, widths)):
         cell.width = Mm(width)
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
@@ -2028,6 +2066,8 @@ def _table(document, headers, rows, *, widths, font_size=8.3, accent=False) -> N
             run = p.add_run(str(value))
             _format_run(run, 11, color=TEXT_COLOR)
     table.rows[0]._tr.get_or_add_trPr().append(OxmlElement("w:tblHeader"))
+    for row in table.rows:
+        row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
     for table_row in table.rows:
         row_properties = table_row._tr.get_or_add_trPr()
         if row_properties.find(qn("w:cantSplit")) is None:

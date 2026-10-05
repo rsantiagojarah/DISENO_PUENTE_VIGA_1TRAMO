@@ -9,6 +9,7 @@ from bridge_design.domain.connected_inputs import ConnectedInputs, FoundationSoi
 from bridge_design.domain.frame_types import ElementLoad
 from bridge_design.reporting.connected_chart_geometry import structure_polygons
 from bridge_design.reporting.connected_charts import save_connected_charts
+from bridge_design.reporting.connected_case_groups import case_label, combination_groups
 from bridge_design.reporting.connected_frame_charts import (
     diagram_position, fitted_coordinates, frame_envelope, frame_envelope_chart,
 )
@@ -24,7 +25,7 @@ def analysis():
 def test_whole_frame_envelope_preserves_elements_extrema_and_cases(analysis, field):
     diagrams = frame_envelope(analysis, field)
     assert len(diagrams) == len(analysis.mesh.frame.elements)
-    included = [(f"C{index:03d}", result) for index, result in enumerate(analysis.results, 1)
+    included = [(case_label(result.name), result) for result in analysis.results
                 if result.limit_state != "service"]
     assert any(row.station not in (0, .25, .5, .75, 1) for _, case in included for row in case.sections)
     for element, points in enumerate(diagrams):
@@ -45,18 +46,18 @@ def test_whole_frame_envelope_preserves_elements_extrema_and_cases(analysis, fie
         max(getattr(row, field) for _, case in included for row in case.sections))
 
 
-def test_diagram_ordinates_follow_each_local_normal_without_rotating_geometry(analysis):
+def test_diagram_ordinates_reverse_each_local_normal_without_rotating_geometry(analysis):
     model = analysis.mesh.frame
     for element_index in (0, analysis.mesh.side_elements[0][0], analysis.mesh.side_elements[1][0]):
         axis = diagram_position(model, element_index, 0.5)
         positive = diagram_position(model, element_index, 0.5, 12, 0.1)
         negative = diagram_position(model, element_index, 0.5, -12, 0.1)
         if element_index == 0:
-            assert positive == pytest.approx((axis[0], axis[1] + 1.2))
-            assert negative == pytest.approx((axis[0], axis[1] - 1.2))
+            assert positive == pytest.approx((axis[0], axis[1] - 1.2))
+            assert negative == pytest.approx((axis[0], axis[1] + 1.2))
         else:
-            assert positive == pytest.approx((axis[0] - 1.2, axis[1]))
-            assert negative == pytest.approx((axis[0] + 1.2, axis[1]))
+            assert positive == pytest.approx((axis[0] + 1.2, axis[1]))
+            assert negative == pytest.approx((axis[0] - 1.2, axis[1]))
     point = fitted_coordinates([(0, -2), (18, 10)], (0, 0, 2000, 900))
     assert point(1, 0)[0] - point(0, 0)[0] == pytest.approx(point(0, 0)[1] - point(0, 1)[1])
 
@@ -67,9 +68,25 @@ def test_service_does_not_enter_strength_envelopes(analysis):
     assert frame_envelope(replace(analysis, results=inflated), "moment") == frame_envelope(analysis, "moment")
 
 
+def test_general_envelope_includes_service_cases(analysis):
+    inflated = tuple(replace(case, end_forces=tuple(tuple(1e9 for value in forces) for forces in case.end_forces))
+                     if case.limit_state == "service" else case for case in analysis.results)
+    names = tuple(case.name for case in analysis.results)
+    general = frame_envelope(replace(analysis, results=inflated), "moment", names)
+    assert general != frame_envelope(analysis, "moment", names)
+    assert any("Servicio I" in row.minimum_case or "Servicio I" in row.maximum_case
+               for points in general for row in points)
+
+
 def test_export_replaces_split_figures_with_three_complete_model_views(analysis, tmp_path):
     paths = save_connected_charts(analysis, tmp_path)
-    assert set(paths) == {"geometria", "contacto", "modelo_axial", "modelo_cortante", "modelo_momento"}
+    assert set(paths) == {"geometria", "contacto", "modelo_axial", "modelo_cortante", "modelo_momento",
+                          "cargas", "cargas_pesos", "cargas_sobrecarga_1", "cargas_tablero_1",
+                          "cargas_sismo_A_menos", "cargas_sismo_A_mas", "cargas_sismo_B_menos",
+                          "cargas_sismo_B_mas", "cargas_inercia", "deformada", "armado"} | {
+                              f"envolvente_{i}_{field}" for i in range(1,len(combination_groups(analysis))+1)
+                              for field in ("axial","shear","moment")} | {
+                                  f"contacto_envolvente_{i}" for i in range(1,5)}
     for name in ("modelo_axial", "modelo_cortante", "modelo_momento"):
         with Image.open(paths[name]) as picture:
             assert picture.size == (2000, 1450)
@@ -89,14 +106,13 @@ def test_zero_force_diagram_has_finite_scale(analysis, tmp_path):
     assert (tmp_path / "cero.png").exists()
 
 
-def test_full_geometry_preserves_asymmetric_seats_heights_and_abrupt_thickness_change(analysis, tmp_path):
-    right = replace(analysis.inputs.right, geometry=replace(analysis.inputs.right.geometry, retained_height_m=8.0))
-    data = replace(analysis.inputs, right=right, left_transition_m=0, section_offsets=True)
+def test_full_geometry_preserves_mirrored_seats_and_abrupt_thickness_change(analysis, tmp_path):
+    data = replace(analysis.inputs, left_transition_m=0, section_offsets=True)
     mesh = build_connected_mesh(data)
     polygons = structure_polygons(data, mesh)
     assert len(polygons) == 3
     assert max(height for position, height in polygons[1]) == pytest.approx(9.2)
-    assert max(height for position, height in polygons[2]) == pytest.approx(6.5)
+    assert max(height for position, height in polygons[2]) == pytest.approx(9.2)
     edge = [(position, height) for position, height in polygons[0] if position == data.left.geometry.footing_width_m]
     assert {round(height, 4) for position, height in edge} == {-1.5, -0.75}
     asymmetric = analyze_connected_abutments(data)

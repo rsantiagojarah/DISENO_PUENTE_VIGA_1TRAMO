@@ -169,13 +169,13 @@ def test_invalid_geometry_and_missing_geotechnical_data_are_rejected(data):
     with pytest.raises(ValueError, match="losa central"):
         replace(data, clear_span_m=2)
     with pytest.raises(ValueError, match="cajuela"):
-        replace(data, left=replace(data.left, geometry=replace(data.left.geometry, bearing_seat_length_m=2)))
+        side = replace(data.left, geometry=replace(data.left.geometry, bearing_seat_length_m=2))
+        replace(data, left=side, right=side)
 
 
-def test_asymmetric_geometry_offsets_and_mesh_refinement_converge(data):
+def test_asymmetric_transitions_offsets_and_mesh_refinement_converge(data):
     from bridge_design.domain.connected_design import analyze_connected_abutments
-    modified = replace(data, left_transition_m=0.7, right_transition_m=1.2, section_offsets=True,
-                       right=replace(data.right, geometry=replace(data.right.geometry, retained_height_m=8.0)))
+    modified = replace(data, left_transition_m=0.7, right_transition_m=1.2, section_offsets=True)
     coarse = analyze_connected_abutments(modified)
     fine = analyze_connected_abutments(replace(modified, mesh_size_m=0.5))
     for coarse_check, fine_check in zip(coarse.foundation_checks, fine.foundation_checks):

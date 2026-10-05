@@ -6,6 +6,7 @@ from math import hypot
 from PIL import Image, ImageDraw
 
 from bridge_design.domain.frame_sections import section_force_at
+from bridge_design.reporting.connected_case_groups import case_label
 from bridge_design.reporting.connected_chart_geometry import (
     BLUE, GRAY, RED, draw_structure, font, structure_polygons,
 )
@@ -21,15 +22,15 @@ class EnvelopePoint:
     maximum_case: str
 
 
-def frame_envelope(result, field):
+def frame_envelope(result, field, case_names=None):
     if field not in ("axial", "shear", "moment"):
         raise ValueError("Diagrama desconocido: " + field)
     model = result.mesh.frame
     cases = {case.name: case for case in result.cases}
-    included = [(f"C{index:03d}", row, cases[row.name]) for index, row in enumerate(result.results, 1)
-                if row.limit_state != "service"]
+    included = [(case_label(row.name), row, cases[row.name]) for row in result.results
+                if (row.name in case_names if case_names is not None else row.limit_state != "service")]
     if not included:
-        raise ValueError("No hay combinaciones de resistencia o evento extremo para los diagramas.")
+        raise ValueError("No hay casos seleccionados para los diagramas.")
     stations = {index: {0.0, 0.25, 0.5, 0.75, 1.0} for index in range(len(model.elements))}
     for _label, row, _case in included:
         for section in row.sections:
@@ -51,12 +52,13 @@ def frame_envelope(result, field):
 
 
 def diagram_position(model, element_index, station, value=0.0, factor=0.0):
+    """Draw signed ordinates on the reversed normal, preserving force values."""
     element = model.elements[element_index]
     first, last = model.nodes[element.start], model.nodes[element.end]
     delta_x, delta_y = last.x - first.x, last.y - first.y
     length = hypot(delta_x, delta_y)
-    return (first.x + station * delta_x - delta_y / length * value * factor,
-            first.y + station * delta_y + delta_x / length * value * factor)
+    return (first.x + station * delta_x + delta_y / length * value * factor,
+            first.y + station * delta_y - delta_x / length * value * factor)
 
 
 def fitted_coordinates(vertices, box):
@@ -74,27 +76,27 @@ def fitted_coordinates(vertices, box):
 
 def annotate_value(draw, position, text, color, occupied):
     horizontal, vertical = position
-    width = draw.textlength(text, font=font(30)) + 16
-    for shift_x, shift_y in ((12, -42), (12, 12), (-width - 12, -42), (-width - 12, 12),
-                             (-width / 2, -80), (-width / 2, 52)):
+    width = draw.textlength(text, font=font(40)) + 16
+    for shift_x, shift_y in ((12, -56), (12, 12), (-width - 12, -56), (-width - 12, 12),
+                             (-width / 2, -100), (-width / 2, 66)):
         left = max(20, min(1980 - width, horizontal + shift_x))
-        top = max(220, min(1178, vertical + shift_y))
-        box = (left, top, left + width, top + 40)
+        top = max(275, min(1178, vertical + shift_y))
+        box = (left, top, left + width, top + 52)
         if not any(box[0] < other[2] + 8 and box[2] > other[0] - 8 and
                    box[1] < other[3] + 8 and box[3] > other[1] - 8 for other in occupied):
             break
     occupied.append(box)
     draw.line((position, ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)), fill=color, width=1)
     draw.rectangle(box, fill="white")
-    draw.text((box[0] + 8, box[1] + 2), text, font=font(30), fill=color)
+    draw.text((box[0] + 8, box[1] + 2), text, font=font(40), fill=color)
     draw.ellipse((horizontal - 4, vertical - 4, horizontal + 4, vertical + 4), fill=color)
 
 
-def frame_envelope_chart(result, field, path):
+def frame_envelope_chart(result, field, path, case_names=None, group_name=None):
     labels = {"axial": ("Fuerza axial N", "Tn"), "shear": ("Cortante V", "Tn"),
               "moment": ("Momento flector M", "Tn m")}
     label, units = labels[field]
-    diagrams = frame_envelope(result, field)
+    diagrams = frame_envelope(result, field, case_names)
     rows = [row for points in diagrams for row in points]
     minimum = min(rows, key=lambda row: row.minimum)
     maximum = max(rows, key=lambda row: row.maximum)
@@ -108,13 +110,24 @@ def frame_envelope_chart(result, field, path):
         vertices.extend(diagram_position(mesh.frame, row.element, row.station, value, factor)
                         for value in (row.minimum, row.maximum))
     vertices.append((data.reference_position_m, min(vertex[1] for vertex in vertices) - 0.7))
-    point = fitted_coordinates(vertices, (120, 250, 1880, 1190))
+    point = fitted_coordinates(vertices, (120, 330, 1880, 1190))
     canvas = Image.new("RGB", (2000, 1450), "white")
     draw = ImageDraw.Draw(canvas)
     draw.text((80, 35), label + " | Estructura completa", fill=BLUE, font=font(44))
-    draw.text((80, 96), "Ambos estribos, cajuelas, zapatas, transiciones y losa central", fill=GRAY, font=font(30))
-    draw.text((80, 151), f"Minimo global: {minimum.minimum:+.3f} {units} ({minimum.minimum_case})", fill=BLUE, font=font(30))
-    draw.text((1030, 151), f"Maximo global: {maximum.maximum:+.3f} {units} ({maximum.maximum_case})", fill=RED, font=font(30))
+    draw.text((80, 96), group_name or "Resistencia y evento extremo con y sin tablero", fill=GRAY, font=font(36))
+    for y, text, color in ((151, f"Minimo global: {minimum.minimum:+.3f} {units} ({minimum.minimum_case})", BLUE),
+                           (205, f"Maximo global: {maximum.maximum:+.3f} {units} ({maximum.maximum_case})", RED)):
+        words, line, lines = text.split(), "", []
+        for word in words:
+            candidate = (line + " " + word).strip()
+            if line and draw.textlength(candidate, font=font(36)) > 1840:
+                lines.append(line)
+                line = word
+            else:
+                line = candidate
+        lines.append(line)
+        for j, line in enumerate(lines):
+            draw.text((80, y+37*j), line, fill=color, font=font(36))
     draw_structure(draw, data, mesh, point)
     for points in diagrams:
         for attribute, color, pale in (("minimum", BLUE, "#b0cada"), ("maximum", RED, "#ddbbb6")):
@@ -140,8 +153,8 @@ def frame_envelope_chart(result, field, path):
     scale_note = f"1.00 m de ordenada = {1 / factor:.3f} {units}" if factor else "Esfuerzos nulos"
     draw.text((80, 1280), f"Escala: {scale_note}. Geometria x/y a igual escala. Ux = 0 en x = {data.reference_position_m:.3f} m.",
               fill=GRAY, font=font(28))
-    draw.text((80, 1320), "Ordenada positiva: arriba en cimentacion; izquierda en pantallas. N positivo a traccion.",
+    draw.text((80, 1320), "Ordenada positiva: abajo en cimentacion; derecha en pantallas. N positivo a traccion.",
               fill=GRAY, font=font(28))
-    draw.text((80, 1360), "Resistencia y evento extremo. Envolvente no simultanea; los extremos pueden corresponder a casos distintos.",
+    draw.text((80, 1360), "Envolvente de los casos indicados. Los extremos pueden proceder de casos distintos y no son simultaneos.",
               fill=GRAY, font=font(28))
     canvas.save(path)

@@ -1,7 +1,7 @@
 """Map existing cajuela geometry to reference axes of a continuous 2D FRAME."""
 
 from dataclasses import dataclass
-from math import ceil
+from math import ceil, isclose
 
 from bridge_design.codes.mtc_2018 import calculate_concrete_elastic_modulus_kg_cm2
 from bridge_design.domain.abutment import _stem_thickness_at_height_m
@@ -85,6 +85,35 @@ def soil_intervals(side):
     return (0.0, toe, toe + batter, back, back + geometry.backfill_step_width_m, geometry.footing_width_m)
 
 
+def foundation_spring_positions(data):
+    """Exact spring count; uniform spacing between ends and stem axes.
+
+    Geometry/load boundaries remain separate FRAME nodes, without adding springs.
+    Allocate matching end intervals together to preserve symmetric supports.
+    """
+    anchors = (0.0, side_axis(data, 0), side_axis(data, 1), data.total_length_m)
+    lengths = [last - first for first, last in zip(anchors, anchors[1:])]
+    divisions = [1, 1, 1]
+    remaining = data.foundation_node_count - len(anchors)
+    while remaining:
+        index = max(range(3), key=lambda i: lengths[i] / divisions[i])
+        if index in (0, 2) and isclose(lengths[0], lengths[2], abs_tol=1e-9) and divisions[0] == divisions[2]:
+            if remaining >= 2:
+                divisions[0] += 1
+                divisions[2] += 1
+                remaining -= 2
+            else:
+                divisions[1] += 1
+                remaining -= 1
+        else:
+            divisions[index] += 1
+            remaining -= 1
+    positions = [anchors[0]]
+    for first, last, count in zip(anchors, anchors[1:], divisions):
+        positions.extend(first + (last - first) * step / count for step in range(1, count + 1))
+    return positions
+
+
 def build_connected_mesh(data):
     left_end = data.left.geometry.footing_width_m
     right_start = data.total_length_m - data.right.geometry.footing_width_m
@@ -93,27 +122,28 @@ def build_connected_mesh(data):
                   data.reference_position_m, side_axis(data, 0), side_axis(data, 1)]
     for side_index, side in enumerate((data.left, data.right)):
         boundaries.extend(global_x(data, side_index, position) for position in soil_intervals(side))
-    positions = subdivide(boundaries, data.mesh_size_m)
+    if data.foundation_node_count is None:
+        positions = subdivide(boundaries, data.mesh_size_m)
+        spring_positions = positions
+    else:
+        spring_positions = foundation_spring_positions(data)
+        positions = subdivide([*boundaries, *spring_positions], data.effective_mesh_size_m)
     nodes = [FrameNode(position, 0.0) for position in positions]
     foundation_count = len(nodes)
     elements = []
-    areas = [0.0] * foundation_count
     for index in range(foundation_count - 1):
         midpoint = (positions[index] + positions[index + 1]) / 2
         thickness, region, materials = foundation_section(data, midpoint)
         elements.append(FrameElement(index, index + 1, thickness, thickness**3 / 12,
                                      elastic_modulus(materials), region, thickness,
                                      -thickness / 2 if data.section_offsets else 0.0))
-        tributary = (positions[index + 1] - positions[index]) / 2
-        areas[index] += tributary
-        areas[index + 1] += tributary
     side_nodes, side_elements = [], []
     for side_index, side in enumerate((data.left, data.right)):
         geometry = side.geometry
         height = geometry.stem_height_above_footing_m
         body = height - geometry.seat_block_height_m - geometry.backwall_drop_m
         levels = subdivide([0.0, body - geometry.backwall_taper_height_m, body,
-                            height - geometry.seat_block_height_m, height], data.mesh_size_m)
+                            height - geometry.seat_block_height_m, height], data.effective_mesh_size_m)
         axis = side_axis(data, side_index)
         base = min(range(foundation_count), key=lambda index: abs(positions[index] - axis))
         identifiers = [base]
@@ -141,7 +171,13 @@ def build_connected_mesh(data):
         side_nodes.append(tuple(identifiers))
         side_elements.append(tuple(members))
     reference = min(range(foundation_count), key=lambda index: abs(positions[index] - data.reference_position_m))
-    springs = tuple(VerticalSpring(index, area * data.soil.subgrade_tn_m3, area,
-                                   data.soil.allowable_tn_m2) for index, area in enumerate(areas))
+    areas = [0.0] * len(spring_positions)
+    for index, (first, last) in enumerate(zip(spring_positions, spring_positions[1:])):
+        areas[index] += (last - first) / 2
+        areas[index + 1] += (last - first) / 2
+    node_at = {round(position, 10): index for index, position in enumerate(positions)}
+    springs = tuple(VerticalSpring(node_at[round(position, 10)], area * data.soil.subgrade_tn_m3, area,
+                                   data.soil.allowable_tn_m2)
+                    for position, area in zip(spring_positions, areas))
     frame = FrameModel(tuple(nodes), tuple(elements), springs, (3 * reference,))
     return ConnectedMesh(frame, foundation_count, reference, tuple(side_nodes), tuple(side_elements))

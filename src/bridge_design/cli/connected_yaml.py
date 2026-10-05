@@ -37,17 +37,18 @@ def connected_yaml_template(*, example=False):
             "separacion_libre_entre_caras_interiores_m": REFERENCE_CLEAR_SPAN_M,
             "espesor_losa_central_m": REFERENCE_SLAB_THICKNESS_M,
             "transicion_izquierda_m": REFERENCE_TRANSITION_M, "transicion_derecha_m": REFERENCE_TRANSITION_M,
-            "paso_malla_m": 0.50, "offsets_seccion": False, "nodo_referencia_x_m": None,
-            "materiales_losa": deepcopy(side["materiales"]),
+            "cantidad_nudos_cimentacion": 41, "offsets_seccion": False, "nodo_referencia_x_m": None,
         },
         "suelo_cimentacion": {
             "modulo_balasto_vertical_tn_m3": 3000.0 if example else None,
-            "coeficiente_friccion_interfaz": 0.50 if example else None,
             "qadm_tn_m2": 26.7, "fs_capacidad_nominal": 3.0,
             "phi_deslizamiento_resistencia": 0.80, "phi_deslizamiento_extremo": 1.0,
         },
-        "estribo_izquierdo": side,
-        "estribo_derecho": deepcopy(side),
+        "estribo": side,
+        "cargas_tablero_derecho": {},
+        "nota_estribo": "Geometria, materiales y criterios de armado comunes a ambos lados. "
+                         "Las cargas_tablero de estribo corresponden al izquierdo y, por defecto, al derecho. "
+                         "cargas_tablero_derecho permite cambiar solo las reacciones del derecho.",
         "incluir_sin_tablero": True,
         "casos_simultaneos": [],
         "nota_casos": "Lista vacia usa el par de cargas ingresado en los estribos. Para varios casos: "
@@ -55,8 +56,8 @@ def connected_yaml_template(*, example=False):
                       "factor_sobrecarga_izquierda, factor_sobrecarga_derecha. "
                       "Cada caso debe contener las reacciones del mismo posicionamiento del tablero.",
         "longitudes_rectas_anclaje_disponibles_m": {},
-        "nota_anclajes": "Ingresar longitudes utiles verificadas por region, por ejemplo 'Pantalla izquierda'. "
-                         "Si faltan, se informa PENDIENTE DETALLE. Los ganchos se reportan sin aprobar "
+        "nota_anclajes": "Longitudes utiles verificadas por distribucion comun, por ejemplo 'Pantalla - vertical relleno'. "
+                         "Si faltan, se infieren desde la geometria de ambos lados. Los ganchos se reportan sin aprobar "
                          "su acomodo automaticamente.",
     }
 
@@ -114,12 +115,28 @@ def connected_inputs_from_yaml(raw):
     if raw.get("version_esquema", 1) != 1:
         raise ValueError("Version de esquema no soportada.")
     foundation = mapping(raw, "cimentacion", True)
+    count = foundation.get("cantidad_nudos_cimentacion", None if "paso_malla_m" in foundation else 41)
+    if "cantidad_nudos_cimentacion" in foundation and (
+        isinstance(count, bool) or not isinstance(count, int) or count < 4
+    ):
+        raise ValueError("cantidad_nudos_cimentacion debe ser un entero >= 4.")
     soil = mapping(raw, "suelo_cimentacion", True)
     foundation_soil = FoundationSoil(
-        number(soil, "modulo_balasto_vertical_tn_m3"), number(soil, "coeficiente_friccion_interfaz"),
+        number(soil, "modulo_balasto_vertical_tn_m3"),
+        number(soil, "coeficiente_friccion_interfaz") if soil.get("coeficiente_friccion_interfaz") is not None else 0.0,
         number(soil, "qadm_tn_m2"), number(soil, "fs_capacidad_nominal", 3.0),
         number(soil, "phi_deslizamiento_resistencia", 0.80), number(soil, "phi_deslizamiento_extremo", 1.0))
-    left_raw, right_raw = mapping(raw, "estribo_izquierdo", True), mapping(raw, "estribo_derecho", True)
+    if "estribo" in raw:
+        if "estribo_izquierdo" in raw or "estribo_derecho" in raw:
+            raise ValueError("Use el bloque comun estribo o los bloques antiguos, sin mezclarlos.")
+        left_raw = mapping(raw, "estribo", True)
+        right_raw = deepcopy(left_raw)
+        overrides = mapping(raw, "cargas_tablero_derecho")
+        right_raw["cargas_tablero"] = {**mapping(left_raw, "cargas_tablero"), **overrides}
+    else:
+        # Read previous files without changing their simultaneous reactions;
+        # ConnectedInputs rejects incompatible geometry/materials/detailing.
+        left_raw, right_raw = mapping(raw, "estribo_izquierdo", True), mapping(raw, "estribo_derecho", True)
     left, right = side_inputs(left_raw, foundation_soil), side_inputs(right_raw, foundation_soil)
     materials_raw = mapping(foundation, "materiales_losa")
     materials = abutment_inputs_from_yaml({"materiales": materials_raw}).materials if materials_raw else left.materials
@@ -147,7 +164,8 @@ def connected_inputs_from_yaml(raw):
         slab_thickness_m=number(foundation, "espesor_losa_central_m"),
         left_transition_m=number(foundation, "transicion_izquierda_m", REFERENCE_TRANSITION_M),
         right_transition_m=number(foundation, "transicion_derecha_m", REFERENCE_TRANSITION_M),
-        mesh_size_m=number(foundation, "paso_malla_m", 0.50),
+        mesh_size_m=number(foundation, "paso_malla_m", 0.50) if count is None else 0.50,
+        foundation_node_count=count,
         section_offsets=boolean(foundation, "offsets_seccion", False),
         reference_x_m=None if foundation.get("nodo_referencia_x_m") is None else number(foundation, "nodo_referencia_x_m"),
         slab_materials=materials,

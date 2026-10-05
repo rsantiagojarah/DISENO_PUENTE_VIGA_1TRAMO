@@ -933,7 +933,7 @@ def cracking_and_temperature_trace(
         f"= {bounded:.3f} cm²/m"
     )
     formula = (
-        "fr = 2.01·√f'c ; S = b·h²/6 ; Mcr = 1.1·fr·S ; "
+        "fr = 2.01·√f'c ; S = b·h²/6 ; Mcr = 1.072·fr·S ; "
         f"Mmin = min(Mcr, {mult:.2f}·Mu) ; As,req = max(As,flex, As,temp, As,cap)"
     )
     legend = (
@@ -943,7 +943,7 @@ def cracking_and_temperature_trace(
     substitution = (
         f"fr = 2.01·√{fc:.1f} = {fr:.3f} kg/cm²\n"
         f"S = 100·{gross_depth_cm:.2f}²/6 = {s_mod:.1f} cm³\n"
-        f"Mcr = 1.1·{fr:.3f}·{s_mod:.1f}/1e5 = {case.cracking_moment_tn_m_m:.3f} Tn·m/m\n"
+        f"Mcr = 1.072·{fr:.3f}·{s_mod:.1f}/1e5 = {case.cracking_moment_tn_m_m:.3f} Tn·m/m\n"
         f"{mult:.2f}·Mu = {case.multiplier_minimum_moment_tn_m_m:.3f} Tn·m/m\n"
         f"Mmin = {case.minimum_capacity_moment_tn_m_m:.3f} Tn·m/m\n"
         f"fy = {fy:.1f} kg/cm²\n"
@@ -1248,7 +1248,7 @@ def development_trace(result: AbutmentDesignResult, check) -> tuple[str, str, st
         "recubrimiento, concreto ligero y confinamiento; λexc = As,req/As,prov (≥0.4)."
     )
     required = (
-        check.required_hooked_ld_cm if check.anchorage_type == "GANCHO" else check.required_ld_cm
+        check.required_hooked_ld_cm if check.anchorage_type in ("GANCHO", "SOLO GANCHO") else check.required_ld_cm
     )
     substitution = (
         f"db = {bar.diameter_cm:.3f} cm; fy = {fy:.1f} kg/cm²; f'c = {fc:.1f} kg/cm²\n"
@@ -1260,10 +1260,12 @@ def development_trace(result: AbutmentDesignResult, check) -> tuple[str, str, st
         f"ldisp = {check.available_length_cm:.2f} cm"
     )
     result_text = (
-        f"Se adopta anclaje {check.anchorage_type}; ldisp = {check.available_length_cm:.2f} cm "
-        f"y longitud requerida = {required:.2f} cm: {check.status}."
+        f"Estado por longitudes: {check.status}; ldisp = {check.available_length_cm:.2f} cm; "
+        f"ld recto = {check.required_ld_cm:.2f} cm; ld gancho = {check.required_hooked_ld_cm:.2f} cm. "
+        f"Longitud utilizada en el detalle propuesto = {required:.2f} cm."
     )
-    comment = "Si la longitud recta disponible no alcanza ldb, se verifica anclaje con gancho estándar."
+    comment = ("Se comparan independientemente ld recto y ld gancho con la longitud disponible. "
+               "La alternativa con gancho requiere comprobar su acomodo, doblado e interferencias.")
     return formula, legend, substitution, result_text, comment
 
 

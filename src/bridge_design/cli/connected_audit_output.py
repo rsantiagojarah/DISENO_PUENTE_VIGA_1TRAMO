@@ -31,6 +31,16 @@ def format_connected_audit(result, audit):
         origin = "USUARIO / SELECCION CONFIRMADA" if steel.region in result.selected_reinforcement else "PROPUESTA AUTOMATICA"
         lines.append(f"Origen del armado: {origin}")
         detail = audit["steel"][steel.region]
+        if steel.role == "temperature":
+            lines.extend(boxed_table(("Criterio", "Valor"), (
+                ("Area minima por temperatura cm2/m", f"{steel.temperature_cm2_m:.4f}"),
+                ("Acero elegido", f"{steel.bar_label} @ {steel.spacing_m:.3f} m"),
+                ("Area proporcionada cm2/m", f"{steel.area_per_face_cm2_m:.4f}"),
+                ("Estado", steel.status))))
+            for step in steel_steps(steel, detail):
+                if step.title.startswith("Temperatura"):
+                    lines.extend(format_audit_step(step, f"4.{index}.1"))
+            continue
         for table in steel_tables(steel, detail):
             lines.extend(format_audit_table(table))
         for step_index, step in enumerate(steel_steps(steel, detail), 1):

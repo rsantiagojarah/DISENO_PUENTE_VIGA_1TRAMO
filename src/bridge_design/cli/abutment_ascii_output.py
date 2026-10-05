@@ -1272,7 +1272,7 @@ def _format_development_checks(result: AbutmentDesignResult) -> list[str]:
     return [
         "",
         *boxed_table(
-            ("Elemento", "Barra", "ldb", "ld recto", "ld gancho", "ext gancho", "ld disp", "Tipo", "Estado"),
+            ("Elemento", "Barra", "ldb", "ld recto", "ld gancho", "ext gancho", "ld disp", "Estado"),
             (
                 (
                     check.element,
@@ -1282,12 +1282,11 @@ def _format_development_checks(result: AbutmentDesignResult) -> list[str]:
                     f"{check.required_hooked_ld_cm:.2f}",
                     f"{check.hook_extension_cm:.2f}",
                     f"{check.available_length_cm:.2f}",
-                    check.anchorage_type,
                     check.status,
                 )
                 for check in result.development_checks
             ),
-            aligns=("left", "center", "right", "right", "right", "right", "right", "center", "center"),
+            aligns=("left", "center", "right", "right", "right", "right", "right", "center"),
             title="DESARROLLO Y ANCLAJE DE BARRAS",
         ),
     ]

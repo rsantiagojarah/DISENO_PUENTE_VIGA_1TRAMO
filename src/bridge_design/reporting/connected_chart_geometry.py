@@ -53,9 +53,8 @@ def draw_structure(draw, data, mesh, point, *, axis_color=GRAY):
     for element in mesh.frame.elements:
         first, last = mesh.frame.nodes[element.start], mesh.frame.nodes[element.end]
         draw.line((point(first.x, first.y), point(last.x, last.y)), fill=axis_color, width=3)
-    jump = max(1, mesh.foundation_count // 25)
-    for index in range(0, mesh.foundation_count, jump):
-        position = mesh.frame.nodes[index].x
+    for spring in mesh.frame.springs:
+        position = mesh.frame.nodes[spring.node].x
         inside = min(max(position, 1e-7), data.total_length_m - 1e-7)
         horizontal, vertical = point(position, -foundation_section(data, inside)[0])
         draw.line(((horizontal, vertical), (horizontal, vertical + 5),

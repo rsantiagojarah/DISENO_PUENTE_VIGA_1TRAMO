@@ -59,8 +59,8 @@ def test_required_steel_is_inversion_of_the_actual_resistance(analysis, audit):
     for steel in analysis.reinforcement:
         trace = audit["steel"][steel.region]
         for row in trace["areas"]:
-            capacity = _moment_resistance_tn_m(row["flexural_area"], 100, row["effective"],
-                trace["concrete"], trace["yield_strength"], 0.90)
+            capacity = 0.0 if row["flexural_area"] == 0 else _moment_resistance_tn_m(row["flexural_area"], 100, row["effective"],
+                trace["concrete"], trace["yield_strength"], row["demand"].get("flexural_phi_limit") or 0.90)
             assert capacity == pytest.approx(abs(row["demand"]["moment"]), rel=1e-6, abs=1e-7)
 
 
@@ -75,25 +75,43 @@ def test_terminal_contains_shared_formulas_substitutions_and_governing_sources(a
     output = format_connected_audit(analysis, audit)
     assert "4. DESARROLLO DEL DISENO DEL ACERO ADOPTADO" in output
     assert "secciones gobernantes independientes" in output
-    assert "Sin longitud disponible no se aprueba el anclaje" in " ".join(output.replace("|", " ").split())
-    assert "Mcr = 1.1*2.01" in output
-    assert "N-M" not in output
+    assert "Se compara la longitud recta disponible con ld" in " ".join(output.replace("|", " ").split())
+    assert "Mcr = 1.072*2.01" in output
+    assert "N se incluye en beta" in output
+    assert "0.5*N" in output
     for steel in analysis.reinforcement:
         steps = tuple(steel_steps(steel, audit["steel"][steel.region]))
         assert len(steps) == 7
         assert all(step.formula and step.substitution and step.result and step.reference for step in steps)
 
 
-def test_terminal_result_is_compact_and_keeps_decision_tables(analysis):
+def test_terminal_result_uses_individual_style_with_numeric_checks(analysis, audit):
     output = format_connected_result(analysis)
-    assert "CONTACTO Y ESTABILIDAD GLOBAL" in output
+    assert "CONTACTO Y CAPACIDAD PORTANTE" in output
     assert "ARMADURA PRINCIPAL POR CARA" in output
-    assert "TEMPERATURA Y DESARROLLO" in output
-    assert "IDENTIFICACION DE COMBINACIONES" in output
+    assert "ACERO TRANSVERSAL POR TEMPERATURA" in output
+    assert "CONTROL DE FISURACION" in output
+    assert "DESARROLLO Y ANCLAJE DE BARRAS" in output
+    assert "ENVOLVENTE GENERAL DE TODAS LAS COMBINACIONES" in output
+    assert "L disp cm" in output
     assert "Propiedades FRAME por elemento" not in output
     assert "Accion / lado" not in output
     assert "contacto, presion y asentamiento" not in output
     assert "DESARROLLO DEL DISENO DEL ACERO ADOPTADO" not in output
+    assert "DATOS INGRESADOS Y CONSIDERADOS" in output
+    assert "Md con capacidad minima / Mr resistente" in output
+    assert "Vu de la seccion" in output and "Vr resistente" in output
+    for steel in analysis.reinforcement:
+        if steel.role != "primary":
+            continue
+        trace = audit["steel"][steel.region]
+        assert f"{trace['flexure']['capacity']:.3f}" in output
+        assert f"{trace['shear']['shear_capacity']:.3f}" in output
+        assert f"{trace['service']['stress']:.3f}" in output
+    assert "DISENO ESTRUCTURAL - Transicion" not in output
+    assert "DISENO ESTRUCTURAL - Cajuela" not in output
+    assert not any(region.startswith("Cajuela") for region in audit["steel"])
+    assert "C001" not in output
 
 
 def test_word_equations_preserve_effective_depth_and_beta_grouping(analysis, audit):

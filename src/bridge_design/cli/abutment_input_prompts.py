@@ -37,6 +37,7 @@ def collect_abutment_inputs(
     collect_key: bool = True,
     geometry_defaults: AbutmentGeometryInputs | None = None,
     shared_bearing_soil: AbutmentSoilInputs | None = None,
+    shared_materials: AbutmentMaterialInputs | None = None,
 ) -> AbutmentInputs:
     """Collect abutment design inputs from terminal."""
     print("=" * 72)
@@ -45,7 +46,7 @@ def collect_abutment_inputs(
     print(defaults_note)
 
     geometry = _collect_geometry(include_bridge_inputs=include_bridge_inputs, geometry_defaults=geometry_defaults)
-    materials = _collect_materials()
+    materials = shared_materials if shared_materials is not None else _collect_materials()
     if include_bridge_inputs:
         loads = _collect_loads(load_defaults, load_title, load_note)
     else:

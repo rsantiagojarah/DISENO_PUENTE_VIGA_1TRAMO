@@ -79,6 +79,7 @@ class ConnectedInputs:
     cases: tuple[PairedBridgeCase, ...] = ()
     include_without_bridge: bool = True
     anchor_lengths_m: dict[str, float] = field(default_factory=dict)
+    foundation_node_count: int | None = None
 
     def __post_init__(self):
         def finite_values(value, label):
@@ -92,6 +93,19 @@ class ConnectedInputs:
                 raise ValueError(f"{label} debe ser finito.")
 
         finite_values(asdict(self), "Entradas")
+        for name, label in (("geometry", "geometria"), ("materials", "materiales"),
+                            ("reinforcement", "criterios de armado")):
+            if getattr(self.left, name) != getattr(self.right, name):
+                raise ValueError(f"El diseno comun requiere que los datos de {label} coincidan en ambos estribos. "
+                                 "Las cargas del tablero pueden ser diferentes.")
+        if self.slab_materials != self.left.materials:
+            raise ValueError("Toda la estructura debe utilizar los mismos materiales.")
+        if self.foundation_node_count is not None and (
+            isinstance(self.foundation_node_count, bool)
+            or not isinstance(self.foundation_node_count, int)
+            or self.foundation_node_count < 4
+        ):
+            raise ValueError("La cantidad de nudos con resorte debe ser un entero >= 4.")
         for name in ("clear_span_m", "slab_thickness_m", "mesh_size_m", "slab_cover_cm"):
             positive(getattr(self, name), name)
         positive(self.left_transition_m, "Transicion izquierda", True)
@@ -160,3 +174,9 @@ class ConnectedInputs:
     @property
     def reference_position_m(self):
         return self.total_length_m / 2 if self.reference_x_m is None else self.reference_x_m
+
+    @property
+    def effective_mesh_size_m(self):
+        if self.foundation_node_count is not None:
+            return self.total_length_m / (self.foundation_node_count - 1)
+        return self.mesh_size_m

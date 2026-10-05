@@ -36,6 +36,8 @@ class MeshComparison:
     moment_change: float
     pressure_change: float
     settlement_change: float
+    coarse_nodes: int | None = None
+    fine_nodes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -96,16 +98,20 @@ def solve_connected_abutments(inputs, *, check_mesh=False):
     steel = design_connected_reinforcement(inputs, result.mesh, result.results)
     comparison = None
     if check_mesh:
-        finer = analyze_connected_abutments(replace(inputs, mesh_size_m=inputs.mesh_size_m / 2))
+        refined = (replace(inputs, foundation_node_count=2 * inputs.foundation_node_count - 1)
+                   if inputs.foundation_node_count is not None
+                   else replace(inputs, mesh_size_m=inputs.mesh_size_m / 2))
+        finer = analyze_connected_abutments(refined)
 
         def relative(original, refined):
             return abs(refined - original) / max(abs(refined), 1e-9)
 
-        comparison = MeshComparison(inputs.mesh_size_m, inputs.mesh_size_m / 2,
+        comparison = MeshComparison(inputs.effective_mesh_size_m, refined.effective_mesh_size_m,
             relative(max(abs(row.moment) for case in result.results for row in case.sections),
                      max(abs(row.moment) for case in finer.results for row in case.sections)),
             relative(max(row.maximum_pressure for row in result.foundation_checks),
                      max(row.maximum_pressure for row in finer.foundation_checks)),
             relative(max(row.maximum_settlement_mm for row in result.foundation_checks),
-                     max(row.maximum_settlement_mm for row in finer.foundation_checks)))
+                     max(row.maximum_settlement_mm for row in finer.foundation_checks)),
+            len(result.mesh.frame.springs), len(finer.mesh.frame.springs))
     return replace(result, reinforcement=steel, mesh_comparison=comparison)

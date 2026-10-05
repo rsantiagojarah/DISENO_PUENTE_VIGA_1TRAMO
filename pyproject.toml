@@ -32,6 +32,9 @@ diseno-muros = "bridge_design.cantilever_wall_main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"bridge_design.reporting" = ["templates/*.docx"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

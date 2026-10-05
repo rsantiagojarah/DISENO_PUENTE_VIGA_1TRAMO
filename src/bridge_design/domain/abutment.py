@@ -5,6 +5,7 @@ from math import atan, cos, degrees, isfinite, radians, sin, sqrt, tan
 from collections.abc import Mapping
 
 from bridge_design.domain.cover_defaults import SOIL_CONTACT_COVER_CM
+from bridge_design.domain.anchorage_status import anchorage_status
 
 from bridge_design.codes.mtc_2018 import (
     ABUTMENT_TEMPERATURE_REINFORCEMENT_REFERENCE,
@@ -29,6 +30,7 @@ from bridge_design.domain.rebar_catalog import (
     SpacingGrid,
     generate_spacing_options,
 )
+from bridge_design.domain.reinforcement import mtc_minimum_flexural_moment_tn_m
 from bridge_design.validation.input_validators import (
     require_non_negative,
     require_positive,
@@ -307,7 +309,8 @@ class AbutmentReinforcementInputs:
     spacing_step_m: float = 0.025
     minimum_spacing_m: float = 0.10
     maximum_spacing_m: float = 0.30
-    toe_moment_capacity_multiplier: float = 1.33
+    # Retained to read older saved inputs; no additional toe amplification.
+    toe_moment_capacity_multiplier: float = 1.0
     minimum_flexural_capacity_multiplier: float = 1.33
     development_location_factor: float = 1.0
     development_coating_factor: float = 1.0
@@ -1980,8 +1983,7 @@ def _structural_design(
             r.toe_main_bar_label,
             footing_temperature_as,
             selected_reinforcement.get("Zapata - puntera inferior"),
-            r.toe_moment_capacity_multiplier,
-            "Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente.",
+            notes="Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente.",
             shear_method="simplified",
         )
     return stem_design, heel_design, toe_design
@@ -2029,7 +2031,6 @@ def _reinforced_case(
     selected_bar_label: str,
     temperature_as_cm2_m: float,
     selected_option: ReinforcementSpacingOption | None = None,
-    moment_capacity_multiplier: float = 1.0,
     notes: str = "Mr >= max(Mu, min(Mcr, 1.33Mu))",
     shear_method: str = "general",
     limit_states: tuple[tuple[str, float, float], ...] | None = None,
@@ -2106,37 +2107,12 @@ def _reinforced_case(
         inputs.materials.steel_yield_kg_cm2,
         governing_phi,
     )
-    required_moment = max(governing_mu, minimum_moment)
-    if moment_capacity_multiplier > 1.0:
-        required_moment = max(required_moment, moment_capacity_multiplier * abs(mu_tn_m))
-        while (
-            moment_resistance + 1e-9 < required_moment
-            and selected_spacing - grid.step_m >= grid.minimum_m
-        ):
-            selected_spacing = round(selected_spacing - grid.step_m, 3)
-            provided_as = selected_bar.area_cm2 / selected_spacing
-            moment_resistance = _moment_resistance_tn_m(
-                provided_as,
-                100.0,
-                effective_depth_cm,
-                inputs.materials.concrete_strength_kg_cm2,
-                inputs.materials.steel_yield_kg_cm2,
-                governing_phi,
-            )
     state_status: dict[str, tuple[str, float, float]] = {}
     all_states_ok = True
     for label, state_mu, state_phi, _as_state in flexural_as_by_state:
-        state_minimum_moment = (
-            min(
-                cracking_moment,
-                inputs.reinforcement.minimum_flexural_capacity_multiplier * state_mu,
-            )
-            if state_mu > 0.0
-            else 0.0
-        )
-        state_required = max(state_mu, state_minimum_moment)
-        if moment_capacity_multiplier > 1.0 and abs(state_mu - abs(mu_tn_m)) <= 1e-12:
-            state_required = max(state_required, moment_capacity_multiplier * abs(mu_tn_m))
+        state_required = mtc_minimum_flexural_moment_tn_m(
+            state_mu, cracking_moment,
+            inputs.reinforcement.minimum_flexural_capacity_multiplier)
         state_resistance = _moment_resistance_tn_m(
             provided_as,
             100.0,
@@ -2223,7 +2199,8 @@ def _minimum_flexural_capacity_moment_tn_m(
 def _cracking_moment_tn_m(gross_depth_cm: float, inputs: AbutmentInputs) -> float:
     fr_kg_cm2 = 2.01 * sqrt(inputs.materials.concrete_strength_kg_cm2)
     section_modulus_cm3 = 100.0 * gross_depth_cm**2.0 / 6.0
-    return 1.1 * fr_kg_cm2 * section_modulus_cm3 / 100000.0
+    # MTC 2.9.1.4.4.2: gamma1 * gamma3 = 1.6 * 0.67 (ASTM A615 Grado 60).
+    return 1.072 * fr_kg_cm2 * section_modulus_cm3 / 100000.0
 
 
 def _select_reinforcement_for_required_area(
@@ -2454,15 +2431,8 @@ def _development_checks(
             excess_factor,
         )
         available = _available_development_length_cm(inputs, case.name)
-        if available + 1e-9 >= required_ld:
-            anchorage_type = "RECTO"
-            status = "OK"
-        elif available + 1e-9 >= hooked_ld:
-            anchorage_type = "GANCHO"
-            status = "OK"
-        else:
-            anchorage_type = "INSUF."
-            status = "NO CUMPLE"
+        status = anchorage_status(available, required_ld, hooked_ld)
+        anchorage_type = status
         checks.append(
             AbutmentDevelopmentCheck(
                 element=case.name,
@@ -2537,21 +2507,40 @@ def _stem_reinforcement_cut(
     stem_design: StructuralDesignCase,
     development_checks: tuple[AbutmentDevelopmentCheck, ...],
 ) -> AbutmentStemReinforcementCut | None:
-    g = inputs.geometry
+    development = next((check for check in development_checks if check.element == "Pantalla"), None)
+    return _single_stem_reinforcement_cut(
+        inputs, stem_design.selected_bar_label, stem_design.selected_spacing_m,
+        stem_design.provided_as_cm2_m, stem_design.temperature_as_cm2_m,
+        _required_anchor_length_cm(development) / 100.0 if development is not None else 0.0,
+        inputs.geometry.stem_height_above_footing_m,
+        lambda y, area, diameter: _stem_cut_upper_steel_satisfies(inputs, pressures, y, area, diameter),
+        lambda y, diameter, area: _stem_cut_design_at_height(inputs, pressures, y, diameter),
+    )
+
+
+def _single_stem_reinforcement_cut(
+    inputs, bar_label, spacing_m, provided_as, temperature_as, development_extension_m,
+    height, upper_steel_satisfies, design_at_height, *, maximum_spacing_m=None,
+    resistance_at_height=None,
+) -> AbutmentStemReinforcementCut | None:
+    """Shared pattern, all-upper-length search, development and cutting lengths.
+
+    Each analysis supplies its own remaining-length checks and section demands.
+    """
     r = inputs.reinforcement
-    height = g.stem_height_above_footing_m
     if height <= 0.0:
         return None
 
-    lower_bar = _bar_by_label(stem_design.selected_bar_label)
-    grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m, r.maximum_spacing_m)
+    lower_bar = _bar_by_label(bar_label)
+    grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m,
+                       r.maximum_spacing_m if maximum_spacing_m is None else maximum_spacing_m)
     upper_spacing_limit = _spacing_for_bar(
         lower_bar.area_cm2,
-        stem_design.temperature_as_cm2_m,
+        temperature_as,
         grid,
     )
     continuous_every_n_bars = int(
-        (upper_spacing_limit + 1e-9) / stem_design.selected_spacing_m
+        (upper_spacing_limit + 1e-9) / spacing_m
     )
     if continuous_every_n_bars < 2:
         return None
@@ -2560,31 +2549,21 @@ def _stem_reinforcement_cut(
     # Por ello la separacion superior solo puede ser un multiplo entero de la
     # separacion inferior (una de cada n barras), nunca una grilla independiente.
     upper_spacing = round(
-        continuous_every_n_bars * stem_design.selected_spacing_m,
-        3,
+        continuous_every_n_bars * spacing_m,
+        10,
     )
 
     upper_as = lower_bar.area_cm2 / upper_spacing
-    development = next(
-        (check for check in development_checks if check.element == "Pantalla"),
-        None,
-    )
-    development_extension_m = (
-        _required_anchor_length_cm(development) / 100.0
-        if development is not None
-        else 0.0
-    )
-
-    if _stem_cut_upper_steel_satisfies(inputs, pressures, 0.0, upper_as, lower_bar.diameter_cm):
+    if upper_steel_satisfies(0.0, upper_as, lower_bar.diameter_cm):
         theoretical_cut = 0.0
-    elif not _stem_cut_upper_steel_satisfies(inputs, pressures, height, upper_as, lower_bar.diameter_cm):
+    elif not upper_steel_satisfies(height, upper_as, lower_bar.diameter_cm):
         return None
     else:
         low = 0.0
         high = height
         for _ in range(60):
             mid = (low + high) / 2.0
-            if _stem_cut_upper_steel_satisfies(inputs, pressures, mid, upper_as, lower_bar.diameter_cm):
+            if upper_steel_satisfies(mid, upper_as, lower_bar.diameter_cm):
                 high = mid
             else:
                 low = mid
@@ -2599,12 +2578,7 @@ def _stem_reinforcement_cut(
         minimum_as_at_cut,
         required_as,
         required_moment_at_cut,
-    ) = _stem_cut_design_at_height(
-        inputs,
-        pressures,
-        theoretical_cut,
-        lower_bar.diameter_cm,
-    )
+    ) = design_at_height(theoretical_cut, lower_bar.diameter_cm, upper_as)
     moment_resistance_at_cut = _moment_resistance_tn_m(
         upper_as,
         100.0,
@@ -2613,6 +2587,8 @@ def _stem_reinforcement_cut(
         inputs.materials.steel_yield_kg_cm2,
         inputs.reinforcement.flexural_phi,
     )
+    if resistance_at_height is not None:
+        moment_resistance_at_cut = resistance_at_height(theoretical_cut, upper_as, lower_bar.diameter_cm)
     thickness_at_cut_cm = _stem_thickness_at_height_m(inputs, theoretical_cut) * 100.0
     status = "OK"
     notes = (
@@ -2628,13 +2604,13 @@ def _stem_reinforcement_cut(
 
     return AbutmentStemReinforcementCut(
         lower_bar_label=lower_bar.label,
-        lower_spacing_m=stem_design.selected_spacing_m,
-        lower_provided_as_cm2_m=stem_design.provided_as_cm2_m,
+        lower_spacing_m=spacing_m,
+        lower_provided_as_cm2_m=provided_as,
         upper_bar_label=lower_bar.label,
         upper_spacing_m=upper_spacing,
         upper_provided_as_cm2_m=upper_as,
         continuous_every_n_bars=continuous_every_n_bars,
-        minimum_as_cm2_m=stem_design.temperature_as_cm2_m,
+        minimum_as_cm2_m=temperature_as,
         theoretical_cut_height_m=theoretical_cut,
         constructive_cut_height_m=constructive_cut,
         development_extension_m=development_extension_m,
@@ -3339,7 +3315,7 @@ def _hooked_development_length_cm(
 
 
 def _required_anchor_length_cm(check: AbutmentDevelopmentCheck) -> float:
-    if check.anchorage_type == "GANCHO":
+    if check.anchorage_type in ("GANCHO", "SOLO GANCHO"):
         return check.required_hooked_ld_cm
     return check.required_ld_cm
 
@@ -3364,9 +3340,9 @@ def _available_development_length_cm(inputs: AbutmentInputs, element: str) -> fl
     if element == "Pantalla":
         return g.footing_thickness_m * 100.0 - cover
     if element == "Zapata - talon superior":
-        return g.heel_length_m * 100.0 - cover
+        return max(0.0, (g.footing_width_m-g.heel_length_m)*100.0-cover)
     if element == "Zapata - puntera inferior":
-        return g.toe_length_m * 100.0 - cover
+        return max(0.0, (g.footing_width_m-g.toe_length_m)*100.0-cover)
     if element == "Diente de concreto":
         return g.footing_thickness_m * 100.0 - cover
     return 0.0
@@ -3531,13 +3507,15 @@ def _general_shear_beta(
     effective_shear_depth_cm: float,
     steel_modulus_kg_cm2: float = STEEL_ELASTIC_MODULUS_KG_CM2,
     max_aggregate_size_in: float = DEFAULT_MAX_AGGREGATE_SIZE_IN,
+    axial_tn_m: float = 0.0,
 ) -> tuple[float, float, float, float, float]:
     """Return beta, epsilon_s, s_x (in), s_xe (in) and Mu used for the general procedure."""
     dv_m = effective_shear_depth_cm / 100.0
     mu_used = max(mu_tn_m_m, abs(vu_tn_m) * dv_m)
     if provided_as_cm2_m <= 0.0 or steel_modulus_kg_cm2 <= 0.0:
         return SIMPLIFIED_SHEAR_BETA, 0.0, 0.0, 0.0, mu_used
-    force_tn_per_m = mu_used / dv_m + abs(vu_tn_m)
+    # MTC 2.9.1.5.6.3.4.2-4: positive axial force denotes tension.
+    force_tn_per_m = mu_used / dv_m + abs(vu_tn_m) + 0.5 * axial_tn_m
     epsilon_s = 1000.0 * force_tn_per_m / (steel_modulus_kg_cm2 * provided_as_cm2_m)
     epsilon_s = max(epsilon_s, 0.0)
     s_x_in = effective_shear_depth_cm / CM_PER_IN
@@ -3555,6 +3533,7 @@ def _shear_beta_detail(
     gross_depth_cm: float,
     method: str,
     inputs: AbutmentInputs | None = None,
+    axial_tn_m: float = 0.0,
 ) -> dict[str, float | str]:
     dv_cm = _effective_shear_depth_cm(effective_depth_cm, gross_depth_cm)
     use_simplified = method == "simplified"
@@ -3575,6 +3554,7 @@ def _shear_beta_detail(
         vu_tn_m=vu_tn_m,
         provided_as_cm2_m=provided_as_cm2_m,
         effective_shear_depth_cm=dv_cm,
+        axial_tn_m=axial_tn_m,
     )
     return {
         "method": "general",

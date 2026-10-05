@@ -6,6 +6,10 @@ from PIL import Image, ImageDraw
 
 from bridge_design.reporting.connected_chart_geometry import BLUE, RED, GRAY, GREEN, draw_structure, font
 from bridge_design.reporting.connected_frame_charts import frame_envelope_chart
+from bridge_design.reporting.connected_report_charts import deformation_chart, reinforcement_chart
+from bridge_design.reporting.connected_case_groups import combination_groups, foundation_combination_groups
+from bridge_design.reporting.connected_contact_envelope import contact_envelope_chart
+from bridge_design.reporting.connected_service_load_charts import save_service_load_charts
 
 
 def panel(draw, box, title, series, x_label, y_label, limits=None):
@@ -64,7 +68,8 @@ def geometry_chart(result, path):
         return 130 + position * scale, base_y - height * scale
 
     draw.text((95, 40), "Estribos conectados con cimentacion continua", fill=BLUE, font=font(42))
-    draw.text((95, 100), f"Franja 1.00 m | ks = {data.soil.subgrade_tn_m3:g} Tn/m3 | Empuje activo en ambos lados",
+    draw.text((95, 100), f"Franja 1.00 m | ks = {data.soil.subgrade_tn_m3:g} Tn/m3 | "
+              f"{len(mesh.frame.springs)} resortes | Empuje activo en ambos lados",
               fill=GRAY, font=font(26))
     draw_structure(draw, data, mesh, point, axis_color=BLUE)
     horizontal, vertical = point(data.reference_position_m, 0)
@@ -99,9 +104,23 @@ def contact_chart(result, path):
 def save_connected_charts(result, directory):
     destination = Path(directory)
     destination.mkdir(parents=True, exist_ok=True)
-    paths = {name: destination / f"{name}.png" for name in ("geometria", "contacto", "modelo_axial", "modelo_cortante", "modelo_momento")}
+    paths = {name: destination / f"{name}.png" for name in ("geometria", "contacto", "modelo_axial", "modelo_cortante", "modelo_momento",
+                                                         "cargas", "deformada", "armado")}
     geometry_chart(result, paths["geometria"])
     contact_chart(result, paths["contacto"])
     for field, name in (("axial", "modelo_axial"), ("shear", "modelo_cortante"), ("moment", "modelo_momento")):
-        frame_envelope_chart(result, field, paths[name])
+        frame_envelope_chart(result, field, paths[name], tuple(case.name for case in result.results),
+                             "Envolvente general de todas las combinaciones")
+    paths.update(save_service_load_charts(result, destination))
+    deformation_chart(result, paths["deformada"])
+    reinforcement_chart(result, paths["armado"])
+    for index, group in enumerate(combination_groups(result), 1):
+        for field in ("axial", "shear", "moment"):
+            key = f"envolvente_{index}_{field}"
+            paths[key] = destination / (key + ".png")
+            frame_envelope_chart(result, field, paths[key], group.cases, group.name)
+    for index, group in enumerate(foundation_combination_groups(result), 1):
+        key = f"contacto_envolvente_{index}"
+        paths[key] = destination / (key + ".png")
+        contact_envelope_chart(result, group, paths[key])
     return paths

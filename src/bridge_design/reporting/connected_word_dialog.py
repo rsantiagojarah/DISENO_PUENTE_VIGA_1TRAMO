@@ -3,7 +3,6 @@
 from datetime import datetime
 from pathlib import Path
 
-from bridge_design.cli.connected_prompts import yes_no
 from bridge_design.reporting.connected_docx import write_connected_docx
 
 
@@ -28,9 +27,6 @@ def select_connected_docx_save_path():
 
 
 def generate_connected_docx_with_dialog(result, charts):
-    if not yes_no("Desea generar la memoria de calculo en Word", True):
-        print("Generacion de la memoria Word omitida por el usuario.")
-        return None
     path = select_connected_docx_save_path()
     if path is None:
         print("Generacion de la memoria Word cancelada por el usuario.")

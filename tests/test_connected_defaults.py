@@ -37,8 +37,7 @@ def test_yaml_geometry_uses_pdf_defaults_without_overriding_explicit_values():
     data = connected_yaml_template(example=True)
     default = connected_inputs_from_yaml(data)
     assert default.left.geometry == connected_geometry_defaults()
-    data["estribo_izquierdo"]["geometria"] = {"altura_relleno_activo_m": 11.20}
-    data["estribo_derecho"]["geometria"]["longitud_puntera_m"] = 2.25
+    data["estribo"]["geometria"] = {"altura_relleno_activo_m": 11.20, "longitud_puntera_m": 2.25}
     data["cimentacion"]["separacion_libre_entre_caras_interiores_m"] = 15.0
     data["cimentacion"]["transicion_izquierda_m"] = 0.0
     del data["cimentacion"]["transicion_derecha_m"]
@@ -57,13 +56,11 @@ def test_interactive_enter_uses_pdf_dimensions_and_still_requires_soil(monkeypat
 
     def answer(prompt):
         prompts.append(prompt)
-        if prompt.startswith("Usar los mismos datos"):
+        if prompt.startswith("Usar las mismas reacciones"):
             return "s" if same_right else "n"
         if prompt.startswith("Modulo de balasto"):
             assert "[" not in prompt
             return "3000"
-        if prompt.startswith("Coeficiente de friccion interfaz"):
-            return "0.50"
         return ""
 
     monkeypatch.setattr("builtins.input", answer)
@@ -75,9 +72,18 @@ def test_interactive_enter_uses_pdf_dimensions_and_still_requires_soil(monkeypat
     assert inputs.left.loads == inputs.right.loads == connected_load_defaults()
     assert inputs.reference_position_m == pytest.approx(9.05)
     assert not any("recubrimiento" in prompt.lower() for prompt in prompts)
+    assert not any("Coeficiente de friccion interfaz" in prompt for prompt in prompts)
+    assert not any("Usar los materiales" in prompt for prompt in prompts)
+    assert sum(prompt.startswith("f'c concreto") for prompt in prompts) == 1
+    assert sum(prompt.startswith("H activo") for prompt in prompts) == 1
+    assert sum(prompt.startswith("PDC") for prompt in prompts) == (1 if same_right else 2)
+    assert inputs.slab_materials == inputs.left.materials == inputs.right.materials
     assert inputs.slab_cover_cm == 7.5
     assert inputs.left.reinforcement.stem_cover_cm == inputs.right.reinforcement.stem_cover_cm == 7.5
     assert any("Separacion libre" in prompt and "[13.1]" in prompt for prompt in prompts)
+    assert inputs.foundation_node_count == 41
+    assert any("Cantidad total de nudos con resorte" in prompt for prompt in prompts)
+    assert not any("Paso maximo de malla" in prompt for prompt in prompts)
 
 
 def test_individual_abutment_defaults_remain_unchanged():
@@ -95,8 +101,8 @@ def test_connected_deck_reactions_default_and_yaml_overrides():
     data = connected_yaml_template(example=True)
     loaded = connected_inputs_from_yaml(data)
     assert loaded.left.loads == loaded.right.loads == expected
-    del data["estribo_izquierdo"]["cargas_tablero"]
-    data["estribo_derecho"]["cargas_tablero"] = {"pll_im_vehicular_tn_m": 3.4, "br_frenado_tn_m": 0}
+    del data["estribo"]["cargas_tablero"]
+    data["cargas_tablero_derecho"] = {"pll_im_vehicular_tn_m": 3.4, "br_frenado_tn_m": 0}
     changed = connected_inputs_from_yaml(data)
     assert changed.left.loads == expected
     assert changed.right.loads == AbutmentLoadInputs(8.959, 0.545, 0.762, 3.4, 0)
@@ -107,5 +113,5 @@ def test_repository_yaml_has_the_requested_reactions_on_both_sides():
     from pathlib import Path
 
     data = load_yaml_file(Path("modelo_estribos_conectados.yaml"))
-    for name in ("estribo_izquierdo", "estribo_derecho"):
-        assert data[name]["cargas_tablero"] == connected_yaml_template()[name]["cargas_tablero"]
+    assert data["estribo"]["cargas_tablero"] == connected_yaml_template()["estribo"]["cargas_tablero"]
+    assert data["cargas_tablero_derecho"] == {}

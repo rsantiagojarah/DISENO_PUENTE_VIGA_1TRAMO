@@ -816,9 +816,10 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
         == pytest.approx(0.60 * result.inputs.materials.steel_yield_kg_cm2)
         for check in result.crack_checks
     )
-    assert all(check.status == "OK" for check in result.development_checks)
+    assert all(check.status in ("RECTO Y CON GANCHO", "SOLO GANCHO")
+               for check in result.development_checks)
     assert result.development_checks[0].element == "Pantalla"
-    assert result.development_checks[0].anchorage_type == "GANCHO"
+    assert result.development_checks[0].anchorage_type == "SOLO GANCHO"
     assert {detail.mark for detail in result.bar_details} == {
         "E1",
         "E2",
