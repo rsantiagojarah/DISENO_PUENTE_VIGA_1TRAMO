@@ -4,7 +4,9 @@ from dataclasses import dataclass
 
 
 def case_label(name):
-    return name.removeprefix("Par simultaneo ingresado / ")
+    return (name.removeprefix("Par simultaneo ingresado / ")
+            .replace("Par simultaneo ingresado", "Par simultáneo de cargas")
+            .replace("Par simultáneo ingresado", "Par simultáneo de cargas"))
 
 
 @dataclass(frozen=True)

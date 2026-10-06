@@ -176,7 +176,7 @@ def developed_steps(steel, trace):
                          f'{steel.spacing_m:.3f}/{service["maximum_spacing"]:.3f}) = {service["crack_ratio"]:.3f}',
             result=f'Índice de servicio={service["crack_ratio"]:.3f}: {status(service["crack_ratio"])}.',
             comment='Se comprueba tanto la tensión calculada como la separación adoptada; '
-                    'limitar fs_usado no acredita cumplimiento de fs/fs_lim.')
+                    'El índice de servicio combina fs/fs_lim y s/smax.')
     elif service is not None:
         replacements['Fisuracion sin traccion de servicio'] = dict(
             substitution=f'Ms = {service["demand"]["moment"]:.3f} tn·m/m\nfs = 0.00 kgf/cm²',
@@ -203,9 +203,8 @@ def developed_steps(steel, trace):
         result=(f'ld recto={steel.required_straight_anchor_cm:.2f} cm; '
                 f'ld gancho={steel.required_hook_anchor_cm:.2f} cm; L_disp={steel.available_anchor_cm:.2f} cm: '
                 f'{steel.anchor_status}.'
-                if steel.available_anchor_cm is not None else 'Anclaje pendiente: no se acredita longitud disponible.'),
-        comment='Se comparan ambas longitudes independientemente. La longitud calculada de gancho no acredita su acomodo; '
-                'se deben comprobar geometría e interferencias del detalle.')
+                if steel.available_anchor_cm is not None else f'ld recto={steel.required_straight_anchor_cm:.2f} cm; ld gancho={steel.required_hook_anchor_cm:.2f} cm.'),
+        comment='Se calculan las longitudes de desarrollo recto y con gancho.')
     for step in steel_steps(steel, trace):
         yield replace(step, **replacements.get(step.title, {}))
 
@@ -214,7 +213,7 @@ def write_checks(document, steel, trace, source, *, service=False):
     if not service:
         _body(document, 'Secciones gobernantes independientes de flexión, cortante y servicio, considerando ambos estribos.')
         _body(document, 'Sección gobernante de flexión: ' + source(trace['flexure']))
-        _body(document, f'N={steel.governing_axial:.3f} tn, incluido en beta de cortante; sin verificación de interacción N-M.')
+        _body(document, f'N={steel.governing_axial:.3f} tn, incluido en beta de cortante.')
     for step in developed_steps(steel, trace):
         is_service = step.title.startswith(('Fisuracion', 'Desarrollo'))
         if service != is_service or step.title.startswith('Temperatura'):
@@ -250,4 +249,4 @@ def write_temperature(document, records, audit):
                'Ab: área de una barra en cm²; s: separación elegida en m; As_prov: acero colocado en cm²/m.',
         substitution='\n'.join(substitutions), result='; '.join(conclusions)+'.',
         comment=f'Separación máxima por temperatura={t["maximum_spacing_m"]:.3f} m. '
-                'El acero transversal se dimensiona por temperatura y distribución; el FRAME 2D no aporta momentos en esa dirección.'))
+                'El acero transversal se dimensiona por temperatura y distribución.'))

@@ -73,8 +73,11 @@ def write_foundation_cut(document, steel):
     if cut is None:
         return
     document.add_heading("Cortes del acero de zapata - " + steel.face.lower(), level=4)
-    _table(document, ("Concepto", "Resultado"), foundation_cut_rows(steel), widths=(76, 84))
+    from bridge_design.reporting.connected_case_groups import case_label
+    rows = tuple((label.replace(" solicitada", " adoptada"), case_label(value))
+                 for label, value in foundation_cut_rows(steel))
+    _table(document, ("Concepto", "Resultado"), rows, widths=(76, 84))
     if cut.status == "APLICA":
-        _body(document, "Las coordenadas x se miden desde el extremo izquierdo de la zapata. " + cut.notes)
+        _body(document, "Las coordenadas x se miden desde el extremo izquierdo de la zapata. " + case_label(cut.notes))
     else:
-        _body(document, "Se conserva el acero elegido continuo; no se coloca un corte sin verificación.")
+        _body(document, "Se conserva el acero elegido continuo.")

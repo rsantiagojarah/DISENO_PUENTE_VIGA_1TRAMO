@@ -2,6 +2,8 @@
 
 from PIL import Image, ImageDraw
 
+from bridge_design.reporting.connected_case_groups import case_label
+
 from bridge_design.domain.connected_cases import paired_cases
 from bridge_design.domain.connected_earth import earth_builder, surcharge_weight
 from bridge_design.domain.connected_geometry import global_x
@@ -45,7 +47,7 @@ def action_panels(result):
         for kind, title in (("LS", "LS horizontal"), ("LSv", "LS vertical")):
             parts = [(earth_builder(data, mesh, i, "LS") if kind == "LS" else surcharge_weight(data, mesh, i), scales[i])
                      for i in (0, 1)]
-            panels.append((f"{title} / {pair.name}", merge(parts), kind == "LS"))
+            panels.append((f"{title} / {case_label(pair.name)}", merge(parts), kind == "LS"))
     return panels
 
 
@@ -157,7 +159,7 @@ def bridge_action_chart(result, pair, path):
     canvas = Image.new("RGB", (2000, 1400), "white")
     draw = ImageDraw.Draw(canvas)
     draw.text((70, 25), "Reacciones del tablero sin factorizar", fill=BLUE, font=font(43))
-    draw.text((70, 85), pair.name, fill=GRAY, font=font(29))
+    draw.text((70, 85), case_label(pair.name), fill=GRAY, font=font(29))
     point = fitted_coordinates(vertices + [(0, max(s.geometry.stem_height_above_footing_m + s.geometry.bridge_seat_to_bearing_height_m for s in (data.left, data.right)))],
                                (260, 190, 1740, 1100))
     for polygon in structure_polygons(data, mesh):

@@ -23,7 +23,15 @@ def test_connected_memory_preserves_inputs_results_and_correct_header(tmp_path):
     assert "Módulo de balasto vertical 3000.000 tn/m³" in paragraphs
     assert "Módulo de balasto vertical" not in tables
     assert "Longitud horizontal de cajuela" in tables
-    assert "PENDIENTE DETALLE" in paragraphs
+    assert "PENDIENTE DETALLE" not in paragraphs + tables
+    report_text = (paragraphs + tables).lower()
+    for removed in ("usuario", "origen del armado", "ver_2l", "dato ingresado", "par simultaneo ingresado",
+                    "no acredita", "no se verifica", "sin verificación", "requieren", "debe confirmarse",
+                    "--verificar-malla", "resultados.json", "sap2000", "sustento documental"):
+        assert removed not in report_text
+    assert "pendiente detalle" not in report_text
+    assert "anclaje pendiente" not in report_text
+
     assert case_label(result.results[-1].name) in paragraphs
     assert len(document.inline_shapes) == 29
     assert "Perfil del empuje estático en ambas caras reales sin factorizar" in paragraphs
@@ -67,9 +75,9 @@ def test_connected_memory_preserves_inputs_results_and_correct_header(tmp_path):
     assert "4.4. Empuje e inercias sísmicas" in paragraphs
     assert "KAE EQ−" in tables and "KAE EQ+" in tables
     assert "4.6. Frenado y traslado de la fuerza al modelo" in paragraphs
-    assert "La norma refiere los 1.80 m a la superficie de calzada" in paragraphs
+    assert "La referencia geométrica actualmente adoptada es z_ref=" in paragraphs
     assert "kh=0.5·As" in paragraphs
-    assert "FS·qadm no identifica automáticamente la capacidad última" in paragraphs
+    assert "La resistencia nominal adoptada se estima como FS·qadm" in paragraphs
     assert "Relleno" in tables and "Exterior" in tables
     assert "Superior" in tables and "Inferior" in tables
     assert "8.1. Envolvente" not in paragraphs
@@ -78,7 +86,7 @@ def test_connected_memory_preserves_inputs_results_and_correct_header(tmp_path):
     assert "Envolvente axial N sobre la estructura completa" in paragraphs
     assert "Envolvente de cortante V sobre la estructura completa" in paragraphs
     assert "Envolvente de momento M sobre la estructura completa" in paragraphs
-    assert "sin verificacion de interaccion axial-momento" in paragraphs
+    assert "sin verificacion de interaccion axial-momento" not in paragraphs
     assert "Sección gobernante de flexión" in paragraphs
     assert "Interacción N M" not in tables
     assert "Secciones gobernantes independientes" in paragraphs
@@ -95,8 +103,8 @@ def test_connected_memory_preserves_inputs_results_and_correct_header(tmp_path):
     assert "Factores incluyen sentido" not in paragraphs
     assert "se aplican también cruzadas" not in paragraphs
     assert "se aplica globalmente a ambos estribos, losa y transiciones" in paragraphs
-    assert "Asentamientos sin límite admisible ingresado" in paragraphs
-    assert "cargas_combinadas.csv" in paragraphs
+    assert "Los asentamientos presentados son los desplazamientos elásticos del modelo Winkler" in paragraphs
+    assert "cargas_combinadas.csv" not in paragraphs
     assert "Envolventes N V M del estribo" not in paragraphs
     section = document.sections[0]
     assert round(section.page_width.mm) == 210
@@ -108,12 +116,12 @@ def test_connected_memory_preserves_inputs_results_and_correct_header(tmp_path):
     assert all(run.font.size.pt == 22 for run in title.runs)
     assert "Contenido" in paragraphs
     assert "11. Resumen y conclusiones" in paragraphs
-    assert "12. Referencias y anexos de trazabilidad" in paragraphs
+    assert "12. Referencias" in paragraphs
     from bridge_design.reporting.connected_docx_layout import SECTIONS
     assert [p.text for p in document.paragraphs if p.style.name == "Heading 1" and p.text != "Contenido"] == [
         f"{i}. {label}" for i, label in enumerate(SECTIONS, 1)]
-    assert "Control de cobertura:" in paragraphs
-    assert "Se solicitaron y se colocaron 41 nudos con resorte" in paragraphs
+    assert "Las áreas tributarias cubren la franja completa" in paragraphs
+    assert "Se distribuyen 41 nudos con resorte" in paragraphs
     assert "4.3. Empuje estático y transferencia al talón" in paragraphs
     assert "z_BR=11.000 m, z_nudo=8.050 m y brazo=2.950 m" in paragraphs
     assert "NO CUMPLE — Pantalla - vertical relleno:" in paragraphs

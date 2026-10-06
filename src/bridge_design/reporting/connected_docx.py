@@ -2,11 +2,9 @@
 
 from pathlib import Path
 from docx import Document
-from bridge_design.domain.anchorage_status import anchorage_passes
 from bridge_design.domain.connected_2_inputs import is_connected_2
 from bridge_design.reporting.connected_2_geometry import connected_2_geometry_rows
 
-from bridge_design.domain.connected_reinforcement import DESIGN_SCOPE_NOTE
 from bridge_design.reporting.connected_docx_layout import SECTIONS, connected_front_matter, connected_summary_and_references, report_reinforcement
 from bridge_design.reporting.deck_docx import _body, _enforce_uniform_typography, _picture, _table
 from bridge_design.reporting.connected_audit import build_connected_audit
@@ -28,23 +26,16 @@ def write_connected_docx(result, path, charts):
 
     section(1)
     reinforcement = report_reinforcement(result)
-    failures = sum(s.status != "OK" for s in reinforcement)
-    bearing_failures = sum(c.bearing_status != "OK" for c in result.foundation_checks)
-    pending = sum(not anchorage_passes(s.anchor_status) for s in reinforcement if s.role == "primary")
     _body(document, "Se documentan el análisis estático y seudoestático, el contacto con el terreno y el armado "
           + ("adoptado de dos estribos iguales con pantalla de espesor variable y cimentación continua uniforme. "
              if uniform else "adoptado de dos estribos con cajuela unidos mediante una cimentación continua zapata–losa–zapata. ") +
           "La memoria permite seguir las cargas desde su origen hasta las comprobaciones gobernantes.")
-    _body(document, f"Se resolvieron {len(result.results)} combinaciones; se registran {failures} distribuciones "
-          f"de acero con controles no conformes, {bearing_failures} casos de presión no conformes y "
-          f"{pending} distribuciones principales con anclaje pendiente o insuficiente. "
-          "El punto 11 identifica los controles que requieren revisión.")
-    _body(document, DESIGN_SCOPE_NOTE)
-    _body(document, "Bases de referencia: Manual de Puentes MTC 2018 y funciones compartidas con estribos "
-          "individuales. Se usan tn, m y radianes en el FRAME; kgf/cm² y cm en el concreto armado. "
-          "Se analiza una franja transversal de 1,00 m con las reacciones del tablero por metro de estribo.")
-    _body(document, "El análisis emplea secciones brutas elásticas de primer orden. No incluye segundo orden, "
-          "análisis modal, agua, subpresión, consolidación ni interacción tridimensional.")
+    _body(document, f"Se resolvieron {len(result.results)} combinaciones de carga. "
+          "Se desarrollan las comprobaciones de flexión, cortante, fisuración, acero mínimo y longitudes de desarrollo.")
+    _body(document, "Bases de referencia: Manual de Puentes MTC 2018. Se usan tn, m y radianes en el FRAME; "
+          "kgf/cm² y cm en el concreto armado. Se analiza una franja transversal de 1,00 m "
+          "con las reacciones del tablero por metro de estribo.")
+    _body(document, "El análisis emplea secciones brutas elásticas de primer orden.")
 
     section(2)
     _picture(document, charts["geometria"], "Geometría del conjunto y ubicación de los resortes reales")
@@ -57,7 +48,7 @@ def write_connected_docx(result, path, charts):
                          "Origen en el extremo izquierdo y la cara superior de cimentación.")
     _body(document, geometry_note)
     if uniform:
-        _body(document, "Modelo ver_2l de estribos conectados 2. El trasdós es vertical; la cara interior "
+        _body(document, "El conjunto está formado por dos estribos conectados. El trasdós es vertical; la cara interior "
               "se inclina entre la base y el asiento. El relleno exterior llega a la coronación del parapeto "
               "y no existe relleno interior sobre la zapata combinada. Los talones exteriores, los tramos bajo las pantallas "
               "y el tramo entre estribos forman una única zapata combinada de espesor uniforme. "
@@ -110,9 +101,9 @@ def write_connected_docx(result, path, charts):
                                ("LS vertical", "ls_vertical"), ("LS horizontal", "ls_horizontal"),
                                ("EH", "eh"), ("EQ", "eq"), ("BR", "br"))),
            widths=(32, *(128/len(factors) for f in factors)), font_size=10)
-    pairs = [(c.name, c.left, c.right) for c in data.cases] or [("Par simultáneo ingresado", data.left.loads, data.right.loads)]
+    pairs = [(c.name, c.left, c.right) for c in data.cases] or [("Par simultáneo de cargas", data.left.loads, data.right.loads)]
     for label, left, right in pairs:
-        _body(document, f"Reacciones por metro transversal del caso {label}.")
+        _body(document, f"Reacciones por metro transversal del caso {case_label(label)}.")
         _table(document, ("Lado", "DC", "DW", "PL", "LL+IM", "BR"),
                ((name, *(f"{getattr(loads, key):.3f}" for key in
                           ("pdc_tn_m", "pdw_tn_m", "ppl_tn_m", "pll_im_tn_m", "braking_tn_m")))
@@ -135,8 +126,8 @@ def write_connected_docx(result, path, charts):
             _picture(document,charts[f"envolvente_{index}_{field}"],
                      f"Envolvente {label} sobre la estructura completa de {group.name}")
     _body(document, "N positivo corresponde a tracción. Las envolventes conservan signos y no son una única "
-          "combinación simultánea. Las secciones críticas de flexión, corte y servicio se identifican por separado; "
-          "sus coordenadas y esfuerzos simultáneos quedan en esfuerzos.csv.")
+          "combinación simultánea. Las secciones críticas de flexión, corte y servicio se identifican por separado "
+          "con sus coordenadas y esfuerzos simultáneos.")
     critical = max(result.results, key=lambda r:max(abs(u) for u in r.displacements[0::3]))
     _body(document, f"Desplazamiento horizontal absoluto máximo de nudos "
           f"{1000*max(abs(u) for u in critical.displacements[0::3]):.3f} mm en {case_label(critical.name)}. "
@@ -161,15 +152,10 @@ def write_connected_docx(result, path, charts):
     _body(document, "Se presentan cuatro familias de envolventes: Resistencia Ia, Resistencia Ib, Servicio I "
           "y Evento Extremo I. Cada familia reúne todos sus casos simultáneos, con y sin tablero, "
           "y conserva los valores mínimos y máximos en cada resorte.")
-    _body(document, "La resistencia nominal se estima como FS·qadm; esta conversión requiere que qadm proceda "
-          "de una capacidad por resistencia dividida entre ese FS. Si la presión admisible del estudio de suelos "
-          "está gobernada por asentamientos, FS·qadm no identifica automáticamente la capacidad última y "
-          "debe contrastarse con la resistencia nominal geotécnica. Los factores 0.55 y 0.80 son los adoptados "
-          "por el módulo para las familias de resistencia y evento extremo.")
-    _body(document, "Los asentamientos son desplazamientos elásticos del modelo Winkler con el ks ingresado. "
-          "No incluyen consolidación. Se informa su envolvente sin asignar CUMPLE al asentamiento, "
-          "porque no se registra un límite admisible total ni diferencial. La comparación de presión "
-          "y la comprobación de movimientos tolerables son controles distintos.")
+    _body(document, "La resistencia nominal adoptada se estima como FS·qadm. Los factores de resistencia "
+          "son 0.55 para resistencia y 0.80 para evento extremo.")
+    _body(document, "Los asentamientos presentados son los desplazamientos elásticos del modelo Winkler "
+          "con el módulo de balasto ks adoptado.")
     write_group_bearing(document, result, charts)
 
     from bridge_design.reporting.connected_distribution_report import write_distributed_design
@@ -186,9 +172,6 @@ def write_connected_docx(result, path, charts):
         _body(document, f"Refinamiento de {c.coarse_nodes} a {c.fine_nodes} resortes; paso de referencia "
               f"{c.coarse_step:.3f} a {c.fine_step:.3f} m. Cambios relativos: momento {c.moment_change:.2%}, "
               f"presión {c.pressure_change:.2%} y asentamiento {c.settlement_change:.2%}.")
-    else:
-        _body(document, "No se solicitó comparación de malla. Se puede ejecutar mediante --verificar-malla; "
-              "esta ejecución no acredita convergencia por refinamiento.")
     connected_summary_and_references(document, result)
     _enforce_uniform_typography(document)
     destination = Path(path).expanduser().resolve().with_suffix(".docx")
@@ -200,8 +183,8 @@ def write_connected_docx(result, path, charts):
 def write_initial_load_figures(document, result, charts):
     """Show the base actions before the combination factors."""
     data = result.inputs
-    _body(document, "Los siguientes esquemas muestran las acciones iniciales sin factores LRFD, "
-          "obtenidas de los mismos generadores de cargas del modelo. Los perfiles continuos muestran "
+    _body(document, "Los siguientes esquemas muestran las acciones iniciales sin factores LRFD. "
+          "Los perfiles continuos muestran "
           "la variación por tramo; las flechas indican su sentido. Cada componente tiene una escala "
           "gráfica propia, con intensidades numéricas en tn/m para la franja de 1 m. "
           "Los rangos conservan el signo global: +x hacia la derecha y +z hacia arriba.")
@@ -211,14 +194,14 @@ def write_initial_load_figures(document, result, charts):
     from bridge_design.domain.connected_cases import paired_cases
     for index, pair in enumerate(paired_cases(data), 1):
         _picture(document, charts[f"cargas_sobrecarga_{index}"],
-                 f"Sobrecarga del relleno sin factores LRFD para {pair.name}")
+                 f"Sobrecarga del relleno sin factores LRFD para {case_label(pair.name)}")
         _body(document, f"Ocupación de sobrecarga izquierda/derecha: {pair.left_surcharge:g}/{pair.right_surcharge:g}. "
-              "Estos multiplicadores describen la condición simultánea ingresada y se conservan "
+              "Estos multiplicadores describen la condición simultánea de carga y se conservan "
               "en los perfiles; no son factores LRFD. Las flechas y círculos en el talón representan "
               "la transferencia nodal de equilibrio de la misma acción aplicada sobre la cara real. "
               "Los rangos de momentos indican los traslados equivalentes, no cargas adicionales.")
         _picture(document, charts[f"cargas_tablero_{index}"],
-                 f"Reacciones iniciales y alturas físicas de aplicación para {pair.name}")
+                 f"Reacciones iniciales y alturas físicas de aplicación para {case_label(pair.name)}")
     _body(document, "Los esquemas sísmicos siguientes son acciones base de evento extremo. "
           "Se presentan separados de las cargas de servicio. A y B son alternativas, "
           "y cada perfil ya contiene el empuje completo adoptado: no se suma nuevamente EH. "

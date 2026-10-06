@@ -17,6 +17,8 @@ class ConnectedRegionOptions:
     principal: tuple
     transverse: object
     adopted: object
+    cuts: tuple = ()
+    offer_cuts: bool = False
 
 
 def area_options(data, region, demands):
@@ -68,13 +70,16 @@ def choice_from_steel(steel):
 
 
 def connected_reinforcement_options(result):
+    from bridge_design.domain.connected_cut_options import offers_cut_table, verified_cut_alternatives
     grouped = reinforcement_demands(result.inputs, result.mesh, result.results)
     options = []
     for adopted in result.reinforcement:
         region = adopted.region
         demands = grouped[region]
         principal = area_options(result.inputs, region, demands)
-        options.append(ConnectedRegionOptions(region, principal, None, adopted))
+        offer = offers_cut_table(result.inputs, region, adopted.role)
+        cuts = verified_cut_alternatives(result, region) if offer else ()
+        options.append(ConnectedRegionOptions(region, principal, None, adopted, cuts, offer))
     return tuple(options)
 
 

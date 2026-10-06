@@ -142,21 +142,26 @@ distancias desde las caras interiores, longitudes horizontales e índices de
 comprobación. Los ganchos, doblados y empalmes no se suman ficticiamente a esas
 longitudes horizontales; mantienen su verificación de detalle independiente.
 
-Los cortes se incluyen en opciones, resumen final, auditoría, JSON, Word,
-`cortes_zapata.csv` y `cortes_zapata.png`. El gráfico sólo dibuja cortes que
-resultaron aplicables. La propuesta se recalcula al cambiar el acero y no
-modifica las solicitaciones del modelo estructural.
+El detalle de un corte adoptado se incluye en el resumen final, la auditoría,
+JSON, Word, `cortes_zapata.csv` y `cortes_zapata.png`. El gráfico sólo dibuja
+cortes que resultaron aplicables. La propuesta se recalcula al cambiar el acero
+y no modifica las solicitaciones del modelo estructural.
 
-## Selección por zonas: acero continuo y adicional
+## Selección de cortes
 
-Al elegir el acero longitudinal superior o inferior, use **Z** para definir dos
-familias iguales e intercaladas. Se pide una sola vez diámetro y separación:
-por ejemplo, continuo `1" @ 0.20 m` y adicional `1" @ 0.20 m` producen un total
-`1" @ 0.10 m` donde coinciden. El adicional superior ocupa el centro; el inferior
-ocupa ambos extremos. Esta opción mantiene el mismo diámetro y el 50 % de barras
-continuas; para otras parrillas permanece la selección uniforme por item o **P**
-y la búsqueda existente de patrones de corte. Se respetan los límites de
-separación configurados, también para el total intercalado.
+En la pantalla del relleno y en las dos caras longitudinales de la zapata, la
+tabla de acero continuo sigue eligiéndose por número de ítem. Debajo aparece
+una tabla corta **CORTES**. Cada fila es un corte de 1 de cada 2, con la misma
+barra: `s mayor` donde hay más acero y `s menor = 2s` donde hay menos. Solo
+entran filas que ya cumplen flexión, cortante, fisuración y mínimos en cada
+tramo. Se escribe `C1`, `C2`, etc.
+
+En la zapata superior hay más acero en el centro y menos en los extremos. En la
+inferior hay más acero en los extremos y menos en el centro. La cota es la
+distancia desde cada cara interior. En la pantalla, `s mayor` va desde la base
+hasta el corte y `s menor` sigue hasta la coronación; la cota es la altura
+sobre la cara superior de la base. Hay un solo corte por acero. Un ítem
+numérico deja ese diámetro y esa separación en toda la longitud.
 
 El total se verifica con la envolvente completa. El continuo se verifica con los
 esfuerzos locales de los sectores donde queda solo; un fallo del continuo aislado
@@ -173,14 +178,12 @@ esas comprobaciones. Los elementos que lindan con los cortes se incluyen
 completos en ambas zonas de forma conservadora. El gráfico distingue las
 familias continuas y adicionales. Una nueva selección elimina resultados previos.
 
-## Corte de pantalla con acero continuo cada 20 cm
+## Corte de pantalla
 
 En el comando 2, el corte del acero vertical hacia el relleno conserva la barra
-elegida y una separación superior de **0.20 m**. Con `1" @ 0.10 m` inferior,
-continúa una de cada dos barras (`1" @ 0.20 m`), en vez de una de cada tres.
-La altura teórica se recalcula con toda la envolvente del tramo superior y se
-añade el desarrollo existente para obtener la altura constructiva. No se cambia
-solo el rótulo: se verifican flexión, cortante, servicio y mínimo con el acero
-remanente real. Si la parrilla inferior no permite conservar exactamente esa
-separación, o el remanente no cumple, no se propone un corte alternativo a 30 cm.
-El comando original mantiene su selección de separación superior.
+elegida y deja arriba exactamente el doble de separación: con `1" @ 0.10 m`
+abajo continúa `1" @ 0.20 m`; con `1" @ 0.125 m` abajo continúa `1" @ 0.25 m`.
+La altura se mide sobre la cara superior de la base. Se verifican flexión,
+cortante, servicio y mínimo con el acero remanente. Si el doble de separación
+supera el máximo de la malla, no cubre el acero mínimo o el remanente no cumple,
+esa fila no aparece. El comando original mantiene su propia separación superior.

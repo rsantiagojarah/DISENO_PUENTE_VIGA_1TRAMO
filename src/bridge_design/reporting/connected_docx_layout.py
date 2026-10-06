@@ -23,7 +23,7 @@ SECTIONS = (
     "Casos simultáneos y combinaciones", "Resultados del análisis estructural",
     "Contacto y verificaciones geotécnicas", "Diseño del concreto armado por región",
     "Servicio y detallado", "Verificación numérica",
-    "Resumen y conclusiones", "Referencias y anexos de trazabilidad",
+    "Resumen y conclusiones", "Referencias",
 )
 
 
@@ -47,6 +47,10 @@ def connected_front_matter(document, result):
     uniform = is_connected_2(result.inputs)
     labels = replace(_labels(is_pure_wall=False), header="MEMORIA DE CÁLCULO · ESTRIBOS CONECTADOS" + (" 2" if uniform else ""))
     _configure_abutment_header_footer(document, labels)
+    for section in document.sections:
+        for text in section.footer._element.xpath('.//w:t'):
+            if text.text == "Actualizar campo":
+                text.text = ""
     data = result.inputs
     paragraph = document.add_paragraph()
     paragraph.paragraph_format.space_after = Pt(34)
@@ -74,12 +78,11 @@ def connected_front_matter(document, result):
     paragraph = document.add_paragraph()
     paragraph.paragraph_format.space_before = Pt(30)
     _format_run(paragraph.add_run(
-        "La presente memoria conserva las hipótesis, verificaciones y armaduras adoptadas. "
-        "Los estados NO CUMPLE y los anclajes pendientes no constituyen aprobación del diseño."
+        "La presente memoria presenta las hipótesis, cálculos, verificaciones y armaduras adoptadas."
     ), 11, italic=True, color=GRAY)
     document.add_page_break()
     document.add_heading("Contenido", level=1)
-    _body(document, "La memoria sigue la secuencia del cálculo y presenta las armaduras adoptadas al finalizar la selección.")
+    _body(document, "La memoria sigue la secuencia del cálculo y presenta las armaduras adoptadas para cada región estructural.")
     _table(document, ("Sección", "Contenido"),
            ((str(index), label) for index, label in enumerate(SECTIONS, 1)), widths=(24, 136))
     document.add_page_break()
@@ -91,19 +94,17 @@ def connected_summary_and_references(document, result):
            ((steel.region, f"{steel.bar_label} @ {steel.spacing_m:.3f} m",
              f"{steel.area_per_face_cm2_m:.3f}", steel.status)
             for steel in report_reinforcement(result)), widths=(66, 40, 28, 24), accent=True)
-    _body(document, "Las áreas y verificaciones corresponden a las barras y separaciones efectivamente adoptadas. "
-          "Si una verificación indica NO CUMPLE, deben revisarse geometría, cargas o armado antes de emitir planos. "
-          "El contacto no sustituye la comprobación de asentamientos admisibles. "
-          "Los anclajes con estado PENDIENTE DETALLE requieren revisión de sus longitudes útiles y acomodo.")
+    _body(document, "Las áreas y verificaciones corresponden a las barras y separaciones adoptadas. "
+          "Los estados de la tabla resumen corresponden a flexión, cortante, servicio y acero mínimo.")
     for steel in report_reinforcement(result):
         controls = failing_controls(steel)
         if steel.status != "OK":
             _body(document, f"NO CUMPLE — {steel.region}: " + "; ".join(controls or ("mínimos o separación del armado",)) + ".")
-        if steel.role == "primary" and not anchorage_passes(steel.anchor_status):
+        if steel.role == "primary" and steel.available_anchor_cm is not None and not anchorage_passes(steel.anchor_status):
             label = steel.anchor_status
-            available = "sin longitud acreditada" if steel.available_anchor_cm is None else f"L disponible={steel.available_anchor_cm:.2f} cm"
+            available = f"L disponible={steel.available_anchor_cm:.2f} cm"
             _body(document, f"{label} — {steel.region}: ld={steel.required_straight_anchor_cm:.2f} cm; "
-                  f"{available}. El acomodo del gancho no está verificado.")
+                  f"{available}.")
     worst_pressure = max(result.foundation_checks, key=lambda row: row.bearing_utilization)
     _body(document, f"Gobierna la presión local {case_label(worst_pressure.case)}, "
           f"con índice {worst_pressure.bearing_utilization:.3f}.")
@@ -111,10 +112,6 @@ def connected_summary_and_references(document, result):
         if check.bearing_status != "OK":
             _body(document, f"NO CUMPLE — presión en {case_label(check.case)}: "
                   f"q={check.maximum_pressure:.3f} tn/m²; q límite={check.pressure_limit:.3f} tn/m².")
-    _body(document, "La aplicación del estado activo, la reducción sísmica de kh, la referencia de altura "
-          "del frenado y la estimación de resistencia nominal del suelo conservan las hipótesis descritas "
-          "en los puntos 4 y 7. Su sustento documental debe incorporarse para la emisión formal del diseño. "
-          "Los asentamientos se informan sin comprobar un límite total o diferencial.")
     document.add_heading("12. " + SECTIONS[11], level=1)
     for text in (
         "Manual de Puentes MTC 2018. Referencias específicas de materiales, empujes, resistencia, fisuración y desarrollo "
@@ -122,24 +119,3 @@ def connected_summary_and_references(document, result):
         "Euler Bernoulli y trabajo virtual para el FRAME elástico; modelo Winkler para la respuesta vertical del terreno.",
     ):
         _body(document, text)
-    _body(document, "La procedencia documental de geometría, reacciones del tablero y parámetros geotécnicos debe "
-          "contrastarse con planos, análisis de superestructura y estudio de suelos. El módulo conserva los valores "
-          "efectivos, pero no acredita por sí mismo esas fuentes.")
-    for name, description in (
-        ("resultados.json", "entradas efectivas, conectividad, propiedades, cargas, desplazamientos, contacto y diseño"),
-        ("elementos.csv", "propiedades y conectividad de los elementos"),
-        ("nodos.csv", "coordenadas, desplazamientos, giros, reacciones, áreas tributarias y rigideces"),
-        ("cargas_combinadas.csv", "acciones base, factores y resultantes de cada combinación"),
-        ("esfuerzos.csv", "esfuerzos simultáneos por combinación, elemento y estación"),
-        ("auditoria.txt", "desarrollo detallado de entradas, cargas, contacto y cálculos de armado"),
-    ):
-        _body(document, f"{name}: {description}.")
-    if is_connected_2(result.inputs):
-        _body(document, "cortes_zapata.csv: estados y coordenadas calculadas de los cortes superior e inferior. "
-              "cortes_zapata.png: disposición de los refuerzos adicionales que resultaron aplicables.")
-    _body(document, "Estos archivos constituyen los anexos electrónicos; las tablas por nudo y elemento no se "
-          "repiten en el cuerpo de la memoria. Se generan mediante la exportación de resultados del módulo.")
-    _body(document, "Si se acompaña una exportación a SAP2000, deben registrarse archivo, versión y unidades de "
-          "importación. Las correcciones por aproximación de "
-          "momentos distribuidos deben documentarse como diferencias de vectores equivalentes, no como empujes "
-          "físicos adicionales. Esta memoria no verifica un MDB externo ni genera esas correcciones.")

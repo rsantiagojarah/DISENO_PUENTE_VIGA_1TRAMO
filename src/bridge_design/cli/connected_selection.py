@@ -4,6 +4,8 @@ from bridge_design.cli.abutment_input_prompts import _prompt_spacing_option
 from bridge_design.cli.abutment_ascii_output import _format_spacing_option_table, _format_stem_reinforcement_cut_option
 from bridge_design.cli.ascii_tables import audit_block_title, boxed_table
 from bridge_design.cli.connected_prompts import yes_no
+from bridge_design.domain.connected_2_inputs import is_connected_2
+from bridge_design.domain.connected_cut_options import BOTTOM_FOOTING, STEM_REGION, TOP_FOOTING
 from bridge_design.domain.connected_options import check_principal_area_choice, choice_from_steel
 from bridge_design.domain.connected_reinforcement import ConnectedBarChoice, ConnectedSteelChoice, DESIGN_SCOPE_NOTE
 from bridge_design.reporting.connected_cut_report import format_foundation_cut
@@ -20,8 +22,9 @@ def format_connected_options(groups):
              "As req y As prov en cm2/m.",
              "Estado de opciones: solo area requerida por flexion y minimos frente al area proporcionada.",
              "Cortante, fisuracion y anclaje se verifican con la distribucion elegida en el resumen final."]
-    if any(g.adopted.foundation_reinforcement_cut is not None for g in groups):
-        lines.append("En la zapata longitudinal, Z permite elegir continuo + adicional intercalado y verificar cada zona con sus esfuerzos locales.")
+    if any(group.offer_cuts for group in groups):
+        lines.append("C1, C2... eligen un corte de 1 de cada 2 ya verificado en pantalla del relleno y en la zapata longitudinal. "
+                     "El item numerico conserva ese acero en toda la longitud.")
     for group in groups:
         options = []
         for item, steel in enumerate(group.principal, 1):
@@ -32,32 +35,60 @@ def format_connected_options(groups):
         lines.extend(["", *_format_spacing_option_table(principal)])
         if not any(option.is_compliant for option in options):
             lines.append("Sin distribucion que cumpla el area requerida dentro del catalogo y separaciones actuales.")
-        if group.region == "Pantalla - vertical relleno" and group.adopted.role == "primary":
+        if group.offer_cuts:
+            lines.extend(_format_cut_alternatives(group))
+        elif group.region == "Pantalla - vertical relleno" and group.adopted.role == "primary":
             lines.append(f"Propuesta de corte para {group.region}: {group.adopted.bar_label} @ {group.adopted.spacing_m:.3f} m")
             lines.extend(_format_stem_reinforcement_cut_option(group.adopted))
             if group.adopted.stem_reinforcement_cut:
                 lines.append(group.adopted.stem_reinforcement_cut.notes)
         if group.transverse is not None:
             lines.extend(["", *_format_spacing_option_table(group.transverse)])
-        lines.extend(format_foundation_cut(group.adopted))
+        if not group.offer_cuts:
+            lines.extend(format_foundation_cut(group.adopted))
     return "\n".join(lines)
 
 
+def _format_cut_alternatives(group):
+    if group.region == STEM_REGION:
+        note = "s mayor desde la base hasta el corte; s menor de alli a la coronacion."
+        place = "Altura sobre base"
+    elif group.region == TOP_FOOTING:
+        note = "s mayor en el centro; s menor en los dos extremos."
+        place = "Desde cara interior"
+    elif group.region == BOTTOM_FOOTING:
+        note = "s mayor en los dos extremos; s menor en el centro."
+        place = "Desde cara interior"
+    else:
+        return []
+    lines = ["", note, "Solo se listan cortes de 1 de cada 2 que cumplen flexion, cortante, fisuracion y minimos."]
+    if not group.cuts:
+        lines.append("Sin corte utilizable para esta cara.")
+        return lines
+    rows = tuple((cut.code, cut.bar_label, f"{cut.heavy_spacing_m:.3f}", f"{cut.light_spacing_m:.3f}", cut.location_text)
+                 for cut in group.cuts)
+    lines.extend(boxed_table(("Corte", "Barra", "s mayor (m)", "s menor (m)", place), rows,
+                             aligns=("center", "center", "right", "right", "left"),
+                             title=f"CORTES - {group.region}"))
+    return lines
+
+
 def _principal_choice(result, group):
-    from bridge_design.cli.connected_foundation_selection import allows_foundation_zones, prompt_foundation_zones
-    zonal = allows_foundation_zones(result, group)
     default = choice_from_steel(group.adopted)
     default_item = next((item for item, option in enumerate(group.principal, 1)
                          if option.bar_label == default.principal.bar_label
                          and abs(option.spacing_m-default.principal.spacing_m) < 1e-8), None)
     while True:
-        modes = "P=personalizado, Z=continuo + adicional por zonas" if zonal else "P=personalizado"
+        modes = "C#=corte, P=personalizado" if group.offer_cuts else "P=personalizado"
         raw = input(f"{group.region} - elija item [{default_item}] ({modes}): ").strip()
         if not raw:
             return default if default.foundation_continuous else default.principal
         try:
-            if zonal and raw.lower() == "z":
-                return prompt_foundation_zones(result, group)
+            if group.offer_cuts and raw.lower().startswith("c") and raw[1:].isdigit():
+                chosen_cut = next((cut for cut in group.cuts if cut.code.lower() == raw.lower()), None)
+                if chosen_cut is None:
+                    raise ValueError("Ese corte no esta en la tabla.")
+                return chosen_cut.choice
             if raw.lower() in ("p", "personalizado", "personalizada"):
                 print("Barras: " + ", ".join(bar.label for bar in REINFORCING_BAR_CATALOG))
                 label = input(f"Barra [{default.principal.bar_label}]: ").strip() or default.principal.bar_label
@@ -130,7 +161,20 @@ def format_connected_selection(result):
         ("Caso", "Origen", "Barra", "s (m)", "As req", "As prov", "Estado"), rows,
         aligns=("left", "center", "center", "right", "right", "right", "center"),
         title="ACEROS SELECCIONADOS - ESTRIBOS COMBINADOS")
-    if any(c.foundation_continuous for c in result.selected_reinforcement.values()):
+    if is_connected_2(result.inputs):
+        for steel in result.reinforcement:
+            cut = steel.foundation_reinforcement_cut
+            if cut is not None and cut.status == "APLICA" and cut.pattern is not None and cut.pattern.cycle_bars == 2:
+                sense = "hacia el centro" if cut.distance_from_inner_face_m >= 0 else "hacia el talon"
+                lines.append(f"{steel.region}: {steel.bar_label}; s mayor {steel.spacing_m:.3f} m; "
+                             f"s menor {cut.pattern.equivalent_spacing_m:.3f} m; "
+                             f"corte a {abs(cut.distance_from_inner_face_m):.3f} m de cada cara interior, {sense}.")
+            stem = steel.stem_reinforcement_cut
+            if steel.region == STEM_REGION and stem is not None and stem.status == "OK" and stem.continuous_every_n_bars == 2:
+                lines.append(f"{steel.region}: {stem.lower_bar_label}; s mayor {stem.lower_spacing_m:.3f} m; "
+                             f"s menor {stem.upper_spacing_m:.3f} m; "
+                             f"corte a {stem.constructive_cut_height_m:.3f} m sobre la base.")
+    elif any(c.foundation_continuous for c in result.selected_reinforcement.values()):
         lines.append("En el armado por zonas, esta tabla muestra el TOTAL donde coinciden continuo y adicional. "
                      "Las tablas de cortes identifican cada familia y verifican los tramos con solo acero continuo.")
     return "\n".join(lines)

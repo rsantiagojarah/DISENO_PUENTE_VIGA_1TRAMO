@@ -75,6 +75,9 @@ def _diagram(result: BearingAResult) -> BytesIO:
     d.text((850,730),f"{g.interior_layers} capas interiores de {g.interior_cm*10:g} mm",font=small,fill="black")
     d.text((850,775),f"2 capas exteriores de {g.exterior_cm*10:g} mm",font=small,fill="black")
     d.text((850,820),f"{g.interior_layers+1} zunchos de {g.steel_cm*10:g} mm",font=small,fill="black")
+    if g.hole_count:
+        d.text((100,855),f'{g.hole_count} perforaciones pasantes de diametro {g.hole_diameter_cm*10:g} mm',font=small,fill='black')
+        d.text((100,890),'Ubicacion de agujeros no representada en este esquema.',font=small,fill='black')
     d.text((100,920),"Esquema de capas; dimensiones y recubrimientos según la geometría adoptada.",font=small,fill="black")
     stream = BytesIO()
     canvas.save(stream,format="PNG")
@@ -82,150 +85,255 @@ def _diagram(result: BearingAResult) -> BytesIO:
     return stream
 
 
-def _trace(document, step) -> None:
-    """Mismo desarrollo con ecuación editable, leyenda y sustitución compacta."""
+from dataclasses import replace
+from bridge_design.reporting.bearing_a_labels import (
+    CONTROL_IDS, compression_basis, conclusion, design_checks, number, status, title,
+)
+from bridge_design.reporting.abutment_docx import _configure_abutment_header_footer, _labels
+
+
+def _source(text):
+    if text.startswith('Ingreso manual del usuario') and 'LL/IM aproximados' in text:
+        return 'Reacciones de cálculo con separación aproximada de carga vehicular e impacto mediante IM = 0.33 LL.'
+    if text.startswith('Ingreso manual del usuario'):
+        return text.replace('Ingreso manual del usuario', 'Reacciones adoptadas', 1)
+    if text.startswith('Indicar modelo'):
+        return 'Reacciones adoptadas para el apoyo.'
+    if text.startswith('Serquén p. 231'):
+        return 'Serquén, p. 231, Fig. C14.7.6.3.3-1 AASHTO; interpolación de lecturas gráficas.'
+    return text
+
+
+def _expression(text):
+    for before, after in (
+        ('epsilon_est', 'ε_est'), ('epsilon', 'ε'), ('sigma', 'σ'),
+        ('Delta', 'Δ'), ('delta_creep', 'δ_fluencia'), ('delta', 'δ'),
+        ('gamma', 'γ'), ('alpha', 'α'), ('phi', 'φ'), ('creep', 'fluencia'),
+        ('<=', '≤'), ('>=', '≥'), (' - ', ' − '),
+    ):
+        text = text.replace(before, after)
+    return text
+
+
+def _trace(document, step, heading, result):
+    """Usar el mismo bloque de desarrollo que tablero y estribos conectados."""
+    from bridge_design.reporting.deck_docx import _calc
+
     first = len(document.paragraphs)
-    document.add_heading(step.id+" "+step.title,level=3)
-    expression = step.formula.replace("<=", "≤").replace(">=", "≥").replace(" - ", " − ")
-    strict_split = _split_top_level(expression,("<",))
-    if strict_split:
-        # El autor OMML compartido no reconoce '<': separar antes de la fracción.
-        left, operator, right = strict_split
-        p = document.add_paragraph(style="Equation")
-        math = OxmlElement("m:oMath")
-        _append_math_expression(math,left)
-        math.append(_math_run(" "+operator+" "))
-        _append_math_expression(math,right)
-        p._p.append(math)
-    else:
-        _add_native_equation(document,expression)
-    _body(document,"Donde: "+step.legend+".")
-    p = document.add_paragraph("Reemplazando los valores correspondientes:")
-    p.paragraph_format.keep_with_next = True
-    # Cada sustitución se conserva literalmente además de la ecuación nativa.
-    p = document.add_paragraph(step.substitution)
-    p.paragraph_format.left_indent = Mm(4)
-    p.paragraph_format.keep_with_next = True
-    value = "sin datos suficientes" if step.value is None else f"{step.value:.8g} {step.unit}"
-    text = "Resultado: "+value
+    legend = step.legend
+    if step.id == 'FRICTION':
+        legend = 'μ: coeficiente de fricción; P_min: reacción vertical mínima adoptada para la condición de servicio (Tn)'
+    reference = step.reference
+    if step.id == 'P':
+        reference = 'MTC 2.4.5.3.1, Servicio I. ' + _source(result.inputs.actions.source)
+    elif step.id.startswith('EPS_'):
+        reference = _source(reference)
+    elif step.id == 'DELTA' and result.inputs.horizontal_displacement_cm is not None:
+        reference = 'Condición cinemática adoptada del esquema del tramo; MTC 2.10.2.1.1 y 2.10.4.3.4 definen los movimientos de diseño'
+
+    substitution = _expression(step.substitution)
+    # Identificar el valor calculado permite escribir una igualdad numérica,
+    # en lugar de dejar una operación aislada como texto corriente.
+    if not any(operator in substitution for operator in ('=', '≤', '≥', '<', '>')):
+        left = _expression(step.formula).split('=')[0].strip()
+        substitution = left + ' = ' + substitution
+    if step.value is not None and not any(operator in substitution for operator in ('≤', '≥', '<', '>')):
+        substitution += ' = ' + number(step.value, step.unit)
+
+    outcome = number(step.value, step.unit, percent=step.id == 'STRAIN_CHECK')
     if step.limit is not None:
-        text += f"; límite {'<' if step.strict else '<='} {step.limit:.8g} {step.unit}"
-    if step.status != "CALCULADO":
-        text += "; "+step.status
-    p = document.add_paragraph()
-    _format_run(p.add_run(text),11,bold=True,color=TEAL)
-    if step.note:
-        _body(document,step.note)
-    p = document.add_paragraph("Referencia: "+step.reference)
-    p.paragraph_format.space_after = Pt(8)
-    paragraphs = document.paragraphs[first:]
-    for paragraph in paragraphs:
-        paragraph.paragraph_format.keep_together = True
-        paragraph.paragraph_format.keep_with_next = True
-    paragraphs[-1].paragraph_format.keep_with_next = False
+        outcome += '; límite ' + ('< ' if step.strict else '≤ ') + number(step.limit, step.unit, percent=step.id == 'STRAIN_CHECK')
+    if step.status != 'CALCULADO':
+        outcome += '; ' + status(step) + '.'
+    comment = ''
+    if step.id == 'SCOPE':
+        comment = 'El límite 22 corresponde al MTC; los límites 20 y 16 proceden del comentario C14.7.6.1 aplicado por Serquén.'
+    elif step.id == 'JOINT':
+        comment = 'Serquén reproduce la recomendación de 1/8 in para deflexión relativa por carga viva de C14.7.5.3.6. En su ejemplo de la p. 238 incluye además la fluencia; aquí se adopta ese criterio conservador.'
+    elif step.id == 'HS_MIN':
+        comment = 'El MTC p. 508 imprime 0.625 in junto a 1.588 mm, valores incompatibles. Se adopta 1/16 in = 1.5875 mm, concordante con el valor métrico del MTC y con Serquén.'
+    elif step.status in ('REFERENCIAL', 'CUMPLE (ESTIMADO)'):
+        comment = compression_basis(result)
+    _calc(document, heading + ' ' + title(step), _expression(step.formula),
+          _expression(legend), substitution, outcome, comment, reference)
+    for paragraph in document.paragraphs[first:]:
+        if paragraph.text.startswith('Referencia normativa:') and (step.id in ('AREA', 'HS_HOLES', 'AREA_REQ', 'HRT', 'HEIGHT', 'DEF_T', 'DEF_LL', 'JOINT', 'FRICTION') or (step.id == 'DELTA' and result.inputs.horizontal_displacement_cm is not None)):
+            for run in paragraph.runs:
+                run.text = run.text.replace('Referencia normativa:', 'Base de cálculo y referencia técnica:')
+        if paragraph.style.name == 'Equation':
+            paragraph.paragraph_format.keep_with_next = False
+        if not paragraph.text and not paragraph._p.xpath('.//m:oMath'):
+            paragraph._p.getparent().remove(paragraph._p)
 
 
-def generate_bearing_a_docx(result: BearingAResult, output_path: str | Path) -> Path:
-    path = Path(output_path).expanduser().resolve().with_suffix(".docx")
-    path.parent.mkdir(parents=True,exist_ok=True)
-    doc = Document()
-    _configure_document(doc)
-    # Word's built-in Title style may carry a blue rule from its template.
-    for name in ("Title", "Subtitle"):
-        ppr = doc.styles[name]._element.pPr
-        if ppr is not None:
-            for child in list(ppr):
-                if child.tag.endswith("}pBdr"):
-                    ppr.remove(child)
-    section = doc.sections[0]
-    header = section.header.paragraphs[0]
-    header.clear()
-    # Descartar el borde de la configuración compartida en este encabezado.
-    ppr = header._p.get_or_add_pPr()
-    for child in list(ppr):
-        if child.tag.endswith("}pBdr"):
-            ppr.remove(child)
-    header.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    _format_run(header.add_run("MEMORIA DE CÁLCULO DEL APOYO MÉTODO A"),11,bold=True,color=TEAL)
-    footer = section.footer.paragraphs[0]
-    footer.clear()
-    footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    _format_run(footer.add_run("DISEÑO ESTRUCTURAL  "),11,color=GRAY)
-    _field(footer,"PAGE")
-    p = doc.add_paragraph(style="Title")
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(60)
-    p.add_run("Memoria de cálculo\ndel apoyo elastomérico Método A")
-    doc.add_paragraph("Apoyo rectangular reforzado con zunchos de acero",style="Subtitle")
-    g,i = result.adopted,result.inputs
-    _table(doc,("Dato","Descripción"),(
-        ("Proyecto",i.project),("Apoyo",i.bearing_id),("Estado global",result.status),
-        ("Planta y altura",f"{g.length_cm*10:g} × {g.width_cm*10:g} × {result.value('HEIGHT')*10:g} mm"),
-        ("Elastómero",f"Shore A {i.hardness}; {g.interior_layers} interiores de {g.interior_cm*10:g} mm y 2 exteriores de {g.exterior_cm*10:g} mm"),
-        ("Zunchos",f"{g.interior_layers+1} de {g.steel_cm*10:g} mm"),
-        ("Norma de cálculo","Manual de Puentes MTC 2018, Artículo 2.10.4"),
-        ("Fecha de emisión",datetime.now(timezone(timedelta(hours=-5))).strftime("%d/%m/%Y")),
-    ),widths=(42,117),accent=True)
-    _body(doc,"Alcance: dimensionamiento del apoyo de neopreno, incluidas capas, zunchos, deformaciones, estabilidad y fricción. Pedestal y conexiones externas fuera de alcance. Estado: "+result.status if result.inputs.neoprene_only else "La memoria desarrolla la geometría, las acciones, el movimiento horizontal, la compresión, los zunchos, la estabilidad, las conexiones y el aplastamiento del concreto. Estado del cálculo: "+result.status+". Las verificaciones pendientes y referenciales se identifican expresamente en el resumen.")
-    doc.add_page_break()
-    doc.add_heading("Contenido",1)
+def generate_bearing_a_docx(result: BearingAResult, output_path: str | Path, *, document=None, show_curves=True) -> Path:
+    path = Path(output_path).expanduser().resolve().with_suffix('.docx')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    g, i = result.adopted, result.inputs
+    doc = document
+    if doc is None:
+        doc = Document()
+        _configure_document(doc)
+        for name in ('Title', 'Subtitle'):
+            ppr = doc.styles[name]._element.pPr
+            if ppr is not None:
+                for child in list(ppr):
+                    if child.tag.endswith('}pBdr'):
+                        ppr.remove(child)
+        _configure_abutment_header_footer(doc, replace(_labels(is_pure_wall=False), header='MEMORIA DE CÁLCULO · APOYO ELASTOMÉRICO MÉTODO A'))
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(34)
+        _format_run(p.add_run('INGENIERÍA ESTRUCTURAL'), 11, bold=True, color=TEAL)
+        p = doc.add_paragraph(style='Title')
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.line_spacing = 1.0
+        p.paragraph_format.space_before = Pt(42)
+        p.add_run('Memoria de cálculo\ndel apoyo elastomérico Método A')
+        doc.add_paragraph('Geometría acciones deformaciones refuerzo y estabilidad', style='Subtitle')
+        _table(doc, ('Dato', 'Descripción'), (
+            ('Proyecto', i.project), ('Apoyo', i.bearing_id),
+            ('Planta y altura', f'{g.length_cm*10:g} × {g.width_cm*10:g} × {result.value("HEIGHT")*10:g} mm'),
+            ('Elastómero', f'Shore A {i.hardness}'),
+            ('Norma principal', 'Manual de Puentes MTC 2018, Artículo 2.10.4'),
+            ('Procedimiento de cálculo', 'Serquén, capítulo 4, problema 4.1'),
+            ('Fecha de emisión', datetime.now(timezone(timedelta(hours=-5))).strftime('%d/%m/%Y')),
+        ), widths=(52, 107))
+        _body(doc, 'La memoria desarrolla las acciones, geometría, deformaciones, refuerzo de acero, estabilidad y fricción del apoyo. ' + conclusion(result))
+        doc.add_page_break()
     groups = tuple(dict.fromkeys(s.section for s in result.steps))
-    contents = (("1","Bases de diseño y entradas"),) + tuple((str(j+2),name) for j,name in enumerate(groups)) + (("7","Resumen de verificaciones"),("8","Diseño adoptado y detalle de capas"),("9","Trazabilidad y referencias"))
-    _table(doc,("Sección","Contenido"),contents,widths=(25,134),accent=True)
-    doc.add_heading("1 Bases de diseño y entradas",1)
-    if result.inputs.movements.prestress_shortening_cm == 0:
-        _body(doc,"Alcance de diseno-apoyos-A: concreto armado construido en sitio, sin postensado. La retracción se ingresa desde el cálculo del tablero.")
-    _body(doc,"Apoyo rectangular zunchado sin agujeros ni PTFE. L longitudinal y W transversal; rotación principal alrededor del eje transversal. Se requiere respaldo de las propiedades del elastómero." if result.inputs.neoprene_only else "Se considera un apoyo rectangular zunchado sin agujeros ni superficie deslizante PTFE, sometido a compresión. L es longitudinal y W transversal. El alcance requiere rotación principal alrededor del eje transversal. Los certificados del producto, la geometría del pedestal y las resistencias externas deben corresponder al apoyo identificado.")
-    _body(doc,"Fuerzas en Tn; longitudes en cm; esfuerzos en kgf/cm². La deformación por compresión excluye IM. Las demandas y capacidades de conexiones externas no se evalúan." if result.inputs.neoprene_only else "Los esfuerzos se expresan en kgf/cm² y las fuerzas en toneladas-fuerza (Tn), con 1 Tn = 1000 kgf. No se aplica redondeo intermedio. La compresión para el límite de deformación excluye IM; los esfuerzos y el aplastamiento usan las acciones declaradas. La envolvente Resistencia I horizontal debe incluir las combinaciones de frenado y temperatura del modelo.")
-    _table(doc,("Parámetro","Valor"),(
-        ("Procedencia de cargas",i.actions.source),
-        ("Acciones DC / DW / LL / PL / IM",f"{i.actions.dc_tn:g} / {i.actions.dw_tn:g} / {i.actions.ll_tn:g} / {i.actions.pl_tn:g} / {i.actions.im_tn:g} Tn"),
-        ("Reacción mínima para fricción",f"{i.actions.min_vertical_tn:g} Tn" if i.actions.min_vertical_tn is not None else f"No declarada; se utiliza DC = {i.actions.dc_tn:g} Tn"),
-        ("Longitud efectiva de expansión",f"{i.movements.span_length_m:g} m"),
-        ("T mínima / instalación / máxima",f"{i.movements.temperature.t_inf_c:g} / {i.movements.temperature.t_install_c:g} / {i.movements.temperature.t_sup_c:g} °C"),
-        ("Retracción / postensado / otros",f"{i.movements.shrinkage_cm:g} / {i.movements.prestress_shortening_cm:g} / {i.movements.other_permanent_cm:g} cm"),
-        ("Movimiento térmico",("Rango completo" if not i.movements.use_install_to_min else "Desde instalación")+f"; gamma_TU={i.movements.gamma_tu:g}; alpha={i.movements.alpha_per_c:g}/°C"),
-        ("G mínimo / máximo",f"{({50:(6.68,9.14),60:(9.14,14.06)}[i.hardness])[0]:g} / {({50:(6.68,9.14),60:(9.14,14.06)}[i.hardness])[1]:g} kgf/cm²"),
-        *(((("Fy zunchos",f"{i.fy_kg_cm2:g} kgf/cm²"),)) if i.neoprene_only else (
-        ("Fy zunchos / f'c concreto",f"{i.fy_kg_cm2:g} / {i.fc_kg_cm2:g} kgf/cm²; phi={i.concrete_phi:g}"),
-        ("As / número de tramos",f"{i.connections.as_site:g} / "+("un tramo" if i.connections.single_span else "varios tramos")),
-        ("Restricción longitudinal / transversal",("Sí" if i.connections.restrained_longitudinal else "No")+" / "+("Sí" if i.connections.restrained_transverse else "No")),
-        )),
-        ("Fricción",f"mu={i.connections.friction_mu:g}"),
-        *(() if i.neoprene_only else (("Fuente de resistencia de conexiones",i.connections.resistance_source or "Sin memoria de resistencia externa"),)),
-        ("Modelo de compresión",i.compression_curve.source if i.compression_curve else "Cálculo elástico automático estimado; sin curvas de producto" if i.neoprene_only else "Estimación elástica pendiente de curvas de producto"),
-        ("Selección",result.selection_note+f" Candidatos evaluados: {result.candidates}."),
-    ),widths=(65,94))
-    if i.compression_curve:
-        doc.add_heading("1 1 Tabla de compresión utilizada",2)
-        _table(doc,("S","sigma kgf/cm²","epsilon decimal"),tuple((f"{s:.8g}",f"{stress:.8g}",f"{eps:.8g}") for s,stress,eps in i.compression_curve.points),widths=(40,59,60))
-        _body(doc,"Interpolación lineal entre puntos de esfuerzo y entre factores S. Se prohíbe extrapolar. Los datos de tipo referencia producen estado REFERENCIAL y no acreditan propiedades de un producto fabricado.")
-    for number,group in enumerate(groups,2):
-        doc.add_heading(f"{number} {group}",1)
+    group_names = {'Fuerzas horizontales y conexiones': 'Fuerzas horizontales y fricción' if i.neoprene_only else 'Fuerzas horizontales y conexiones'}
+    summary_no = len(groups) + 2
+    sections = ['Bases de diseño e hipótesis'] + [group_names.get(x, x) for x in groups] + ['Resumen de verificaciones y conclusiones', 'Geometría y composición del apoyo', 'Referencias']
+    doc.add_heading('Contenido', 1)
+    _table(doc, ('Sección', 'Contenido'), tuple((str(k), x) for k, x in enumerate(sections, 1)), widths=(24, 135))
+    doc.add_page_break()
+    doc.add_heading('1 Bases de diseño e hipótesis', 1)
+    _body(doc, 'El apoyo es rectangular y está reforzado con zunchos de acero, ' + ('con perforaciones pasantes en el elastómero y los zunchos' if g.hole_count else 'sin perforaciones') + ' y sin superficie deslizante. L corresponde a la dirección longitudinal y W a la transversal. Las capas interiores tienen igual espesor y están adheridas por ambas caras; las exteriores están adheridas por una cara.')
+    _body(doc, 'Las fuerzas se expresan en toneladas-fuerza, las longitudes en centímetros y los esfuerzos en kgf/cm². La reacción de servicio incluye el incremento dinámico; el límite de deformación por compresión se evalúa con las acciones de servicio sin impacto.')
+    if i.horizontal_displacement_cm is not None:
+        _body(doc, 'La evaluación corresponde al cuerpo de neopreno del extremo fijo. Su desplazamiento relativo longitudinal adoptado es '+number(i.horizontal_displacement_cm,'cm')+'. La condición cinemática del punto fijo se adopta del esquema estructural.')
+    else:
+        _body(doc, 'La evaluación corresponde al apoyo elastomérico y a su fricción en servicio.' if i.neoprene_only else 'La evaluación incluye el apoyo elastomérico, las demandas de conexión y la resistencia local del concreto de soporte.')
+    _body(doc, compression_basis(result))
+    if i.compression_curve and i.compression_curve.kind == 'referencia':
+        _body(doc, 'La base de compresión corresponde a curvas gráficas de referencia y no a ensayos de un producto específico.')
+    if g.hole_count:
+        _body(doc, f'Se adoptan {g.hole_count} perforaciones circulares iguales de diámetro {g.hole_diameter_cm*10:g} mm, pasantes y sin contribución resistente de elementos alojados en ellas. Sus paredes se consideran libres de abombamiento. Para el zuncho se adopta conservadoramente que todos los agujeros atraviesan una misma sección del lado menor del núcleo, con ancho neto b n = min(Lc,Wc) − N d. Esta hipótesis no define su ubicación constructiva.')
+    direction = 'alrededor del eje transversal' if g.principal_rotation_transverse else 'en una dirección distinta del eje transversal'
+    _body(doc, 'La rotación principal se considera ' + direction + '. ' + ('Su evaluación está implícita en los límites geométricos y de esfuerzo del Método A, según MTC 2.10.4.1 y Serquén p. 239.' if g.principal_rotation_transverse else 'Esta condición no satisface el alcance del Método A definido en MTC 2.10.4.1.'))
+    if g.total_height_cm is not None:
+        _body(doc, f'Altura especificada H = {g.total_height_cm*10:g} mm; altura de la composición H = {result.value("HEIGHT")*10:g} mm. Compatibilidad geométrica: {status(result.step("HEIGHT_TARGET"))}.')
+    pmin = i.actions.min_vertical_tn if i.actions.min_vertical_tn is not None else i.actions.dc_tn
+    t = i.movements.temperature
+    parameters = (
+        ('Procedencia de las reacciones', _source(i.actions.source)),
+        ('DC / DW / LL / PL / IM', f'{i.actions.dc_tn:g} / {i.actions.dw_tn:g} / {i.actions.ll_tn:g} / {i.actions.pl_tn:g} / {i.actions.im_tn:g} Tn'),
+        ('Reacción mínima para fricción', f'{pmin:g} Tn' + ('; hipótesis P mínima = DC' if i.actions.min_vertical_tn is None else '')),
+        ('Longitud efectiva de expansión', f'{i.movements.span_length_m:g} m'),
+        ('Temperaturas mínima instalación máxima', f'{t.t_inf_c:g} / {t.t_install_c:g} / {t.t_sup_c:g} °C'),
+        ('Retracción postensado otros acortamientos', f'{i.movements.shrinkage_cm:g} / {i.movements.prestress_shortening_cm:g} / {i.movements.other_permanent_cm:g} cm'),
+        ('Coeficiente térmico y factor de movimiento', f'α = {i.movements.alpha_per_c:g}/°C; γ TU = {i.movements.gamma_tu:g}; ' + ('rango térmico completo' if not i.movements.use_install_to_min else 'desde la temperatura de instalación')),
+        ('Módulos de corte mínimo y máximo', f'{({50:(6.68,9.14),60:(9.14,14.06)}[i.hardness])[0]:g} / {({50:(6.68,9.14),60:(9.14,14.06)}[i.hardness])[1]:g} kgf/cm²'),
+        ('Fluencia del elastómero', f'C d = {0.25 if i.hardness == 50 else 0.35:g}'),
+        ('Perforaciones pasantes en neopreno y zunchos', f'{g.hole_count} de diámetro {g.hole_diameter_cm*10:g} mm' if g.hole_count else 'Sin perforaciones'),
+        ('Límite elástico del zuncho', f'{i.fy_kg_cm2:g} kgf/cm²'),
+        ('Coeficiente de fricción', f'μ = {i.connections.friction_mu:g}'),
+        ('Límite de deflexión de junta', f'{i.joint_limit_cm:g} cm; criterio adoptado del comentario C14.7.5.3.6'),
+    )
+    if i.horizontal_displacement_cm is not None:
+        parameters = tuple(row for row in parameters if row[0] not in {
+            "Reacción mínima para fricción", "Longitud efectiva de expansión",
+            "Temperaturas mínima instalación máxima", "Retracción postensado otros acortamientos",
+            "Coeficiente térmico y factor de movimiento", "Coeficiente de fricción"})
+        parameters += (("Desplazamiento relativo adoptado", number(i.horizontal_displacement_cm,"cm")),)
+    _table(doc, ("Parámetro", "Valor adoptado"), parameters, widths=(65,94))
+    if not i.neoprene_only:
+        _table(doc, ('Parámetro de soporte', 'Valor'), (
+            ("Resistencia del concreto f c", f'{i.fc_kg_cm2:g} kgf/cm²; φ = {i.concrete_phi:g}'),
+            ('Aceleración de sitio', f'{i.connections.as_site:g}'),
+            ('Fuente de resistencia de conexiones', i.connections.resistance_source or 'Resistencia de conexión no determinada'),
+        ), widths=(65, 94))
+    figure_count = sum(p.style.name == "Caption" and p.text.startswith("Figura ") for p in doc.paragraphs)
+    for chapter, group in enumerate(groups, 2):
+        heading = doc.add_heading(f'{chapter} {group_names.get(group, group)}', 1)
+        if show_curves and i.compression_curve and any(s.section == group and s.id == 'EPS_ID' for s in result.steps):
+            heading.paragraph_format.page_break_before = True
+        count = 0
         for step in result.steps:
-            if step.section == group:
-                _trace(doc,step)
-    doc.add_heading("7 Resumen de verificaciones",1)
-    _table(doc,("ID y verificación","Demanda","Límite","Ratio","Estado"),tuple((
-        s.id+" "+s.title,"Sin datos" if s.value is None else f"{s.value:.5g} {s.unit}",
-        "Sin datos" if s.limit is None else ("< " if s.strict else "<= ")+f"{s.limit:.5g} {s.unit}",
-        "-" if s.ratio is None else f"{s.ratio:.3f}",s.status,
-    ) for s in result.checks),widths=(53,30,29,17,30))
-    _body(doc,"Estado global: "+result.status+". NO CONFORME identifica incumplimientos; ESTIMADO identifica comprobaciones favorables calculadas mediante aproximación elástica, sin acreditar propiedades del producto; PENDIENTE identifica verificaciones sin datos suficientes; REFERENCIAL indica cumplimiento numérico con gráficas, tablas o lecturas académicas; no certifica el producto. CONFORME requiere que todas las comprobaciones cumplan con las fuentes de entrada declaradas.")
-    doc.add_heading("8 Diseño adoptado y detalle de capas",1)
-    doc.add_picture(_diagram(result),width=Mm(159))
-    _body(doc,"Las capas interiores tienen igual espesor y dos caras adheridas; las exteriores tienen una cara adherida. Cada zuncho se adhiere al elastómero. Los planos de fabricación deben definir protección de cantos, recubrimiento lateral, tolerancias, paralelismo y la retención compatible con el movimiento. No se consideran agujeros ni diseño de PTFE en este módulo.")
-    doc.add_heading("9 Trazabilidad y referencias",1)
-    _body(doc,"Versión del algoritmo: "+result.version+". La consola, el Word y el JSON se generan desde el mismo registro numérico. El JSON conserva todas las entradas y la geometría seleccionada. El hash identifica las entradas normalizadas, no constituye una firma de certificación.")
-    _body(doc,"SHA256 de las entradas normalizadas:")
-    doc.add_paragraph(result.input_sha256[:32]+"\n"+result.input_sha256[32:])
-    _table(doc,("Fuente","Aplicación"),(
-        ("Manual de Puentes MTC 2018, 2.10.4","Método A, alcance, compresión, corte y estabilidad; 2.10.3.3.5 y 2.10.3.3.6: refuerzo y deflexión"),
-        ("Manual de Puentes MTC 2018, 2.4.3.9.2, 2.4.3.11.8 y 2.4.5.3.1","Temperatura, conexiones sísmicas y combinaciones; 2.8.1.4: resistencia local del concreto"),
-        ("AASHTO LRFD, artículos correlativos citados por MTC 2018","14.7.6 Método A; 14.7.5.1 factor S; 14.7.5.3.5 zunchos; 14.7.5.3.6 deflexión; 14.8.3 anclaje"),
-        ("APOYOS.pdf, Arturo Rodríguez Serquén, pp. impresas 229 a 239","Procedimiento y ejemplo 4.1; límites conservadores del comentario, datos gráficos referenciales y comparación numérica"),
-    ),widths=(73,86))
-    _body(doc,"Acceso oficial al Manual de Puentes: "+MTC_URL)
+            if step.section != group or step.id in CONTROL_IDS:
+                continue
+            if step.id.startswith('EPS_') and step.id != 'EPS_ID':
+                continue
+            count += 1
+            if step.id.startswith('EPS_'):
+                # Agrupar las cuatro lecturas de curvas en una sola tabla física.
+                if step.id != 'EPS_ID':
+                    continue
+                doc.add_heading(f'{chapter} {count} Deformaciones unitarias por compresión', 2)
+                if show_curves and i.compression_curve:
+                    from bridge_design.reporting.bearing_a_curves import compression_chart, original_serquen_curve
+                    original = original_serquen_curve(i.compression_curve)
+                    if original:
+                        _body(doc, f'Curvas esfuerzo deformación de referencia para elastómero de dureza Shore A {i.hardness}. Las familias de curvas corresponden al factor de forma S de la capa.')
+                        doc.add_picture(str(original), width=Mm(159))
+                        figure_count += 1
+                        doc.add_paragraph(f'Figura {figure_count} Curvas originales de compresión para Shore A {i.hardness}', style='Caption')
+                        _body(doc, 'Fuente: Arturo Rodríguez Serquén, Puentes, página impresa 231, Fig. C14.7.6.3.3-1 AASHTO; reproducción del documento APOYOS.pdf.')
+                        doc.add_page_break()
+                    doc.add_heading('Lecturas de las curvas adoptadas', 2)
+                    doc.add_picture(compression_chart(result), width=Mm(159))
+                    figure_count += 1
+                    doc.add_paragraph(f'Figura {figure_count} Curvas utilizadas y puntos de cálculo del apoyo', style='Caption')
+                    _body(doc, 'Las líneas finas representan las curvas de los datos adoptados; las líneas resaltadas corresponden a los factores de forma interior y exterior. Los puntos 1 a 4 se presentan en el mismo orden que las filas de la tabla siguiente. Fuente: ' + _source(i.compression_curve.source))
+                _table(doc, ('Capa', 'Acción', 'Factor S', 'Esfuerzo kgf/cm²', 'Deformación %'), tuple(
+                    ('Interior' if x == 'I' else 'Exterior', 'Permanente' if y == 'D' else 'Total sin impacto',
+                     f'{result.value("SI" if x == "I" else "SE"):.4g}',
+                     f'{1000*((i.actions.dc_tn+i.actions.dw_tn) if y == "D" else result.value("P")-i.actions.im_tn)/result.value("AREA"):.5g}',
+                     number(result.step('EPS_'+x+y).value, percent=True))
+                    for x in ('I', 'E') for y in ('D', 'T')
+                ), widths=(28, 40, 23, 36, 32))
+                _body(doc, 'Las deformaciones se obtienen para el factor de forma y el esfuerzo de cada capa. La interpolación se realiza dentro del dominio de las curvas, sin extrapolación. Fuente: ' + (_source(i.compression_curve.source) if i.compression_curve else 'modelo elástico aproximado σ / [3 G (1 + 2 k S²)].'))
+                continue
+            _trace(doc, step, f'{chapter} {count}', result)
+    section_heading = doc.add_heading(f'{summary_no} Resumen de verificaciones y conclusiones', 1)
+    section_heading.paragraph_format.page_break_before = True
+    _table(doc, ('Verificación', 'Valor calculado', 'Límite', 'Resultado'), tuple(
+        (title(s), number(s.value, s.unit, percent=s.id == 'STRAIN_CHECK'),
+         ('< ' if s.strict else '≤ ') + number(s.limit, s.unit, percent=s.id == 'STRAIN_CHECK'), status(s))
+        for s in design_checks(result)
+    ), widths=(53, 33, 33, 40))
+    _body(doc, conclusion(result))
+    _body(doc, 'Los límites de compresión, corte, refuerzo y estabilidad corresponden al Manual de Puentes. El procedimiento de Serquén complementa la aplicación del Método A; los límites conservadores de aplicabilidad, el criterio de junta y el coeficiente de fricción proceden de comentarios AASHTO.')
+    section_heading = doc.add_heading(f'{summary_no+1} Geometría y composición del apoyo', 1)
+    section_heading.paragraph_format.page_break_before = True
+    _table(doc, ('Elemento', 'Cantidad', 'Espesor mm'), (
+        ('Capas interiores', str(g.interior_layers), f'{g.interior_cm*10:g}'),
+        ('Capas exteriores', '2', f'{g.exterior_cm*10:g}'),
+        ('Zunchos de acero', str(g.interior_layers+1), f'{g.steel_cm*10:g}'),
+        ('Recubrimiento lateral', 'Por lado', f'{g.cover_cm*10:g}'),
+    ), widths=(75, 40, 44))
+    doc.add_picture(_diagram(result), width=Mm(159))
+    doc.add_paragraph(f'Figura {figure_count+1} Planta y composición del apoyo elastomérico', style='Caption')
+    _body(doc, 'Los zunchos y las capas de elastómero forman una unidad adherida. La geometría de fabricación comprende los espesores, recubrimientos y orientación indicados.')
+    section_heading = doc.add_heading(f'{summary_no+2} Referencias', 1)
+    section_heading.paragraph_format.page_break_before = True
+    _table(doc, ('Fuente', 'Aplicación'), (
+        ('Manual de Puentes MTC 2018, 2.10.4', 'Método A; alcance, compresión, corte, estabilidad y refuerzo.'),
+        ('Manual de Puentes MTC 2018, 2.10.3.3.5 y 2.10.3.3.6', 'Zunchos y deflexiones por compresión.'),
+        ('Manual de Puentes MTC 2018, 2.4.3.9.2 y 2.4.5.3.1', 'Temperatura y combinaciones de acciones.'),
+        ('Manual de Puentes MTC 2018, Tabla 2.9.4.6.1.2.3-3', 'Umbral de fatiga de categoría A: 24 ksi; Serquén adopta 1687 kgf/cm².'),
+        ('AASHTO LRFD correlativos impresos en MTC 2018', '14.7.6; 14.7.5.1; 14.7.5.3.5; 14.7.5.3.6 y 14.6.3.1. Numeración cotejada mediante el MTC.'),
+        ('FHWA Comprehensive Design Example, Design Step 6.1.2.1 y 6.1.2.6', 'Perforaciones: factor de forma y aumento de espesor del zuncho. https://www.fhwa.dot.gov/bridge/lrfd/pscus06.cfm'),
+        ('Arturo Rodríguez Serquén, Puentes, capítulo 4, APOYOS.pdf', 'Páginas impresas 229 a 239; incluye los comentarios C14.7.6.1, C14.7.5.3.6 y C14.8.3.1 y el problema 4.1.'),
+    ) + (() if i.neoprene_only else (('Manual de Puentes MTC 2018, 2.4.3.11.8 y 2.8.1.4', 'Conexiones sísmicas y resistencia local del concreto.'),)), widths=(73, 86))
     _enforce_uniform_typography(doc)
-    doc.save(path)
+    # La bibliografía conserva tipografía y márgenes; el espaciado compacto
+    # evita dejar una única referencia en una página adicional.
+    for row in doc.tables[-1].rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                paragraph.paragraph_format.line_spacing = 1.0
+                paragraph.paragraph_format.space_after = Pt(0)
+    if document is None:
+        doc.save(path)
     return path

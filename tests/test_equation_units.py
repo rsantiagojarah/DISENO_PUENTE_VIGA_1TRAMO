@@ -4,6 +4,16 @@ from docx.oxml.ns import qn
 from bridge_design.reporting.deck_docx import _add_native_equation
 
 
+def test_strict_comparisons_remain_outside_fraction_denominators():
+    document = Document()
+    document.styles.add_style('Equation', WD_STYLE_TYPE.PARAGRAPH)
+    for operator in ('<', '>'):
+        paragraph = _add_native_equation(document, f'S^2/n {operator} 16')
+        fraction = paragraph._p.xpath('.//m:f')[0]
+        assert ''.join(fraction.find(qn('m:den')).itertext()) == 'n'
+        assert any(operator in text for text in paragraph._p.xpath('.//m:oMath/m:r/m:t/text()'))
+
+
 def test_general_shear_beta_preserves_two_fractional_factors():
     document = Document()
     document.styles.add_style("Equation", WD_STYLE_TYPE.PARAGRAPH)

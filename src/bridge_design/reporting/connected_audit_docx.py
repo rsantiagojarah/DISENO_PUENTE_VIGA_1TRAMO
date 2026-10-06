@@ -19,7 +19,7 @@ def write_audit_table(document, table):
 
 
 def write_steel_audit(document, steel, audit, selected):
-    _body(document, "Origen del armado: " + ("seleccion confirmada por el usuario." if selected else "propuesta automatica."))
+    _body(document, f"Armado adoptado: {steel.bar_label} @ {steel.spacing_m:.3f} m.")
     for table in steel_tables(steel, audit):
         write_audit_table(document, table)
     for step in steel_steps(steel, audit):

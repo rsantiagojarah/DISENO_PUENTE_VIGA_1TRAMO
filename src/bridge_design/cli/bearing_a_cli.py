@@ -52,7 +52,7 @@ def _temperature(label: str, default: float) -> float:
 def collect_bearing_a_inputs() -> BearingAInputs:
     data = bearing_a_template()
     print("=== APOYO RECTANGULAR ZUNCHADO SIN AGUJEROS NI PTFE - METODO A ===")
-    print("Alcance: solo apoyo de neopreno para concreto armado construido en sitio; sin postensado, pedestal ni conexiones externas.")
+    print("Datos del neopreno para concreto armado construido en sitio.")
     print("Fuerzas: Tn (toneladas-fuerza); longitudes: cm y m; esfuerzos: kgf/cm2.")
     data["proyecto"] = input("Nombre del proyecto [Diseño de apoyo]: ").strip() or "Diseño de apoyo"
     data["identificador"] = input("Identificador del apoyo [A1]: ").strip() or "A1"
@@ -114,6 +114,7 @@ def collect_bearing_a_inputs() -> BearingAInputs:
     manual_layers = mode in {"medida", "usuales"} and (g["altura_total_cm"] is None or _yes("Definir también espesores y número de capas manualmente",False))
     for k,label,integer in (("capa_interior_cm","Espesor de UNA capa interior hri (cm)",False),("capa_exterior_cm","Espesor de UNA capa exterior hre (cm)",False),("numero_capas_interiores","Número de capas interiores",True),("zuncho_cm","Espesor de UN zuncho hs (cm)",False)):
         g[k] = _optional_number(label,integer=integer) if manual_layers else None
+    g["cantidad_agujeros"], g["diametro_agujeros_cm"] = _collect_holes("Móvil")
     g["casi_cuadrado"] = _yes("Clasificar como casi cuadrado (límite conservador 16)",False)
     g["rotacion_principal_eje_transversal"] = _yes("Rotación principal alrededor del eje transversal")
     data["conexiones"]["mu"] = prompt_non_negative_float("Coeficiente de fricción elastómero/superficie limpia","-",.2)
@@ -153,7 +154,7 @@ def collect_bearing_a_inputs() -> BearingAInputs:
 
 
 
-def run_bearing_a(inputs: BearingAInputs, *, word_path: Path | None = None, json_path: Path | None = None, no_word: bool = False, detailed: bool = True) -> BearingAResult:
+def run_bearing_a(inputs: BearingAInputs, *, word_path: Path | None = None, json_path: Path | None = None, no_word: bool = False, detailed: bool = False) -> BearingAResult:
     if inputs.movements.prestress_shortening_cm != 0:
         raise ValueError("diseno-apoyos-A es solo para concreto armado construido en sitio: postensado_cm debe ser 0. Revise el YAML; no se descarta el acortamiento silenciosamente.")
     result = design_bearing_a(replace(inputs, neoprene_only=True))
@@ -177,14 +178,15 @@ def run_bearing_a(inputs: BearingAInputs, *, word_path: Path | None = None, json
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout,"reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(prog="diseno-apoyos-A",description="Apoyos Método A para concreto armado construido en sitio, sin postensado.")
+    from bridge_design.cli.bearing_a_pair_yaml import bearing_pair_from_yaml,bearing_pair_template
+    parser = argparse.ArgumentParser(prog="diseno-apoyos-A",description="Diseño conjunto del apoyo fijo y móvil de un puente de un tramo, Método A.")
     parser.add_argument("modo",nargs="?",choices=("input","output","ejemplo"),help="Sin modo: ingreso manual. input: leer YAML; output: guardar plantilla; ejemplo: fuera de alcance (el problema original es postensado).")
     parser.add_argument("archivo",nargs="?",type=Path,help="Ruta YAML; si se omite se abre un selector.")
     parser.add_argument("--word",type=Path,help="Guardar Word directamente, sin ventana.")
     parser.add_argument("--json",type=Path,help="Exportar entradas, geometría, cálculos, verificaciones y SHA256.")
     parser.add_argument("--sin-word",action="store_true",help="Solo consola; evita ventana Word.")
     display = parser.add_mutually_exclusive_group()
-    display.add_argument("--detalle",action="store_true",help="Mostrar fórmulas y reemplazos en cuadros (comportamiento predeterminado).")
+    display.add_argument("--detalle",action="store_true",help="Mostrar además las fórmulas y sustituciones de cada cálculo.")
     display.add_argument("--resumen",action="store_true",help="Mostrar solo los cuadros de resumen, sin desarrollo de fórmulas.")
     args = parser.parse_args(argv)
     if args.word is not None and args.sin_word:
@@ -196,23 +198,79 @@ def main(argv: list[str] | None = None) -> int:
             if args.word is not None or args.json is not None or args.sin_word or args.detalle or args.resumen:
                 parser.error("Las opciones de reporte requieren cálculo input o manual.")
             path = args.archivo or select_yaml_save_path("Guardar YAML de apoyos Método A","modelo_apoyos_A.yaml")
-            template = bearing_a_template()
-            template["alcance"] = "neopreno"
-            template.pop("concreto")
-            template["conexiones"] = {"mu": 0.2}
+            template = bearing_pair_template()
             save_yaml_file(path,template)
             print(f"YAML guardado en: {path}")
             return 0
         if args.modo == "input":
             path = args.archivo or select_yaml_open_path("Seleccionar YAML de apoyo Método A")
-            inputs = bearing_a_from_yaml(load_yaml_file(path))
+            inputs = bearing_pair_from_yaml(load_yaml_file(path))
         else:
-            inputs = collect_bearing_a_inputs()
-        run_bearing_a(inputs,word_path=args.word,json_path=args.json,no_word=args.sin_word,detailed=not args.resumen)
+            inputs = collect_bearing_pair_inputs()
+        run_bearing_pair(inputs,word_path=args.word,json_path=args.json,no_word=args.sin_word,detailed=args.detalle)
     except (ValueError,OSError,KeyError,RuntimeError) as exc:
         print(f"Error: {exc}",file=sys.stderr)
         return 2
     return 0
+
+
+def _collect_holes(role):
+    while True:
+        count = _optional_number(role+": cantidad de agujeros pasantes por neopreno y zuncho; Enter=0",integer=True)
+        count = 0 if count is None else count
+        if type(count) is int and 0 <= count <= 100:
+            break
+        print("Ingrese un entero de 0 a 100.")
+    diameter = prompt_float(role+": diámetro de los agujeros","cm",2.0) if count else 0.0
+    return count, diameter
+
+
+def collect_bearing_pair_inputs():
+    from bridge_design.domain.bearing_a_pair import pair_from_single
+    print('=== SISTEMA DE UN TRAMO: APOYO MÓVIL Y APOYO FIJO ===')
+    print('Ingrese los datos del móvil; a continuación se definen los datos del fijo.')
+    pair = pair_from_single(collect_bearing_a_inputs())
+    equal = _yes('Adoptar las mismas reacciones verticales en ambos extremos',True)
+    fixed = pair.fixed
+    if not equal:
+        actions = {}
+        for key,label in (('dc_tn','DC'),('dw_tn','DW'),('ll_tn','LL sin impacto'),('pl_tn','PL'),('im_tn','IM')):
+            actions[key] = prompt_non_negative_float('Fijo: '+label,'Tn',getattr(fixed.actions,key))
+        actions['min_vertical_tn'] = _optional_number('Fijo: reacción mínima concomitante (Tn)')
+        actions['source'] = input('Fuente de reacciones del fijo: ').strip() or 'Reacciones de cálculo del extremo fijo'
+        fixed = replace(fixed,actions=replace(fixed.actions,**actions))
+    if not _yes('Usar la misma geometría propuesta para ambos neoprenos',True):
+        changes = {}
+        for key,label in (('width_cm','Ancho W'),('length_cm','Largo L'),('total_height_cm','Altura total H'),('interior_cm','Capa interior'),('exterior_cm','Capa exterior'),('steel_cm','Zuncho')):
+            changes[key] = _optional_number('Fijo: '+label+' (cm)')
+        if changes['width_cm'] is None:
+            changes.pop('width_cm')
+        changes['interior_layers'] = _optional_number('Fijo: número de capas interiores',integer=True)
+        fixed = replace(fixed,geometry=replace(fixed.geometry,**changes))
+    count, diameter = _collect_holes("Fijo")
+    fixed = replace(fixed,geometry=replace(fixed.geometry,hole_count=count,hole_diameter_cm=diameter))
+    displacement = _optional_number('Desplazamiento relativo longitudinal del fijo (cm); Enter=0 para punto fijo ideal')
+    return replace(pair,fixed=fixed,equal_vertical_actions=equal,
+                   fixed_displacement_cm=0. if displacement is None else displacement)
+
+
+def run_bearing_pair(inputs, *, word_path=None,json_path=None,no_word=False,detailed=False):
+    from bridge_design.domain.bearing_a_pair import design_bearing_pair
+    from bridge_design.cli.bearing_a_pair_output import format_bearing_pair
+    result = design_bearing_pair(inputs)
+    print(format_bearing_pair(result,detailed=detailed))
+    if not no_word or word_path is not None:
+        from bridge_design.reporting.bearing_a_pair_docx import generate_bearing_pair_docx
+        from bridge_design.reporting.bearing_a_docx import select_bearing_a_docx_path
+        destination = word_path or select_bearing_a_docx_path()
+        if destination is not None:
+            print('Memoria conjunta guardada en: '+str(generate_bearing_pair_docx(result,destination)))
+    if json_path is not None:
+        json_path = Path(json_path).expanduser().resolve()
+        json_path.parent.mkdir(parents=True,exist_ok=True)
+        json_path.write_text(json.dumps(result.to_dict(),ensure_ascii=False,indent=2,allow_nan=False),encoding='utf-8')
+        print('Registro conjunto guardado en: '+str(json_path))
+    return result
 
 
 if __name__ == "__main__":

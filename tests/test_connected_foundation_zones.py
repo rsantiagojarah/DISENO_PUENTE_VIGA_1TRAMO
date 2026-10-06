@@ -79,13 +79,21 @@ def test_user_model_stem_continues_one_in_two(zonal):
     assert cut.constructive_cut_height_m < 6.896  # Earlier proposal retaining only one in three.
 
 
-def test_console_z_and_enter_retain_families(analysis, zonal, monkeypatch, capsys):
+def test_console_cut_table_and_enter_retain_families(analysis, zonal, monkeypatch):
+    from bridge_design.cli.connected_selection import format_connected_options
     group = next(g for g in connected_reinforcement_options(analysis) if g.region == TOP)
-    answers = iter(('s', 'z', '1"', '0,20'))
+    chosen = next(c for c in group.cuts if c.bar_label == '1"' and abs(c.light_spacing_m - .2) < 1e-9)
+    text = format_connected_options((group,))
+    assert "CORTES - " + TOP in text and chosen.location_text in text
+    assert "Cortes definitivos" not in text
+    assert not any(c.bar_label == '3/4"' and abs(c.light_spacing_m - .2) < 1e-9 for c in group.cuts)
+    stem = next(g for g in connected_reinforcement_options(analysis) if g.region == "Pantalla - vertical relleno")
+    assert stem.offer_cuts and all("sobre la base" in c.location_text for c in stem.cuts)
+    assert all(abs(c.light_spacing_m - 2 * c.heavy_spacing_m) < 1e-9 for c in (*group.cuts, *stem.cuts))
+    answers = iter(('s', chosen.code.lower()))
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     choice = collect_connected_selection(analysis, (group,))[TOP]
     assert choice.foundation_continuous.spacing_m == .20 and choice.principal.spacing_m == .10
-    assert "Momento de servicio local" in capsys.readouterr().out
     group = next(g for g in connected_reinforcement_options(zonal) if g.region == TOP)
     answers = iter(('s', ''))
     assert collect_connected_selection(zonal, (group,))[TOP] == choice_from_steel(group.adopted)

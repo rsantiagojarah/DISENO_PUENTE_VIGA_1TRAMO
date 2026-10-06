@@ -10,8 +10,7 @@ from bridge_design.domain.connected_steel_audit import area_requirements
 from bridge_design.domain.rebar_catalog import SpacingGrid, reinforcing_bar_by_label
 
 
-# Requested continuous upper grid for command 2; the original command is unchanged.
-CONNECTED_2_CONTINUOUS_STEM_SPACING_M = 0.20
+# Command 2 cuts exactly one of every two lower bars. The original command is unchanged.
 
 
 def connected_stem_reinforcement_cut(data, mesh, steel, demands):
@@ -65,11 +64,8 @@ def connected_stem_reinforcement_cut(data, mesh, steel, demands):
                        min(0.30, inputs.reinforcement.maximum_spacing_m))
     maximum_spacing = grid.maximum_m
     if is_connected_2(data):
-        target = CONNECTED_2_CONTINUOUS_STEM_SPACING_M
-        every = round(target / steel.spacing_m)
-        if (target > grid.maximum_m + 1e-9 or every < 2
-                or not isclose(every * steel.spacing_m, target, abs_tol=1e-9)
-                or bar.area_cm2 / target + 1e-9 < steel.temperature_cm2_m):
+        target = 2 * steel.spacing_m
+        if target > grid.maximum_m + 1e-9 or bar.area_cm2 / target + 1e-9 < steel.temperature_cm2_m:
             return None
         maximum_spacing = target
 

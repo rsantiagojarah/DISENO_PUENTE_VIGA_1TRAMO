@@ -32,6 +32,10 @@ def write_governing_checks(document, steel, trace):
 def anchor_geometry_description(note):
     """Format only display values; retain the complete geometric audit separately."""
     precision = 2 if note.startswith('Criterio del modulo') else 3
+    note = case_label(note)
+    note = note.replace('; no se acredita doblado.', '.')
+    note = note.replace(' Los cortes y empalmes requieren comprobar sus extremos particulares.', '')
+    note = note.replace('Criterio del modulo', 'Detalle de anclaje')
     return re.sub(r'(?<![\w.])([+-]?\d+\.\d{4,})(?![\w.])',
                   lambda match: f'{float(match.group()):.{precision}f}', note)
 
@@ -65,9 +69,6 @@ def write_distributed_design(document, result, reinforcement, audit, charts=None
             if steel.role != 'primary':
                 continue
             document.add_heading(steel.region.split(' - ', 1)[-1].capitalize(), level=3)
-            choice = result.selected_reinforcement.get(steel.region)
-            _body(document, 'Origen del armado: ' + ('selección personalizada del usuario.' if choice and choice.principal.is_custom
-                  else 'selección de tabla confirmada.' if choice else 'propuesta de tabla.'))
             write_governing_checks(document, steel, audit['steel'][steel.region])
             from bridge_design.reporting.connected_cut_report import write_foundation_cut
             write_foundation_cut(document, steel)
@@ -89,7 +90,9 @@ def write_distributed_design(document, result, reinforcement, audit, charts=None
                         ('Longitud barras continuas', f'{cut.continuous_bar_length_m:.3f} m'),
                         ('Estado de la opción', cut.status),
                     ), widths=(80, 80))
-                    _body(document, cut.notes)
+                    note = case_label(cut.notes).replace(
+                        'La opcion no sustituye el armado uniforme seleccionado ni el detalle de union con la cajuela.', '')
+                    _body(document, note.strip())
 
         write_temperature(document, records, audit)
 
@@ -97,18 +100,17 @@ def write_distributed_design(document, result, reinforcement, audit, charts=None
     _body(document, ('La fisuración y el desarrollo utilizan la barra y separación elegidas. La zapata '
           'combinada utiliza barras continuas y comprueba el espacio recto disponible en las secciones '
           'gobernantes de resistencia. Pantallas y parapetos conservan el detalle de anclaje compartido. '
-          'Los cortes calculados se desarrollan en el punto 8. Los empalmes requieren su detalle particular.'
+          'Los cortes calculados se desarrollan en el punto 8.'
           if uniform else 'La fisuración y el desarrollo utilizan la barra y separación elegidas. La longitud recta '
           'disponible sigue el detalle continuo definido: pantalla dentro del espesor de zapata, '
           'losa dentro del ancho de zapata y parapeto en toda la altura del estribo, menos recubrimiento. '
           'Las barras de talón y puntera cruzan la pantalla hasta el borde opuesto de zapata. '
-          'Estas longitudes requieren disponer las barras con esa continuidad. '
-          'El punto 8 presenta opciones de corte de pantalla; no se generan empalmes.'))
+          'El punto 8 presenta opciones de corte de pantalla.'))
     _body(document, 'Sin tracción por flexión en Servicio I, la ecuación de separación por fisuración no '
           'gobierna. Se conservan los límites de acero mínimo y separación por temperatura. '
           'El estado de anclaje compara por separado ld recto y ld gancho con la longitud disponible. '
           'RECTO Y CON GANCHO indica ambas alternativas; SOLO GANCHO indica que solo cumple con gancho; '
-          'NO CUMPLE indica que ninguna alcanza. El acomodo y doblado del gancho requieren detalle.')
+          'NO CUMPLE indica que ninguna longitud alcanza el desarrollo calculado.')
     for region, records in grouped.items():
         document.add_heading(region, level=2)
         primary = [s for s in records if s.role == 'primary']
@@ -116,29 +118,27 @@ def write_distributed_design(document, result, reinforcement, audit, charts=None
         geometry_notes = set()
         for steel in primary:
             row = audit['steel'][steel.region]['service']
-            tension = row is not None and row.get('service_tension', True)
+            if row is None:
+                continue
+            tension = row.get('service_tension', True)
             service_rows.append((steel.region.split(' - ', 1)[-1],
-                f"{row['side']}: {case_label(row['demand']['case'])}" if tension else 'Sin tracción' if row else 'Sin casos',
-                f"{row['stress']:.2f}" if row else '—', f"{row['stress_limit']:.2f}" if row else '—',
+                f"{row['side']}: {case_label(row['demand']['case'])}" if tension else 'Sin tracción',
+                f"{row['stress']:.2f}", f"{row['stress_limit']:.2f}",
                 f"{row['maximum_spacing']:.3f}" if tension else '—',
-                'CUMPLE' if tension and row['crack_ratio'] <= 1+1e-8 else 'NO CUMPLE' if tension else 'No gobierna' if row else 'No verificado'))
+                'CUMPLE' if tension and row['crack_ratio'] <= 1+1e-8 else 'NO CUMPLE' if tension else 'No gobierna'))
         _table(document, ('Distribución', 'Servicio gobernante', 'fs kgf/cm²', 'fs límite', 's máx m', 'Estado'),
                service_rows, widths=(31, 42, 24, 23, 19, 21))
         _table(document, ('Distribución', 'Barra', 'ld recto cm', 'L disp cm', 'ld gancho cm', 'Estado anclaje'),
                ((s.region.split(' - ', 1)[-1], s.bar_label, f'{s.required_straight_anchor_cm:.2f}',
-                 'Pendiente' if s.available_anchor_cm is None else f'{s.available_anchor_cm:.2f}',
-                 f'{s.required_hook_anchor_cm:.2f}', s.anchor_status)
-                for s in primary),
-               widths=(34, 20, 25, 25, 25, 31))
+                 f'{s.available_anchor_cm:.2f}' if s.available_anchor_cm is not None else '—',
+                 f'{s.required_hook_anchor_cm:.2f}', s.anchor_status if s.available_anchor_cm is not None else '—')
+                for s in primary), widths=(34, 20, 25, 25, 25, 31))
         for steel in primary:
             trace = audit['steel'][steel.region]
             document.add_heading(steel.region.split(' - ', 1)[-1].capitalize(), level=3)
-            _body(document, 'Origen del anclaje: ' + steel.anchor_source + '.')
             write_checks(document, steel, trace, governing_source, service=True)
             if steel.anchor_geometry_note and steel.anchor_geometry_note not in geometry_notes:
                 geometry_notes.add(steel.anchor_geometry_note)
                 _body(document, anchor_geometry_description(steel.anchor_geometry_note))
     _body(document, ('Se mantiene la continuidad del acero entre las pantallas y la zapata combinada. '
-          if uniform else 'Se mantiene la continuidad del acero entre pantalla y zapata y entre zapatas, transiciones y losa. ') +
-          'Los anclajes rectos insuficientes requieren resolver su detalle; los ganchos '
-          'y empalmes requieren comprobar acomodo, interferencias y longitudes útiles.')
+          if uniform else 'Se mantiene la continuidad del acero entre pantalla y zapata y entre zapatas, transiciones y losa. '))

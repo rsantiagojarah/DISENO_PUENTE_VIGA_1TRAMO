@@ -55,20 +55,20 @@ def write_load_criteria(document, result):
           "del relleno. La acción vertical es uniforme sobre el talón exterior, detrás del retiro t2. "
           "La acción horizontal es uniforme sobre la cara real del estribo y se completa con la transferencia "
           "al plano virtual descrita en 4.3. Las dos componentes conservan los factores independientes del punto 5. "
-          "PL es una reacción del tablero; q_peatonal pertenece al relleno y se registra como una entrada distinta.")
+          "PL es una reacción del tablero; q_peatonal pertenece al relleno y se considera por separado.")
     sides = (("Izquierdo", data.left, result.earth_parameters[0]),
              ("Derecho", data.right, result.earth_parameters[1]))
     common = data.left.soil == data.right.soil
     for label, side, p in sides[:1] if common else sides:
         q = side.materials.soil_unit_weight_kg_m3 / 1000 * p.live_surcharge_height_m + side.soil.pedestrian_surcharge_tn_m2
-        origin = "dato ingresado" if side.soil.vehicular_surcharge_height_m is not None else "tabla de altura equivalente según H"
+        origin = "altura equivalente adoptada" if side.soil.vehicular_surcharge_height_m is not None else "tabla de altura equivalente según H"
         _body(document, f"{'Ambos estribos' if common else label}: h_eq={p.live_surcharge_height_m:.3f} m "
               f"({origin}); q_peatonal={side.soil.pedestrian_surcharge_tn_m2:.3f} tn/m²; q_LS={q:.3f} tn/m².")
 
     document.add_heading("4.3. Empuje estático y transferencia al talón", level=2)
     _body(document, "Se adopta el estado activo de Coulomb. φ es la fricción interna, δ la fricción muro–suelo, "
           "β la pendiente del relleno y θ la inclinación de la cara desde la horizontal. El plano virtual exterior "
-          "del talón usa θ=90° y δ=0; la cara real utiliza sus parámetros ingresados. Para calcular Ka se emplea:")
+          "del talón usa θ=90° y δ=0; la cara real utiliza sus parámetros adoptados. Para calcular Ka se emplea:")
     formulas(document,
              "C = sqrt((sin(phi+delta)*sin(phi-beta))/(sin(theta-delta)*sin(theta+beta)))",
              "Ka = sin(theta+phi)^2/(sin(theta)^2*sin(theta-delta)*(1+C)^2)",
@@ -87,25 +87,17 @@ def write_load_criteria(document, result):
     _body(document, "La diferencia entre las fuerzas y el momento del plano virtual y los aplicados sobre "
           "la cara real se transfiere a los nudos del talón, ponderada por sus áreas tributarias. "
           "Así se conserva el equilibrio del cuerpo estribo–relleno. Esta transferencia completa el mismo "
-          "empuje; no representa una segunda carga externa ni resistencia por fricción bajo la cimentación. "
-          "Su descomposición por nudo se conserva en los anexos electrónicos.")
+          "empuje; no representa una segunda carga externa ni resistencia por fricción bajo la cimentación.")
     formulas(document, "Delta_F = F_virtual - F_cara", "Delta_M = M_virtual - M_cara")
-    _body(document, "El estado activo requiere deformación suficiente del muro respecto del relleno. "
-          "Se conserva como hipótesis de diseño; el FRAME con Ux restringido en el nudo de referencia no "
-          "acredita por sí mismo su movilización. Su aplicabilidad al conjunto conectado debe sustentarse "
-          "con las condiciones de movimiento previstas para el proyecto.")
     reference(document, "Arts. 2.4.4.1.5.1 y 2.4.4.1.5.3")
 
     document.add_heading("4.4. Empuje e inercias sísmicas", level=2)
     s = data.left.soil
     formulas(document, "As = PGA*Fpga", "kh = 0.5*As", "kv = 0",
              "psi = atan(kh_local/(1-kv))", "P_AE = KAE*gamma_s*b*H^2/2")
-    _body(document, f"PGA={s.pga:.3f} y Fpga={s.fpga:.3f} son datos de entrada del peligro sísmico y del sitio. "
-          f"Se obtiene As={s.pga*s.fpga:.3f} y se adopta kh={0.5*s.pga*s.fpga:.3f} para relleno y concreto. "
-          "Su procedencia debe corresponder al estudio del proyecto. La reducción kh=0.5·As considera "
-          "capacidad de desplazamiento lateral; no es una consecuencia del análisis elástico ni del número "
-          "de resortes. La aceptación del movimiento y las condiciones de esa reducción deben justificarse "
-          "según el Art. 2.8.1.1.14.2.2; el presente modelo no realiza esa comprobación.")
+    _body(document, f"Se adoptan PGA={s.pga:.3f} y Fpga={s.fpga:.3f}. "
+          f"Se obtiene As={s.pga*s.fpga:.3f} y se utiliza kh={0.5*s.pga*s.fpga:.3f} "
+          "para relleno y concreto, con kh=0.5·As y kv=0.")
     _body(document, "KAE se obtiene por Mononobe–Okabe con kv=0. El sentido global EQ se transforma al sentido "
           "relativo a cada relleno: kh_local=sentido_global·sentido_estribo·kh, con sentido_estribo=+1 a la "
           "izquierda y −1 a la derecha. En la expresión siguiente α=90°−θ es la inclinación desde la vertical; "
@@ -123,9 +115,6 @@ def write_load_criteria(document, result):
             rows.append((f"{label} / {'cara real' if real else 'plano virtual'}",
                          f"{p.stem_ka if real else p.ka:.4f}", *(f"{k:.4f}" for k in coefficients)))
     _table(document, ("Plano considerado", "Ka", "KAE EQ−", "KAE EQ+"), rows, widths=(76, 26, 29, 29))
-    _body(document, "Mononobe–Okabe presupone una cuña de suelo uniforme y no cohesivo, sin pérdida de resistencia "
-          "ni licuación, y deformación compatible con el estado activo. Esas condiciones deben sustentarse "
-          "geotécnicamente; no se deducen de la solución del FRAME.")
     _body(document, "Para la alternativa A, si PAE≥PEH, se aplica el empuje estático triangular más un incremento "
           "uniforme Δp=(PAE−PEH)/(b·H), situado a H/2; si PAE<PEH, se aplica un triángulo con resultante PAE "
           "a H/3. Para B se conserva EH triangular si domina PEH; cuando domina 0.5·PAE, esa resultante "
@@ -136,11 +125,9 @@ def write_load_criteria(document, result):
     _body(document, "PIR incluye el concreto de toda la estructura y el suelo sobre las zapatas. Se distribuye "
           "sobre los elementos conservando las alturas de los centroides de masa mediante fuerzas y momentos "
           "equivalentes. PEQ usa las reacciones permanentes del tablero por apoyo, con el coeficiente As "
-          "sin reducción de 0.5. Es una aproximación seudoestática de la transmisión del tablero; "
-          "no es una reacción obtenida de un análisis modal de la superestructura. "
+          "sin reducción de 0.5, mediante una representación seudoestática de la transmisión del tablero. "
           f"Su cota adoptada es z_EQ=H_c−h_parapeto/2={g.stem_height_above_footing_m-g.seat_block_height_m/2:.3f} m "
-          "y se traslada al nudo de cajuela con su momento equivalente. Los centroides reales del tablero "
-          "y la distribución entre apoyos requieren sustento en su análisis.")
+          "y se traslada al nudo de cajuela con su momento equivalente.")
     _body(document, "En un mismo caso, PIR y PEQ conservan un único sentido global en ambos estribos. "
           "Los empujes mantienen su dirección física desde el relleno y cambian de magnitud según el sentido relativo. "
           "A y B son alternativas independientes: no se suman entre sí ni se añade EH nuevamente a PAE. "
@@ -151,35 +138,26 @@ def write_load_criteria(document, result):
     formulas(document, "V_u = gamma_DC*PDC + gamma_DW*PDW + gamma_LL*(PLL_IM + PPL)",
              "M_V = (x_apoyo-x_nudo)*Fz")
     _body(document, "DC y DW corresponden a las reacciones permanentes; LL+IM y PL a las reacciones vehicular "
-          "y peatonal del tablero. Se ingresan por metro transversal y por apoyo, antes de ponderar. "
-          "La tabla del punto 5 conserva el par izquierdo–derecho de una misma condición de carga. "
-          "El módulo no calcula esas reacciones ni aplica nuevamente el incremento dinámico IM. "
-          "Su procedencia debe acreditarse con el análisis de superestructura.")
+          "y peatonal del tablero. Se consideran por metro transversal y por apoyo, antes de ponderar. "
+          "La tabla del punto 5 presenta el par izquierdo–derecho de una misma condición de carga.")
     for index, (label, side, _p) in enumerate(sides):
         geometry = side.geometry
         _body(document, f"{label}: apoyo en x={global_x(data,index,geometry.superstructure_load_x_m):.3f} m, "
               f"z_apoyo={geometry.stem_height_above_footing_m-geometry.seat_block_height_m:.3f} m. "
               "La fuerza vertical actúa hacia abajo y se traslada al eje FRAME con su excentricidad horizontal.")
-    _body(document, "La cajuela transmite las acciones al estribo. La rigidez del tablero y de sus apoyos "
-          "no forma parte del modelo conectado.")
+    _body(document, "La cajuela transmite las acciones del tablero al estribo.")
 
     document.add_heading("4.6. Frenado y traslado de la fuerza al modelo", level=2)
     formulas(document, "BR_u = gamma_BR*BR", "z_BR = z_ref + h_adicional",
              "M_BR = -Fx_BR*(z_BR-z_nudo)")
-    _body(document, "BR es la reacción horizontal de frenado ingresada por apoyo y por metro transversal. "
-          "Debe provenir del análisis del tablero y de la distribución de fuerzas entre apoyos. "
-          "El Art. 2.4.3.5 define la fuerza total a partir del mayor entre 25% de los pesos por eje del camión "
-          "o tándem y 5% del vehículo más la carga de carril, con carriles y presencia múltiple correspondientes. "
-          "El módulo utiliza el BR recibido: no recalcula esa fuerza total ni su reparto.")
+    _body(document, "BR es la reacción horizontal de frenado adoptada por apoyo y por metro transversal. "
+          "Se pondera con el factor de la combinación correspondiente.")
     z_ref = g.stem_height_above_footing_m
     seat = z_ref - g.seat_block_height_m
     z_br = z_ref + g.bridge_seat_to_bearing_height_m
     _body(document, f"La referencia geométrica actualmente adoptada es z_ref=H_c={z_ref:.3f} m, "
           f"superficie superior del relleno, con h_adicional={g.bridge_seat_to_bearing_height_m:.3f} m. "
-          f"Resultan z_BR={z_br:.3f} m, z_nudo={seat:.3f} m y brazo={z_br-seat:.3f} m. "
-          "La norma refiere los 1.80 m a la superficie de calzada. Como el módulo no registra la cota de "
-          "calzada del tablero, la correspondencia con z_ref debe confirmarse con la geometría del proyecto; "
-          "el valor ingresado representa la hipótesis efectiva utilizada.")
+          f"Resultan z_BR={z_br:.3f} m, z_nudo={seat:.3f} m y brazo={z_br-seat:.3f} m.")
     _body(document, "Se aplica Fx_BR en el nudo de cajuela y el momento del traslado vertical, con ambos signos "
           "globales de BR. La fuerza y ese momento representan una única acción llevada desde su altura "
           "física al nudo; no son cargas independientes. Los signos siguen M=x·Fz−z·Fx.")

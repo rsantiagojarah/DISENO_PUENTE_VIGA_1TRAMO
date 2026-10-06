@@ -1,109 +1,58 @@
-"""Cuadros de consola del apoyo; valores tomados del registro de cálculo."""
-from __future__ import annotations
-
-from collections import Counter
+"""Resultados compactos del apoyo Método A, con desarrollo opcional."""
 from shutil import get_terminal_size
-
 from bridge_design.cli.ascii_tables import audit_block_title, boxed_table
-from bridge_design.domain.bearing_method_a import BearingAResult
+from bridge_design.reporting.bearing_a_labels import (
+    CONTROL_IDS, compression_basis, conclusion, result_status, design_checks, number, status, title,
+)
 
 
-def _status(value: str) -> str:
-    return {"REFERENCIAL": "CUMPLE (ref.)", "CUMPLE (ESTIMADO)": "CUMPLE (est.)"}.get(value,value)
+def format_bearing_a(result, *, detailed=False, width=None):
+    width = max(72, min(112, width or get_terminal_size((100, 24)).columns))
+    i, g = result.inputs, result.adopted
+    lines = audit_block_title("", "APOYO ELASTOMÉRICO REFORZADO CON ACERO MÉTODO A", width)
 
-
-def _number(value: float | None, unit: str = "", percent: bool = False) -> str:
-    if value is None:
-        return "Sin dato"
-    if percent:
-        return f"{100*value:.3f} %"
-    return f"{value:.6g}" + (f" {unit}" if unit and unit != "-" else "")
-
-
-def format_bearing_a(result: BearingAResult, *, detailed: bool = True, width: int | None = None) -> str:
-    width = max(72,min(112,width or get_terminal_size((100,24)).columns))
-    i,g = result.inputs,result.adopted
-    lines = audit_block_title("", "APOYO DE NEOPRENO - METODO A", width)
-
-    def table(title, headers, rows, aligns=None, *, separate=False):
+    def table(name, headers, rows):
         lines.append("")
-        # El encabezado se imprime a ancho completo para no truncarlo si la tabla es corta.
-        lines.extend(audit_block_title("",title,width))
-        lines.extend(boxed_table(headers,rows,aligns=aligns,max_width=width,row_separators=separate))
+        lines.extend(audit_block_title("", name, width))
+        lines.extend(boxed_table(headers, rows, max_width=width, row_separators=False))
 
-    meanings = {
-        "REFERENCIAL": "CUMPLE según la fuente referencial: verificaciones favorables con gráficas/tablas; no es certificación del producto.",
-        "ESTIMADO": "Verificaciones favorables con aproximación elástica; confirmar propiedades del producto.",
-        "PENDIENTE": "Faltan datos o cobertura de curvas en las verificaciones señaladas.",
-        "NO CONFORME": "Una o más verificaciones NO CUMPLEN; revisar las filas indicadas.",
-        "CONFORME": "Todas las verificaciones incluidas cumplen con las fuentes declaradas.",
-    }
-    table("1. RESUMEN",("Concepto","Resultado"),[
-        ("Proyecto",i.project),("Apoyo",i.bearing_id),
-        (f"Estado global: {result.status}",meanings[result.status]),
-        ("Alcance","Solo neopreno; pedestal y conexiones externas excluidos." if i.neoprene_only else "Completo"),
-        ("L x W x H",f"{g.length_cm*10:g} x {g.width_cm*10:g} x {result.value('HEIGHT')*10:g} mm"),
-        ("Dureza",f"Shore A {i.hardness}"),
-        ("Modo de selección",g.selection_mode),
+    table("DISEÑO ADOPTADO", ("Concepto", "Resultado"), [
+        ("Proyecto y apoyo", f"{i.project} / {i.bearing_id}"),
+        (f"Estado global: {result_status(result)}", conclusion(result)),
+        ("Planta y altura", f"{g.length_cm*10:g} × {g.width_cm*10:g} × {result.value('HEIGHT')*10:g} mm"),
+        ("Elastómero", f"Shore A {i.hardness}; {g.interior_layers} capas interiores de {g.interior_cm*10:g} mm; 2 exteriores de {g.exterior_cm*10:g} mm"),
+        ("Perforaciones pasantes", f"{g.hole_count} de diámetro {g.hole_diameter_cm*10:g} mm" if g.hole_count else "Sin perforaciones"),
+        ("Zunchos", f"{g.interior_layers+1} de {g.steel_cm*10:g} mm"),
     ])
-    a=i.actions
-    table("2. CARGAS POR APOYO",("Carga","Descripción","Tn"),[
-        ("DC","Permanente estructural",f"{a.dc_tn:.3f}"),
-        ("DW","Rodadura",f"{a.dw_tn:.3f}"),("PL","Peatonal",f"{a.pl_tn:.3f}"),
-        ("LL","Vehicular sin impacto",f"{a.ll_tn:.3f}"),("IM","Incremento dinámico",f"{a.im_tn:.3f}"),
-        ("LL+IM","Total vehicular",f"{a.ll_tn+a.im_tn:.3f}"),
-        ("Servicio","DC + DW + PL + LL + IM",f"{result.value('P'):.3f}"),
-    ],("left","left","right"))
-    table("3. COMPOSICION ADOPTADA",("Elemento","Cantidad","Espesor unitario (mm)","Total (mm)"),[
-        ("Caucho interior",g.interior_layers,f"{g.interior_cm*10:g}",f"{g.interior_layers*g.interior_cm*10:g}"),
-        ("Caucho exterior",2,f"{g.exterior_cm*10:g}",f"{2*g.exterior_cm*10:g}"),
-        ("Zunchos de acero",g.interior_layers+1,f"{g.steel_cm*10:g}",f"{(g.interior_layers+1)*g.steel_cm*10:g}"),
-        ("Altura total H","-","-",f"{result.value('HEIGHT')*10:g}"),
-    ],("left","right","right","right"))
-    if g.cover_cm:
-        table("RECUBRIMIENTO LATERAL",("Concepto","Valor"),[
-            ("Recubrimiento sin zuncho",f"{g.cover_cm*10:g} mm por lado"),
-            ("Núcleo efectivo",f"{(g.length_cm-2*g.cover_cm)*10:g} x {(g.width_cm-2*g.cover_cm)*10:g} mm"),
-        ])
-    labels = {"EPS_ID": "Deformación interior por carga permanente", "EPS_IT": "Deformación interior por carga total sin IM", "EPS_ED": "Deformación exterior por carga permanente", "EPS_ET": "Deformación exterior por carga total sin IM"}
-    keys={"AREA","SI","SE","NEFF","DELTA","HRT","EPS_ID","EPS_IT","EPS_ED","EPS_ET","DEF_D","DEF_T","DEF_LL","CREEP","HU","FRICTION"}
-    table("4. RESULTADOS PRINCIPALES",("ID","Resultado","Valor"),[
-        (s.id,labels.get(s.id,s.title),_number(s.value,s.unit,s.id.startswith("EPS_"))) for s in result.steps if s.id in keys
-    ],("left","left","right"))
-    table("5. VERIFICACIONES",("ID / comprobación","Valor","Límite","Uso (*)","Estado"),[
-        (s.id+" / "+s.title,
-         _number(s.value,s.unit,s.id=="STRAIN_CHECK"),
-         ("< " if s.strict else "<= ")+_number(s.limit,s.unit,s.id=="STRAIN_CHECK") if s.limit is not None else "Sin dato",
-         f"{s.ratio*100:.1f}%" if s.ratio is not None else "-",_status(s.status)) for s in result.checks
-    ],("left","right","right","right","left"))
-    counts=Counter(s.status for s in result.checks)
-    table("6. LECTURA DEL RESULTADO",("Concepto","Explicación"),[
-        ("Cumplen",str(sum(counts[x] for x in ("CUMPLE","REFERENCIAL","CUMPLE (ESTIMADO)")))),
-        ("No cumplen",str(counts["NO CUMPLE"])),("Pendientes",str(counts["PENDIENTE"])),
-        ("(*) Uso del límite","Valor / límite x 100. No es la deformación del caucho. Para límites estrictos (<), la igualdad no cumple."),
-        ("CUMPLE (ref.)","Cumplimiento numérico con fuente referencial; no certifica propiedades del producto."),
-        ("CUMPLE (est.)","Cumplimiento con modelo elástico aproximado."),
+    a = i.actions
+    table("ACCIONES Y DEFORMACIONES", ("Magnitud", "Resultado"), [
+        ("DC / DW / LL / PL / IM", f"{a.dc_tn:g} / {a.dw_tn:g} / {a.ll_tn:g} / {a.pl_tn:g} / {a.im_tn:g} Tn"),
+        ("Reacción de servicio", number(result.value("P"), "Tn")),
+        ("Desplazamiento horizontal", number(result.value("DELTA"), "cm")),
+        ("Área efectiva", number(result.value("AREA"), "cm²")),
+        ("Factor de forma interior / exterior", f"{result.value('SI'):.4g} / {result.value('SE'):.4g}"),
+        ("Compresión permanente / total / carga viva", " / ".join(number(result.step(k).value, "cm") for k in ("DEF_D", "DEF_T", "DEF_LL"))),
+        ("Deflexión diferida por fluencia", number(result.step("CREEP").value, "cm")),
     ])
-    notes=[("Cargas",a.source),("Selección",result.selection_note),
-        ("Compresión",i.compression_curve.source if i.compression_curve else "Modelo elástico aproximado"),
-        ("Versión",result.version)]
-    notes.extend((s.id,s.note or s.reference) for s in result.checks if s.status in {"NO CUMPLE","PENDIENTE"})
-    table("7. FUENTES Y OBSERVACIONES",("Concepto","Descripción"),notes)
+    rows = []
+    for s in design_checks(result):
+        percent = s.id == "STRAIN_CHECK"
+        comparison = number(s.value, s.unit, percent=percent) + (" < " if s.strict else " ≤ ") + number(s.limit, s.unit, percent=percent)
+        state = status(s)
+        rows.append((title(s), comparison, state))
+    table("VERIFICACIONES MTC Y SERQUÉN", ("Comprobación", "Comparación", "Estado"), rows)
+    conditions = [("Dirección de giro principal", "Eje transversal" if g.principal_rotation_transverse else "Fuera del alcance del Método A")]
+    if g.total_height_cm is not None:
+        conditions.append(("Altura especificada", f"{g.total_height_cm*10:g} mm; {status(result.step('HEIGHT_TARGET'))}"))
+    conditions.append(("Base de compresión", compression_basis(result)))
+    conditions.append(("Criterios", "MTC 2018, 2.10.4; Serquén, problema 4.1. Junta y fricción: criterios de los comentarios AASHTO."))
+    table("CONDICIONES DE DISEÑO", ("Concepto", "Criterio"), conditions)
     if detailed:
-        lines.append("")
-        lines.extend(audit_block_title("", "8. DESARROLLO DE FORMULAS Y REEMPLAZOS", width))
         for s in result.steps:
-            rows=[("Cálculo",s.title),("Fórmula",s.formula),("Variables y unidades",s.legend),
-                ("Reemplazo numérico",s.substitution),("Resultado",_number(s.value,s.unit))]
-            if s.limit is not None:
-                rows.append(("Comprobación",_number(s.value,s.unit)+(" < " if s.strict else " <= ")+_number(s.limit,s.unit)))
-            if s.ratio is not None:
-                rows.append(("Uso del límite",f"({_number(s.value)} / {_number(s.limit)}) x 100 = {s.ratio*100:.2f} %"))
-            rows.extend((("Estado",_status(s.status)),("Referencia",s.reference)))
-            if s.note:
-                rows.append(("Nota",s.note))
-            table("DESARROLLO - "+s.id,("Paso","Desarrollo"),rows,separate=True)
-        table("TRAZABILIDAD",("Concepto","Valor"),[("SHA256 entradas",result.input_sha256)])
-    else:
-        lines.extend(("","Para ver fórmulas, sustituciones y referencias por cálculo: diseno-apoyos-A --detalle"))
+            if s.id in CONTROL_IDS:
+                continue
+            table(title(s), ("Concepto", "Desarrollo"), [
+                ("Expresión", s.formula), ("Definiciones", s.legend),
+                ("Sustitución", s.substitution), ("Referencia", s.reference),
+            ])
     return "\n".join(lines)

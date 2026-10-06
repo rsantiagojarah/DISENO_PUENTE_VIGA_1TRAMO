@@ -246,19 +246,21 @@ def test_cli_template_calculation_and_report_exports(tmp_path,capsys):
     audit = tmp_path/"calculo.json"
     word = tmp_path/"memoria.docx"
     assert main(["input",str(yaml),"--word",str(word),"--json",str(audit)]) == 0
-    assert "Estado global: REFERENCIAL" in capsys.readouterr().out
+    assert "SISTEMA DE APOYOS FIJO Y MÓVIL" in capsys.readouterr().out
     data = json.loads(audit.read_text(encoding="utf-8"))
     with ZipFile(word) as package:
         assert package.testzip() is None
         xml = package.read("word/document.xml").decode("utf-8")
         styles = package.read("word/styles.xml").decode("utf-8")
-    assert data["input_sha256"][:32] in xml
+    assert data["movil"]["input_sha256"][:32] not in xml
+    assert data["esquema"] == "fijo_movil_un_tramo"
     assert "m:oMath" in xml and "m:f" in xml
     assert "Arial Narrow" in styles
     assert 'w:top="1440"' in xml
-    assert "REF" in xml and "PENDIENTE" in xml
+    assert "curvas de referencia" in xml and "PENDIENTE" not in xml
     assert "Reemplazando los valores correspondientes" in xml
-    assert "Tabla de compresión utilizada" in xml
+    assert "Deformaciones unitarias por compresión" in xml
+    assert "Versión del algoritmo" not in xml and "JSON" not in xml
     from lxml import etree
     namespaces = {"m":"http://schemas.openxmlformats.org/officeDocument/2006/math","w":"http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
     root = etree.fromstring(xml.encode("utf-8"))
@@ -415,9 +417,11 @@ def test_neoprene_cli_yaml_template_excludes_external_data(tmp_path):
     path = tmp_path / "neopreno.yaml"
     assert main(["output", str(path)]) == 0
     data = load_yaml_file(path)
-    assert "concreto" not in data
-    assert data["conexiones"] == {"mu": .2}
-    r = run_bearing_a(bearing_a_from_yaml(data), no_word=True)
+    assert "conexiones_sistema" not in data
+    for role in ('fijo','movil'):
+        assert "concreto" not in data[role]
+        assert data[role]["conexiones"] == {"mu": .2}
+    r = run_bearing_a(bearing_a_from_yaml(data['movil']), no_word=True)
     assert r.inputs.neoprene_only
     assert "CONNECTION_T" not in {s.id for s in r.steps}
 
@@ -431,7 +435,8 @@ def test_neoprene_word_excludes_external_checks(tmp_path):
         [c.text for t in doc.tables for row in t.rows for c in row.cells])
     assert "CONNECTION_T" not in text and "CONCRETE" not in text
     assert "As / número de tramos" not in text
-    assert "SLIP" in text
+    assert "Fricción del apoyo en servicio" in text
+    assert "SLIP" not in text and "ROTATION" not in text
 
 
 def test_neoprene_automatic_estimate_computes_without_claiming_certification():
@@ -471,3 +476,52 @@ def test_graph_readings_are_available_without_yaml(monkeypatch):
     assert r.value("EPS_IT") == pytest.approx(.04)
     assert r.value("EPS_ID") == pytest.approx(.03)
     assert r.step("STRAIN_CHECK").status == "REFERENCIAL"
+
+
+def test_compact_spanish_output_preserves_failure_and_compression_basis():
+    from bridge_design.cli.bearing_a_output import format_bearing_a
+    i = replace(example_inputs(), neoprene_only=True)
+    r = design_bearing_a(i)
+    text = format_bearing_a(r, width=112)
+    assert len(text.splitlines()) < 90
+    assert 'STRAIN_CHECK' not in text and 'HS_FATIGUE' not in text
+    assert 'DESARROLLO' not in text and 'SHA256' not in text
+    assert 'Estado global: CUMPLE' in text and 'Estado global: REFERENCIAL' not in text
+    assert 'Espesor mínimo de zuncho' in text and 'Fricción del apoyo' in text
+    bad = design_bearing_a(replace(i, geometry=replace(i.geometry, principal_rotation_transverse=False)))
+    failure = format_bearing_a(bad)
+    assert 'NO CUMPLE' in failure and 'Fuera del alcance' in failure
+    estimated = design_bearing_a(replace(i, compression_curve=None, compression_method='elastico'))
+    assert 'CUMPLE' in format_bearing_a(estimated)
+
+
+def test_formal_report_keeps_reference_basis_and_hypotheses(tmp_path):
+    from bridge_design.reporting.bearing_a_docx import generate_bearing_a_docx
+    from docx import Document
+    r = design_bearing_a(replace(example_inputs(), neoprene_only=True))
+    doc = Document(generate_bearing_a_docx(r, tmp_path/'formal.docx'))
+    text = '\n'.join(p.text for p in doc.paragraphs) + '\n' + '\n'.join(c.text for t in doc.tables for row in t.rows for c in row.cells)
+    for unwanted in ('SHA256', 'JSON', 'Candidatos', 'diseno-apoyos-A', 'HEIGHT_TARGET', 'ROTATION', 'sin dato se usa'):
+        assert unwanted not in text
+    assert 'hipótesis P mínima = DC' in text
+    assert 'no a ensayos de un producto específico' in text
+    assert '6 Resumen de verificaciones' in text
+    assert '8 Referencias' in text
+    assert any(p.style.name == 'List Bullet' for p in doc.paragraphs)
+    assert 'Para desarrollar esta verificación se emplea la siguiente expresión:' in text
+    assert 'Referencia normativa:' in text
+    # El reemplazo numérico del zuncho también debe ser una fracción editable,
+    # y no un párrafo de texto con una barra inclinada.
+    assert any('2530' in ''.join(p._p.xpath('.//m:t/text()'))
+               and p._p.xpath('.//m:f') for p in doc.paragraphs)
+
+
+def test_bearing_references_distinguish_equations_and_secondary_criteria():
+    r = design_bearing_a(replace(example_inputs(), neoprene_only=True))
+    assert '2.10.3.1-1' in r.step('SI').reference
+    assert '2.10.3.3.5-1' in r.step('HS_SERVICE').reference
+    assert '2.9.4.6.1.2.3-3' in r.step('HS_FATIGUE').reference
+    assert '0.0625 in' in r.step('HS_MIN').reference
+    assert 'Suma geométrica' in r.step('HEIGHT').reference
+    assert '2.10.2.1.1-2' in r.step('HU').reference
+    assert 'reproduce C14.8.3.1' in r.step('FRICTION').reference

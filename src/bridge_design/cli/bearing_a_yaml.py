@@ -29,6 +29,7 @@ def bearing_a_template() -> dict:
             "seleccion": "medida", "recubrimiento_lateral_cm": 0.0, "rotacion_catalogo_rad": None,
             "capa_interior_cm": 1.5, "capa_exterior_cm": 0.8,
             "numero_capas_interiores": 4, "zuncho_cm": 0.2,
+            "cantidad_agujeros": 0, "diametro_agujeros_cm": 0.0,
             "largo_maximo_busqueda_cm": 120.0, "maximo_capas_busqueda": 20,
             "casi_cuadrado": False, "rotacion_principal_eje_transversal": True,
         },
@@ -155,6 +156,7 @@ def bearing_a_from_yaml(data: dict) -> BearingAInputs:
             alpha_per_c=_float(m,"alpha_por_c"),use_install_to_min=not _bool(m,"usar_rango_completo"),
         ),
         geometry=BearingAGeometry(
+            hole_count=_int(g,"cantidad_agujeros"), hole_diameter_cm=_float(g,"diametro_agujeros_cm"),
             total_height_cm=_float(g,"altura_total_cm",True),
             selection_mode=str(g["seleccion"]), cover_cm=_float(g,"recubrimiento_lateral_cm"),
             catalog_rotation_rad=_float(g,"rotacion_catalogo_rad",True),

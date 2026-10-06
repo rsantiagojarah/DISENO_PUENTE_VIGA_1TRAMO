@@ -42,13 +42,13 @@ def foundation_cut_chart(result, path):
                         f"Rojo: adicional intercalado {steel.bar_label} @ {2*steel.spacing_m:.3f} m. "
                         f"Distancia desde cada cara interior: {abs(cut.distance_from_inner_face_m):.2f} m "
                         + ("hacia el centro." if cut.distance_from_inner_face_m >= 0 else "hacia el talon.") +
-                        f" Prolongacion {cut.adopted_extension_m:.2f} m. Verificaciones locales en zonas_zapata.csv.")
+                        f" Prolongacion {cut.adopted_extension_m:.2f} m.")
         else:
             note = "Acero continuo, sin cortes. " + cut.reason
         for line, text in enumerate(wrap(note, 122)):
             draw.text((90, y+235+line*34), text, fill=GRAY, font=font(25))
-    draw.text((80, 1260), "Longitudes horizontales calculadas; los doblados y anclajes exteriores se verifican por separado.",
+    draw.text((80, 1260), "Longitudes horizontales calculadas del refuerzo continuo y adicional.",
               font=font(25), fill=GRAY)
-    draw.text((80, 1305), "MTC 2018 Art. 2.6.5.6.1.2.1. El PDF aceros.pdf define la disposicion; sus cotas no se fijan como datos.",
+    draw.text((80, 1305), "MTC 2018 Art. 2.6.5.6.1.2.1.",
               font=font(24), fill=GRAY)
     canvas.save(path)

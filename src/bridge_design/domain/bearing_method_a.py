@@ -1,4 +1,4 @@
-"""Método A MTC 2018 para apoyos rectangulares zunchados sin agujeros ni PTFE.
+"""Método A MTC 2018 para apoyos rectangulares zunchados con perforaciones opcionales, sin PTFE.
 
 Un único registro de cálculo alimenta consola, Word y JSON. Las dimensiones
 adoptadas se verifican sin corregirlas. La selección automática es discreta y
@@ -11,14 +11,14 @@ from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 from itertools import product
 import json
-from math import ceil, isfinite, sqrt
+from math import ceil, isfinite, sqrt, pi
 import re
 
 from bridge_design.domain.elastomeric_bearing import (
     BearingMovements, ElastomerGrade, compressive_strain, shape_factor_rectangular,
 )
 
-CALCULATION_VERSION = "metodo-a-serquen-2.0"
+CALCULATION_VERSION = "metodo-a-serquen-2.1-perforaciones"
 MTC_URL = "https://portal.mtc.gob.pe/transportes/caminos/normas_carreteras/manuales.html"
 SIGMA_LIMIT = 87.9  # kgf/cm², 1.25 ksi redondeado según APOYOS.pdf
 HS_MIN = 2.54 / 16  # cm, conversión exacta de 1/16 pulg
@@ -69,6 +69,8 @@ class BearingAGeometry:
     selection_mode: str = "medida"
     cover_cm: float = 0.0
     catalog_rotation_rad: float | None = None
+    hole_count: int = 0
+    hole_diameter_cm: float = 0.0
 
     def __post_init__(self) -> None:
         for key in ("width_cm", "length_cm", "interior_cm", "exterior_cm", "steel_cm", "max_length_cm", "total_height_cm"):
@@ -86,11 +88,34 @@ class BearingAGeometry:
         _number(self.cover_cm, "recubrimiento lateral")
         if self.width_cm <= 2*self.cover_cm or (self.length_cm is not None and self.length_cm <= 2*self.cover_cm):
             raise ValueError("El recubrimiento debe dejar un núcleo positivo.")
+        if type(self.hole_count) is not int or not 0 <= self.hole_count <= 100:
+            raise ValueError("Cantidad de agujeros: entero de 0 a 100.")
+        _number(self.hole_diameter_cm, "diámetro de agujeros")
+        if (self.hole_count == 0) != (self.hole_diameter_cm == 0):
+            raise ValueError("Sin agujeros use cantidad y diámetro cero; con agujeros ambos deben ser positivos.")
+        if self.hole_count and self.selection_mode in {"semirecubierto", "recubierto"}:
+            raise ValueError("Las capacidades del catálogo no contemplan perforaciones. Use selección medida o usuales.")
+        if self.hole_count:
+            perforated_properties(self, self.length_cm or self.max_length_cm)
         if self.catalog_rotation_rad is not None:
             _number(self.catalog_rotation_rad, "rotación de catálogo")
         for key in ("nearly_square", "principal_rotation_transverse"):
             if type(getattr(self, key)) is not bool:
                 raise ValueError(f"{key}: se requiere verdadero o falso.")
+
+
+def perforated_properties(g, length):
+    """Área y perímetro libres; sección de acero conservadora sin coordenadas."""
+    lc, wc = length-2*g.cover_cm, g.width_cm-2*g.cover_cm
+    removed = g.hole_count*pi*g.hole_diameter_cm**2/4
+    area = lc*wc-removed
+    perimeter = 2*(lc+wc)+g.hole_count*pi*g.hole_diameter_cm
+    gross_width = min(lc,wc)
+    net_width = gross_width-g.hole_count*g.hole_diameter_cm
+    if area <= 0 or net_width <= 0:
+        raise ValueError("Perforaciones: el área neta y el ancho neto conservador del zuncho deben ser positivos.")
+    factor = 2*gross_width/net_width if g.hole_count else 1.0
+    return area, perimeter, gross_width, net_width, factor
 
 
 @dataclass(frozen=True)
@@ -195,8 +220,11 @@ class BearingAInputs:
     bearing_id: str = "A1"
     neoprene_only: bool = False
     compression_method: str = "elastico"
+    horizontal_displacement_cm: float | None = None
 
     def __post_init__(self) -> None:
+        if self.horizontal_displacement_cm is not None:
+            _number(self.horizontal_displacement_cm, "Desplazamiento horizontal del análisis")
         if self.compression_method not in {"elastico", "serquen"}:
             raise ValueError("Método de compresión: elastico o serquen.")
         if self.hardness not in (50, 60):
@@ -313,16 +341,22 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
     total = permanent + a.ll_tn + a.pl_tn + a.im_tn
     pu = 1.25*a.dc_tn + 1.50*a.dw_tn + 1.75*(a.ll_tn + a.pl_tn + a.im_tn)
     lc, wc = l-2*g.cover_cm, w-2*g.cover_cm
-    area = lc*wc
+    area, free_perimeter, gross_width, net_width, hole_factor = perforated_properties(g,l)
     add("P", sec, "Reacción vertical de servicio", "P = DC + DW + LL + PL + IM", "DC y DW: cargas permanentes (Tn); LL y PL: cargas vivas (Tn); IM: incremento dinámico (Tn)", f"P = {a.dc_tn:g} + {a.dw_tn:g} + {a.ll_tn:g} + {a.pl_tn:g} + {a.im_tn:g}", total, "Tn", "MTC 2.4.5.3.1 Servicio I; " + a.source)
     add("PU", sec, "Reacción vertical en Resistencia I", "Pu = 1.25 DC + 1.50 DW + 1.75 (LL + PL + IM)", "Pu: reacción mayorada (Tn); acciones: reacciones por apoyo (Tn)", f"Pu = 1.25 ({a.dc_tn:g}) + 1.50 ({a.dw_tn:g}) + 1.75 ({a.ll_tn+a.pl_tn+a.im_tn:g})", pu, "Tn", "MTC Tabla 2.4.5.3.1-1; envolvente vertical máxima")
-    add("AREA", sec, "Área adoptada", "A = (L - 2 c) (W - 2 c)", "L y W: planta exterior; c: recubrimiento lateral sin zuncho (cm); A: núcleo efectivo (cm²)", f"A = ({l:g} - 2 ({g.cover_cm:g})) ({w:g} - 2 ({g.cover_cm:g}))", area, "cm²", "MTC 2.10.3.1; AASHTO 14.7.5.1")
-    add("AREA_REQ", sec, "Área requerida por esfuerzo máximo", "A_req = 1000 P / 87.9", "P: reacción de servicio (Tn); 1000: kgf/Tn; A_req: área (cm²)", f"A_req = 1000 ({total:g}) / 87.9", total*1000/SIGMA_LIMIT, "cm²", "MTC 2.10.4.3.2-8", limit=area)
+    add("AREA", sec, "Área adoptada", "A = (L - 2 c) (W - 2 c)", "L y W: planta exterior; c: recubrimiento lateral sin zuncho (cm); A: núcleo efectivo (cm²)", f"A = ({l:g} - 2 ({g.cover_cm:g})) ({w:g} - 2 ({g.cover_cm:g}))", area, "cm²", "Desarrollo geométrico del núcleo adoptado; MTC 2.10.3.1 define el factor de forma")
+    if g.hole_count:
+        steps.pop()  # sustituir el área sin agujeros por el área neta real
+        add("AREA", sec, "Área neta del neopreno", "A = Lc Wc - N pi d^2 / 4", "Lc y Wc: dimensiones del núcleo (cm); N: cantidad de agujeros pasantes iguales; d: diámetro (cm); pi = 3.14159265; A: área neta (cm²)", f"A = {lc:g} ({wc:g}) - {g.hole_count} ({pi:.8g}) ({g.hole_diameter_cm:g})^2 / 4", area, "cm²", "Geometría de la sección perforada; AASHTO C14.7.5.1-1, explicado por FHWA Design Step 6.1.2.1")
+    add("AREA_REQ", sec, "Área requerida por esfuerzo máximo", "A_req = 1000 P / 87.9", "P: reacción de servicio (Tn); 1000: kgf/Tn; A_req: área (cm²)", f"A_req = 1000 ({total:g}) / 87.9", total*1000/SIGMA_LIMIT, "cm²", "Despeje del límite MTC 2.10.4.3.2-8: 1.25 ksi, aproximadamente 87.9 kgf/cm²", limit=area)
     sigma = total*1000/area
     add("SIGMA", sec, "Compresión de servicio", "sigma_s = 1000 P / A", "sigma_s: compresión (kgf/cm²); P: servicio (Tn); A: área (cm²)", f"sigma_s = 1000 ({total:g}) / {area:g}", sigma, "kgf/cm²", "MTC 2.10.4.3.2-8; AASHTO 14.7.6.3.2-8", limit=SIGMA_LIMIT)
-    si, se = shape_factor_rectangular(lc,wc,hi), shape_factor_rectangular(lc,wc,he)
+    si, se = area/(hi*free_perimeter), area/(he*free_perimeter)
     for id, label, h, s in (("SI","interior",hi,si),("SE","exterior",he,se)):
-        add(id, sec, f"Factor de forma {label}", "S = Lc Wc / (2 h (Lc + Wc))", "S: factor de forma; h: espesor de capa; Lc y Wc: núcleo efectivo sin recubrimiento lateral (cm)", f"S = {lc:g} ({wc:g}) / (2 ({h:g}) ({lc+wc:g}))", s, "-", "MTC 2.10.3.1; AASHTO 14.7.5.1-1")
+        add(id, sec, f"Factor de forma {label}", "S = Lc Wc / (2 h (Lc + Wc))", "S: factor de forma; h: espesor de capa; Lc y Wc: núcleo efectivo sin recubrimiento lateral (cm)", f"S = {lc:g} ({wc:g}) / (2 ({h:g}) ({lc+wc:g}))", s, "-", "MTC Ecuación 2.10.3.1-1 (14.7.5.1-1 AASHTO, correlativo impreso en MTC)")
+        if g.hole_count:
+            steps.pop()
+            add(id, sec, f"Factor de forma {label}", "S = A / (h (2 (Lc + Wc) + N pi d))", "A: área neta (cm²); h: espesor de capa (cm); Lc y Wc: núcleo (cm); N: cantidad de agujeros; d: diámetro (cm); pi = 3.14159265", f"S = {area:.8g} / ({h:g} (2 ({lc:g} + {wc:g}) + {g.hole_count} ({pi:.8g}) ({g.hole_diameter_cm:g})))", s, "-", "AASHTO C14.7.5.1-1; FHWA Design Step 6.1.2.1; definición general del factor de forma MTC 2.10.3.1")
     add("GS", sec, "Compresión limitada por factor de forma", "sigma_s <= 1.25 G_min S_i", "G_min: módulo mínimo (kgf/cm²); S_i: factor interior; sigma_s: kgf/cm²", f"{sigma:.6g} <= 1.25 ({grade.g_min_kg_cm2:g}) ({si:.6g})", sigma, "kgf/cm²", "MTC 2.10.4.3.2-7; Tabla 2.10.3.3.6-1", limit=1.25*grade.g_min_kg_cm2*si)
     sec = "Movimiento y composición"
     t = m.temperature
@@ -338,9 +372,14 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
         movement_formula = "Delta_s = gamma_TU (100 alpha L (T_max - T_min) + d_perm)"
         movement_legend = "alpha: coeficiente térmico (1/C); L: longitud efectiva (m); 100: cm/m; temperaturas: C; d_perm: acortamientos (cm)"
         movement_substitution = f"Delta_s = {m.gamma_tu:g} (100 ({m.alpha_per_c:g}) ({m.span_length_m:g}) ({t.t_sup_c:g} - ({t.t_inf_c:g})) + {shortening:g})"
+    if i.horizontal_displacement_cm is not None:
+        ds = i.horizontal_displacement_cm
+        movement_formula = "Delta_s = Delta_modelo"
+        movement_legend = "Delta_modelo: desplazamiento relativo longitudinal adoptado del esquema de restricciones o del análisis (cm)"
+        movement_substitution = f"Delta_s = {ds:g} cm"
     add("DELTA", sec, "Envolvente del desplazamiento horizontal", movement_formula, movement_legend, movement_substitution, ds, "cm", "MTC 2.4.3.9.2 y 2.10.4.3.4; APOYOS.pdf pp. 234-235", note=("Rango térmico completo más acortamientos, conservador." if not m.use_install_to_min else "Envolvente desde la temperatura de instalación; gamma_TU aplicado al conjunto de movimientos como en la referencia."))
     hrt = n*hi+2*he
-    add("HRT", sec, "Espesor total de elastómero", "h_rt = n h_ri + 2 h_re", "n: capas interiores; h_ri y h_re: espesores (cm)", f"h_rt = {n} ({hi:g}) + 2 ({he:g})", hrt, "cm", "MTC 2.10.4.1")
+    add("HRT", sec, "Espesor total de elastómero", "h_rt = n h_ri + 2 h_re", "n: capas interiores; h_ri y h_re: espesores (cm)", f"h_rt = {n} ({hi:g}) + 2 ({he:g})", hrt, "cm", "Suma geométrica de capas; Serquén p. 236; MTC 2.10.4.1 distingue capas interiores y exteriores")
     add("SHEAR", sec, "Espesor requerido por corte", "2 Delta_s <= h_rt", "Delta_s: desplazamiento (cm); h_rt: elastómero total (cm)", f"2 ({ds:.6g}) <= {hrt:g}", 2*ds, "cm", "MTC 2.10.4.3.4-1", limit=hrt)
     add("EXTERIOR", sec, "Espesor de las capas exteriores", "h_re <= 0.70 h_ri", "h_re: exterior (cm); h_ri: interior (cm)", f"{he:g} <= 0.70 ({hi:g})", he, "cm", "MTC 2.10.4.1", limit=.7*hi)
     neff = n + (1 if he >= .5*hi else 0)
@@ -356,9 +395,21 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
         ("HS_MIN","Espesor mínimo de zuncho","h_s,min = 2.54 / 16",HS_MIN,"2.54 / 16"),
     ):
         legend = "h_s,min: espesor mínimo de refuerzo (cm); 2.54: cm por pulgada" if id == "HS_MIN" else "h_max: capa más gruesa (cm); Fy y sigma: kgf/cm²; Delta_F_TH: 1687 kgf/cm² categoría A"
-        add(id,sec,title,formula,legend,sub,val,"cm","MTC 2.10.3.3.5 / 2.10.4.3.7; APOYOS.pdf pp. 232-233",limit=hs)
+        reference = {
+            "HS_SERVICE": "MTC Ecuación 2.10.3.3.5-1, por remisión de 2.10.4.3.7; Serquén p. 236",
+            "HS_FATIGUE": "MTC Ecuación 2.10.3.3.5-2 y Tabla 2.9.4.6.1.2.3-3, categoría A: 24 ksi; Serquén p. 237 adopta 1687 kgf/cm²",
+            "HS_MIN": "MTC 2.10.3.3.5 indica 1.588 mm; Serquén pp. 232 y 237 indica 1/16 in. La equivalencia correcta es 0.0625 in",
+        }[id]
+        add(id,sec,title,formula,legend,sub,val,"cm",reference,limit=hs)
+    if g.hole_count:
+        add("HS_HOLES",sec,"Zuncho con perforaciones pasantes",
+            "h_s,req = (2 b_g / b_n) max(h_s,serv, h_s,fat, h_s,min)",
+            "b_g = min(Lc,Wc): ancho bruto (cm); b_n = b_g - N d: ancho neto conservador, todos los agujeros en una sección; h_s,serv, h_s,fat y h_s,min: espesores base de servicio, fatiga y mínimo (cm)",
+            f"b_g = {gross_width:g}; b_n = {gross_width:g} - {g.hole_count} ({g.hole_diameter_cm:g}) = {net_width:g}; h_s,req = (2 ({gross_width:g}) / {net_width:g}) max({hs_ser:.8g}, {hs_fat:.8g}, {HS_MIN:g})",
+            hole_factor*max(hs_ser,hs_fat,HS_MIN),"cm",
+            "MTC 2.10.3.3.5, aumento por agujeros en el refuerzo, por remisión de 2.10.4.3.7; FHWA Design Step 6.1.2.6 (S14.7.5.3.7)",limit=hs)
     height = hrt+(n+1)*hs
-    add("HEIGHT",sec,"Altura total del apoyo","H = h_rt + (n + 1) h_s","H: altura (cm); h_s: zuncho (cm); n+1: número de zunchos",f"H = {hrt:g} + ({n}+1) ({hs:g})",height,"cm","MTC 2.10.4.3.6")
+    add("HEIGHT",sec,"Altura total del apoyo","H = h_rt + (n + 1) h_s","H: altura (cm); h_s: zuncho (cm); n+1: número de zunchos",f"H = {hrt:g} + ({n}+1) ({hs:g})",height,"cm","Suma geométrica de elastómero y zunchos; Serquén p. 237; la estabilidad se verifica según MTC 2.10.4.3.6")
     if g.total_height_cm is not None:
         add("HEIGHT_TARGET",sec,"Altura total propuesta","abs(H - H_propuesta) <= 0.000001",
             "H incluye todas las capas de elastómero y los zunchos; alturas en cm",
@@ -403,14 +454,20 @@ def _evaluate(i: BearingAInputs, g: BearingAGeometry) -> tuple[CalculationStep, 
         ("DEF_LL","Deflexión incremental por carga viva","delta_LL = delta_T - delta_D",delta_ll,f"{delta_t} - {delta_d}"),
         ("CREEP","Deflexión diferida por creep","delta_creep = C_d delta_D",creep,f"{grade.creep_ratio:g} ({delta_d})"),
     ):
-        add(id,sec,title,formula,"delta: cm; epsilon: deformación decimal; C_d: razón creep de tabla por dureza",sub,v,"cm","MTC 2.10.3.3.6; Tabla 2.10.3.3.6-1")
+        reference = {
+            "DEF_D": "MTC Ecuación 2.10.3.3.6-2, suma de deformaciones iniciales permanentes por capa",
+            "DEF_T": "Desarrollo de la suma por capas de MTC 2.10.3.3.6, con deformación por carga total sin impacto; Serquén p. 238",
+            "DEF_LL": "Diferencia entre estados total y permanente adoptada por Serquén p. 238; MTC Ecuación 2.10.3.3.6-1 define la suma de deformaciones por carga viva",
+            "CREEP": "Componente diferida de MTC Ecuación 2.10.3.3.6-3; coeficiente de Tabla 2.10.3.3.6-1",
+        }[id]
+        add(id,sec,title,formula,"delta: cm; epsilon: deformación decimal; C_d: razón de fluencia de tabla por dureza",sub,v,"cm",reference)
     add("JOINT",sec,"Deflexión relativa en junta","delta_LL + delta_creep <= delta_lim","delta_lim: límite adoptado para la junta (cm); incluye creep de forma conservadora",f"{delta_ll} + {creep} <= {i.joint_limit_cm:g}",None if delta_ll is None or creep is None else delta_ll+creep,"cm","C14.7.5.3.6; APOYOS.pdf p. 238; límite recomendado de junta",limit=i.joint_limit_cm,pending=pending,referential=referential,estimated=estimated,note="Cálculo automático estimado; verificar compatibilidad con la junta real." if estimated else "Estimación pendiente de curvas" if pending else "Recomendación de junta adoptada; exigir compatibilidad con la junta real.")
     sec = "Fuerzas horizontales y conexiones"
     hu = grade.g_max_kg_cm2*area*ds/hrt/1000
     pmin = a.min_vertical_tn if a.min_vertical_tn is not None else a.dc_tn
     friction = c.friction_mu*pmin
-    add("HU",sec,"Reacción horizontal por deformación","H_serv = G_max A Delta_s / (1000 h_rt)","G_max: kgf/cm²; A: cm²; Delta_s y h_rt: cm; H_serv: Tn",f"{grade.g_max_kg_cm2:g} ({area:g}) ({ds:.6g}) / (1000 ({hrt:g}))",hu,"Tn","MTC 2.10.2.1.1; AASHTO 14.6.3.1-2",note="Es una reacción, no una capacidad sísmica.")
-    add("FRICTION",sec,"Fricción disponible en servicio","F_f = mu P_min","mu: fricción; P_min: mínima reacción concomitante (Tn); sin dato se usa solo DC",f"{c.friction_mu:g} ({pmin:g})",friction,"Tn","AASHTO C14.8.3.1; APOYOS.pdf p. 239")
+    add("HU",sec,"Reacción horizontal por deformación","H_serv = G_max A Delta_s / (1000 h_rt)","G_max: kgf/cm²; A: cm²; Delta_s y h_rt: cm; H_serv: Tn",f"{grade.g_max_kg_cm2:g} ({area:g}) ({ds:.6g}) / (1000 ({hrt:g}))",hu,"Tn","MTC Ecuación 2.10.2.1.1-2 (14.6.3.1-2 AASHTO, correlativo impreso en MTC)",note="Es una reacción, no una capacidad sísmica.")
+    add("FRICTION",sec,"Fricción disponible en servicio","F_f = mu P_min","mu: fricción; P_min: mínima reacción concomitante (Tn); sin dato se usa solo DC",f"{c.friction_mu:g} ({pmin:g})",friction,"Tn","Serquén pp. 233 y 239 reproduce C14.8.3.1: μ = 0.20 entre elastómero y concreto o acero limpios")
     needs_anchor = hu > friction+1e-10
     add("SLIP",sec,"Deslizamiento o retención en servicio","H_serv <= R_ret","R_ret: fricción o resistencia documentada de retención; se exige H completo si la fricción resulta insuficiente",f"{hu:.6g} <= {friction:.6g}" if not needs_anchor else f"Retención para H completo = {hu:.6g}; resistencia = {c.resistance_longitudinal_tn}",hu,"Tn","MTC 2.10.4.3.8; AASHTO 14.8.3",limit=friction if not needs_anchor else c.resistance_longitudinal_tn,pending=needs_anchor and c.resistance_longitudinal_tn is None,note="Retención requerida con libertad de movimiento; no bloquear la expansión con el anclaje.")
     if i.neoprene_only:
@@ -481,8 +538,12 @@ def design_bearing_a(inputs: BearingAInputs) -> BearingAResult:
         steel_options = (g.steel_cm,) if g.steel_cm is not None else ((.2,.3,.4,.5,.6,.8,1.0) if g.total_height_cm is not None and g.selection_mode == "medida" else (None,))
         for hi,n,trial_hs in product(layers,counts,steel_options):
             he = g.exterior_cm if g.exterior_cm is not None else max((x for x in (.25,.4,.5,.8,1.0,1.2) if x<=.7*hi),default=.5*hi)
-            sigma = total*1000/((l-2*g.cover_cm)*(g.width_cm-2*g.cover_cm))
-            hs_req = max(HS_MIN,3*max(hi,he)*sigma/inputs.fy_kg_cm2,2*max(hi,he)*(inputs.actions.ll_tn+inputs.actions.pl_tn+inputs.actions.im_tn)*1000/((l-2*g.cover_cm)*(g.width_cm-2*g.cover_cm))/FATIGUE_LIMIT)
+            try:
+                trial_area, _, _, _, trial_factor = perforated_properties(g,l)
+            except ValueError:
+                continue
+            sigma = total*1000/trial_area
+            hs_req = max(HS_MIN,trial_factor*max(HS_MIN,3*max(hi,he)*sigma/inputs.fy_kg_cm2,2*max(hi,he)*(inputs.actions.ll_tn+inputs.actions.pl_tn+inputs.actions.im_tn)*1000/trial_area/FATIGUE_LIMIT))
             hs = trial_hs if trial_hs is not None else max(.2,ceil(hs_req*10-1e-12)/10)
             if g.selection_mode == "usuales":
                 if hi not in USUAL_LAYERS or (g.steel_cm is not None and abs(g.steel_cm-USUAL_LAYERS[hi])>1e-9):

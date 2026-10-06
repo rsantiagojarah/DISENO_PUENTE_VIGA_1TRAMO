@@ -205,6 +205,14 @@ def test_command_generates_complete_separate_outputs(tmp_path, capsys):
     doc = Document(destination / "memoria_estribos_conectados_2.docx")
     text = "\n".join(p.text for p in doc.paragraphs)
     assert "estribos conectados 2" in text
+    report_text = (text + " ".join(cell.text for table in doc.tables for row in table.rows for cell in row.cells)).lower()
+    for removed in ("usuario", "origen del armado", "ver_2l", "dato ingresado", "par simultaneo ingresado",
+                    "no acredita", "no se verifica", "sin verificación", "requieren", "debe confirmarse",
+                    "--verificar-malla", "resultados.json", "sap2000", "sustento documental"):
+        assert removed not in report_text
+    assert "pendiente detalle" not in report_text
+    assert "anclaje pendiente" not in report_text
+
     assert "no existe relleno interior" in text
     assert "Cortes del acero de zapata - superior" in text
     assert "Cortes del acero de zapata - inferior" in text

@@ -48,11 +48,11 @@ def write_case_bearing(document, result, response, check):
     phi = 1.0 if check.limit_state == "service" else (.8 if check.limit_state == "extreme" else .55)
     calculation(document, "Capacidad portante y presión límite factorizada",
                 "q_lim = q_adm" if check.limit_state == "service" else "q_lim = phi_b*FS*q_adm",
-                "q_lim: presión límite tn/m²; q_adm: presión admisible de servicio tn/m²; FS: factor nominal ingresado; phi_b: 0.55 en resistencia y 0.80 en evento extremo.",
+                "q_lim: presión límite tn/m²; q_adm: presión admisible de servicio tn/m²; FS: factor nominal adoptado; phi_b: 0.55 en resistencia y 0.80 en evento extremo.",
                 (f"q_lim=q_adm={check.pressure_limit:.5f} tn/m² (Servicio I)." if check.limit_state == "service" else
                  f"q_lim={phi:.2f}*{data.soil.nominal_bearing_fs:.3f}*{data.soil.allowable_tn_m2:.5f}={check.pressure_limit:.5f} tn/m²."),
                 f"q_max del análisis={maximum_pressure:.5f} {'≤' if complies else '>'} q_lim={check.pressure_limit:.5f} tn/m²: {'CUMPLE' if complies else 'NO CUMPLE'}.",
-                "La capacidad nominal se estima con FS·qadm. La demanda procede del análisis con resortes. Asentamientos sin verificación de un límite admisible.",
+                "La capacidad nominal se estima con FS·qadm. La demanda procede del análisis con resortes.",
                 "Manual de Puentes MTC 2018 criterios de capacidad portante del estado límite.")
 
 def write_group_bearing(document, result, charts):
@@ -80,11 +80,11 @@ def write_group_bearing(document, result, charts):
         calculation(document, "Capacidad portante y presión límite factorizada",
                     "q_lim = q_adm" if group.limit_state == 'service' else "q_lim = phi_b*FS*q_adm",
                     "q_lim: presión límite tn/m²; q_adm: presión admisible de servicio tn/m²; "
-                    "FS: factor nominal ingresado; phi_b: factor de resistencia de la familia.",
+                    "FS: factor nominal adoptado; phi_b: factor de resistencia de la familia.",
                     f"q_lim=q_adm={check.pressure_limit:.3f} tn/m²." if group.limit_state == 'service' else
                     f"q_lim={phi:.2f}*{soil.nominal_bearing_fs:.3f}*{soil.allowable_tn_m2:.3f}={check.pressure_limit:.3f} tn/m².",
                     f"q máximo de la envolvente={maximum:.3f} {'≤' if complies else '>'} "
                     f"q_lim={check.pressure_limit:.3f} tn/m²: {'CUMPLE' if complies else 'NO CUMPLE'}.",
                     "Se verifica la presión máxima de todos los casos "
-                    "incluidos en la envolvente. Asentamientos sin límite admisible ingresado.",
+                    "incluidos en la envolvente.",
                     "Manual de Puentes MTC 2018, Art. 2.8.1.1.12.2.")

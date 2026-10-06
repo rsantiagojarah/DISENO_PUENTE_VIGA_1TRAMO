@@ -101,7 +101,19 @@ def test_command_2_retains_exactly_twenty_cm_and_recalculates_height(cut_model):
     assert connected_stem_reinforcement_cut(data, mesh, steel, peak) is None
 
 
-@pytest.mark.parametrize("spacing,minimum", [(.125, 5), (.2, 5), (.1, 26)])
+def test_command_2_one_in_two_doubles_any_valid_spacing(cut_model):
+    from bridge_design.cli.connected_2_yaml import connected_2_inputs_from_yaml, connected_2_yaml_template
+    _, mesh, steel, demands = cut_model
+    data = connected_2_inputs_from_yaml(connected_2_yaml_template(example=True))
+    steel.bar_label, steel.spacing_m, steel.temperature_cm2_m = '1"', .125, 5
+    steel.area_per_face_cm2_m = 5 / .125
+    cut = connected_stem_reinforcement_cut(data, mesh, steel, demands)
+    assert cut is not None and cut.status == "OK"
+    assert cut.continuous_every_n_bars == 2
+    assert cut.upper_spacing_m == pytest.approx(.25)
+
+
+@pytest.mark.parametrize("spacing,minimum", [(.2, 5), (.1, 26)])
 def test_command_2_does_not_substitute_another_continuous_grid(cut_model, spacing, minimum):
     from bridge_design.cli.connected_2_yaml import connected_2_inputs_from_yaml, connected_2_yaml_template
     _, mesh, steel, demands = cut_model

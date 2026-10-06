@@ -36,10 +36,10 @@ def calculation(document, title, formula, legend, substitution, result, comment=
 def write_springs(document, result):
     data, mesh = result.inputs, result.mesh
     if data.foundation_node_count is None:
-        _body(document, f"Malla heredada por paso máximo de {data.mesh_size_m:.3f} m; "
+        _body(document, f"Malla con paso máximo de {data.mesh_size_m:.3f} m; "
               f"se obtienen {len(mesh.frame.springs)} nudos con resorte.")
     else:
-        _body(document, f"Se solicitaron y se colocaron {len(mesh.frame.springs)} nudos con resorte, "
+        _body(document, f"Se distribuyen {len(mesh.frame.springs)} nudos con resorte, "
               "equidistantes dentro de cada tramo delimitado por los extremos de talón y los ejes de los estribos. "
               "Los nudos auxiliares de geometría no añaden resortes.")
     _body(document, "El suelo se representa mediante resortes verticales de Winkler, con rigidez K_i=ks·A_i. "
@@ -47,7 +47,7 @@ def write_springs(document, result):
     _add_native_equation(document, "A_i = b*(L_izq/2 + L_der/2)")
     _add_native_equation(document, "K_i = ks*A_i")
     _body(document, "L_izq y L_der son distancias entre resortes en m; A_i está en m², ks en tn/m³ y K_i en tn/m. "
-          "Control de cobertura: las áreas tributarias deben cubrir la franja completa de ancho b=1 m y longitud L.")
+          "Las áreas tributarias cubren la franja completa de ancho b=1 m y longitud L.")
     _add_native_equation(document, "ΣA_i = b*L")
 
 

@@ -1832,7 +1832,7 @@ def _append_math_expression(parent, expression: str) -> None:
         _append_math_expression(parent, expression[1:-1])
         parent.append(_math_run(")"))
         return
-    for operators in (("≤", "≥", "="), ("+", "−")):
+    for operators in (("≤", "≥", "<", ">", "="), ("+", "−")):
         split = _split_top_level(expression, operators)
         if split is not None:
             left, operator, right = split

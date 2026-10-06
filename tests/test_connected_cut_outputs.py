@@ -42,8 +42,9 @@ def test_real_model_has_both_pdf_arrangements_and_reports(selected, tmp_path):
     assert top.cutoff_left_m + top.cutoff_right_m == pytest.approx(selected.inputs.total_length_m)
     assert bottom.cutoff_left_m + bottom.cutoff_right_m == pytest.approx(selected.inputs.total_length_m)
     options = format_connected_options(connected_reinforcement_options(selected))
-    assert options.count("CORTES DE ACERO - Zapata combinada") == 2
-    assert "Cortes definitivos" in options and "Patron de corte" in options
+    assert options.count("CORTES - Zapata combinada") == 2
+    assert "s mayor" in options and "Desde cara interior" in options
+    assert "Cortes definitivos" not in options
     export_connected_results(selected, tmp_path)
     payload = json.loads((tmp_path/"resultados.json").read_text(encoding="utf-8"))
     serialized = [s["foundation_reinforcement_cut"] for s in payload["reinforcement"] if s["foundation_reinforcement_cut"]]
