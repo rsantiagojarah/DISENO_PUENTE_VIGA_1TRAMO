@@ -718,25 +718,25 @@ def _stability_state_calculations(
         REF_STABILITY,
     )
     if state.contact_type == "Completo":
-        structural_formula = "qmax,min = Vu/B·(1 ± 6|e|/B)"
+        structural_formula = "qmax,min = (Vu/B)·(1 ± 6|e|/B)/10"
         structural_sub = (
-            f"qmax = {state.vu_tn_m:.3f}/{b:.3f}·(1 + 6·{abs(state.eccentricity_m):.3f}/{b:.3f})/10 = {state.qmax_kg_cm2:.3f} kg/cm²\n"
-            f"qmin = {state.vu_tn_m:.3f}/{b:.3f}·(1 − 6·{abs(state.eccentricity_m):.3f}/{b:.3f})/10 = {state.qmin_kg_cm2:.3f} kg/cm²"
+            f"qmax = ({state.vu_tn_m:.3f}/{b:.3f})·(1 + 6·{abs(state.eccentricity_m):.3f}/{b:.3f})/10 = {state.qmax_kg_cm2:.3f} kg/cm²\n"
+            f"qmin = ({state.vu_tn_m:.3f}/{b:.3f})·(1 − 6·{abs(state.eccentricity_m):.3f}/{b:.3f})/10 = {state.qmin_kg_cm2:.3f} kg/cm²"
         )
     else:
-        structural_formula = "Lc = 3·(B/2 − |e|) ; qmax = 2·Vu/Lc"
+        structural_formula = "Lc = 3·(B/2 − |e|) ; qmax = (2·Vu/Lc)/10"
         structural_sub = (
             f"Lc = 3·({b:.3f}/2 − |{state.eccentricity_m:.3f}|) = {state.contact_length_m:.3f} m\n"
-            f"qmax = 2·{state.vu_tn_m:.3f}/{state.contact_length_m:.3f}/10 = {state.qmax_kg_cm2:.3f} kg/cm²; "
+            f"qmax = (2·{state.vu_tn_m:.3f}/{state.contact_length_m:.3f})/10 = {state.qmax_kg_cm2:.3f} kg/cm²; "
             f"qmin = {state.qmin_kg_cm2:.3f} kg/cm²"
         )
     _calc(
         document,
         "Presión de contacto estructural y Meyerhof",
-        "B' = B − 2|e| ; qM = Vu/B' ; " + structural_formula,
+        "B' = B − 2|e| ; qM = (Vu/B')/10 ; " + structural_formula,
         "B': ancho efectivo Meyerhof; qM: presión geotécnica; Lc: longitud comprimida; qmax, qmin: presiones del diagrama estructural.",
         f"B' = {b:.3f} − 2·|{state.eccentricity_m:.3f}| = {state.effective_width_m:.3f} m\n"
-        f"qM = {state.vu_tn_m:.3f}/{state.effective_width_m:.3f}/10 = {state.geotechnical_pressure_kg_cm2:.3f} kg/cm²\n"
+        f"qM = ({state.vu_tn_m:.3f}/{state.effective_width_m:.3f})/10 = {state.geotechnical_pressure_kg_cm2:.3f} kg/cm²\n"
         f"{structural_sub}",
         f"La presión Meyerhof es qM = {state.geotechnical_pressure_kg_cm2:.3f} kg/cm².",
         "A continuación se desarrolla la presión límite qlím del estado.",
@@ -813,7 +813,7 @@ def _structural_design(document: Document, result: AbutmentDesignResult) -> None
 def _structural_case(document: Document, result: AbutmentDesignResult, case: StructuralDesignCase) -> None:
     data = result.inputs
     gross_depth = _gross_depth_cm(result, case.name)
-    phi = data.reinforcement.flexural_phi if case.name == "Pantalla" else data.reinforcement.footing_design_phi_for_as
+    phi = case.applied_flexural_phi
     rho = case.strength_as_cm2_m / (100.0 * case.effective_depth_cm) if case.effective_depth_cm else 0.0
     omega = rho * data.materials.steel_yield_kg_cm2 / data.materials.concrete_strength_kg_cm2
     bar_area = _bar_area_cm2(case.selected_bar_label)
@@ -856,8 +856,8 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
             "Acero por resistencia a flexión",
             "As,R = As(Mu,R; φ(εt)) ; As,E = As(Mu,E; φ(εt)) ; As,flex = max(As,R, As,E)",
             "Mu,R: momento de Resistencia I; Mu,E: momento de Evento Extremo; φ: factor de resistencia del estado; As,flex: acero gobernante.",
-            f"Mu,R = {case.strength_limit_mu_tn_m_m:.3f} Tn·m/m; φ,R = {data.reinforcement.flexural_phi:.2f}; As,R = {case.strength_limit_as_cm2_m:.3f} cm²/m\n"
-            f"Mu,E = {case.extreme_limit_mu_tn_m_m:.3f} Tn·m/m; φ,E = {data.reinforcement.stem_design_phi_for_as:.2f}; As,E = {case.extreme_limit_as_cm2_m:.3f} cm²/m\n"
+            f"Mu,R = {case.strength_limit_mu_tn_m_m:.3f} Tn·m/m; φ,R = {case.strength_as_phi:.2f}; As,R = {case.strength_limit_as_cm2_m:.3f} cm²/m\n"
+            f"Mu,E = {case.extreme_limit_mu_tn_m_m:.3f} Tn·m/m; φ,E = {case.extreme_as_phi:.2f}; As,E = {case.extreme_limit_as_cm2_m:.3f} cm²/m\n"
             f"As,flex = {case.strength_as_cm2_m:.3f} cm²/m",
             f"El acero por resistencia es As,flex = {case.strength_as_cm2_m:.3f} cm²/m, gobernado por el estado de mayor requerimiento.",
             "No se dimensiona por el máximo momento bruto con un único φ; cada estado límite usa su factor MTC 2.7.1.1.4.2a.",
@@ -889,11 +889,11 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
         "Ab: área de una barra; s: espaciamiento; a: profundidad del bloque equivalente; Mr: momento resistente.",
         (
             f"As,prov = {bar_area:.3f}/{case.selected_spacing_m:.3f} = {case.provided_as_cm2_m:.3f} cm²/m\n"
-            f"a = {a_cm:.3f} cm; Mr = {case.moment_resistance_tn_m_m:.3f} Tn·m/m"
+            f"a = {a_cm:.3f} cm; φ = {case.applied_flexural_phi:.2f}; Mr = {case.moment_resistance_tn_m_m:.3f} Tn·m/m"
             + (
-                f"\nMr,R = {case.strength_moment_resistance_tn_m_m:.3f} Tn·m/m "
+                f"\nφ,R = {case.strength_phi:.2f}; Mr,R = {case.strength_moment_resistance_tn_m_m:.3f} Tn·m/m "
                 f"({'OK' if case.strength_moment_status == 'OK' else 'NO'} frente a Mu,R = {case.strength_limit_mu_tn_m_m:.3f})\n"
-                f"Mr,E = {case.extreme_moment_resistance_tn_m_m:.3f} Tn·m/m "
+                f"φ,E = {case.extreme_phi:.2f}; Mr,E = {case.extreme_moment_resistance_tn_m_m:.3f} Tn·m/m "
                 f"({'OK' if case.extreme_moment_status == 'OK' else 'NO'} frente a Mu,E = {case.extreme_limit_mu_tn_m_m:.3f})"
                 if case.name == "Pantalla" and case.strength_limit_mu_tn_m_m
                 else ""
@@ -999,11 +999,26 @@ def _summary(document: Document, result: AbutmentDesignResult) -> None:
         ),
         widths=(17, 38, 41, 19, 17, 17, 20),
     )
-    _comment(document, "El cuadro presenta las longitudes de las barras y del anclaje calculadas para la franja de diseño.")
+    cut = result.stem_reinforcement_cut
+    if cut is not None and cut.status == "OK":
+        _comment(
+            document,
+            "La pantalla principal figura en dos filas: barras cortadas y barras que continúan "
+            f"1 de cada {cut.continuous_every_n_bars} hasta la coronación. "
+            "Las longitudes y el anclaje corresponden a la franja de diseño.",
+        )
+    else:
+        _comment(document, "El cuadro presenta las longitudes de las barras y del anclaje calculadas para la franja de diseño.")
     document.add_heading("8.2 Resumen del diseño", level=2)
     rows = []
     for case in _structural_cases(result):
-        rows.append((case.name, "Acero principal", f"{case.selected_bar_label} @ {case.selected_spacing_m:.3f} m", case.moment_status))
+        reinforcement = f"{case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"
+        if case.name == "Pantalla" and cut is not None and cut.status == "OK":
+            reinforcement = (
+                f"{cut.lower_bar_label} @ {cut.lower_spacing_m:.3f} m; "
+                f"continua 1 de cada {cut.continuous_every_n_bars} @ {cut.upper_spacing_m:.3f} m"
+            )
+        rows.append((case.name, "Acero principal", reinforcement, case.moment_status))
     for case in result.secondary_reinforcement:
         rows.append((case.element, case.face, f"{case.selected_bar_label} @ {case.selected_spacing_m:.3f} m", case.status))
     _table(document, ("Elemento", "Función/ubicación", "Refuerzo adoptado", "Estado"), rows, widths=(42, 52, 52, 21))

@@ -653,13 +653,13 @@ def _state_short_name(state: StabilityStateResult) -> str:
     return state.name
 
 
-def _tension_face_comment(m_min: float, m_max: float, *, superior_label: str, inferior_label: str) -> str:
+def _tension_face_comment(m_min: float, m_max: float, *, positive_face: str, negative_face: str) -> str:
     if m_min >= -1e-9:
-        return f"M ≥ 0 en todos los estados: tracción en {superior_label}."
+        return f"M ≥ 0 en todos los estados: tracción en {positive_face}."
     if m_max <= 1e-9:
-        return f"M ≤ 0 en todos los estados: tracción en {inferior_label}."
+        return f"M ≤ 0 en todos los estados: tracción en {negative_face}."
     return (
-        f"La envolvente cambia de signo: tracción en {superior_label} y en {inferior_label}."
+        f"La envolvente cambia de signo: tracción en {positive_face} y en {negative_face}."
     )
 
 
@@ -784,7 +784,7 @@ def heel_toe_demand_trace(
             f"Vu = {case.shear_demand_tn_m:.3f} Tn/m."
         )
         comment = (
-            _tension_face_comment(m_min, m_max, superior_label="cara superior", inferior_label="cara inferior")
+            _tension_face_comment(m_min, m_max, positive_face="cara superior", negative_face="cara inferior")
             + " Mu y Vu de diseño pueden provenir de estados distintos."
         )
         return formula, legend, substitution, result_text, comment
@@ -845,8 +845,8 @@ def heel_toe_demand_trace(
             _tension_face_comment(
                 m_min,
                 m_max,
-                superior_label="cara superior",
-                inferior_label="cara inferior (puntera)",
+                positive_face="cara inferior (puntera)",
+                negative_face="cara superior",
             )
             + " Mu y Vu de diseño pueden provenir de estados distintos."
         )
@@ -881,9 +881,9 @@ def effective_depth_trace(
     )
     substitution = (
         f"h = {gross_depth_cm:.2f} cm; rec = {cover:.2f} cm; db = {bar.diameter_cm:.3f} cm\n"
-        f"d = {gross_depth_cm:.2f} − {cover:.2f} − {bar.diameter_cm:.3f}/2 = {case.effective_depth_cm:.2f} cm"
+        f"d = {gross_depth_cm:.2f} − {cover:.2f} − {bar.diameter_cm:.3f}/2 = {case.effective_depth_cm:.3f} cm"
     )
-    result_text = f"El peralte efectivo utilizado es d = {case.effective_depth_cm:.2f} cm."
+    result_text = f"El peralte efectivo utilizado es d = {case.effective_depth_cm:.3f} cm."
     comment = "El recubrimiento y el diámetro corresponden a la cara traccionada del elemento."
     return formula, legend, substitution, result_text, comment
 
@@ -926,7 +926,7 @@ def cracking_and_temperature_trace(
     else:
         bounded = max(TEMPERATURE_STEEL_MIN_CM2_M, min(TEMPERATURE_STEEL_MAX_CM2_M, raw))
     temp_expr = (
-        f"As,temp = 7.65·b·h/(2(b+h)·fy)·100 con b = {b_label} = {b_cm:.1f} cm, "
+        f"As,temp = (7.65·b·h/(2·(b+h)·fy))·100 con b = {b_label} = {b_cm:.1f} cm, "
         f"h = {h_label} = {h_cm:.1f} cm\n"
         f"As,calc = {raw:.3f} cm²/m; "
         f"As,temp = max({TEMPERATURE_STEEL_MIN_CM2_M:.2f}, min({TEMPERATURE_STEEL_MAX_CM2_M:.2f}, As,calc)) "
@@ -964,7 +964,7 @@ def secondary_temperature_trace(
     case: AbutmentSecondaryReinforcementCase,
 ) -> tuple[str, str, str, str, str]:
     formula = (
-        "As,temp = 7.65·b·h/(2(b+h)·fy)·100 ; "
+        "As,temp = (7.65·b·h/(2·(b+h)·fy))·100 ; "
         f"{TEMPERATURE_STEEL_MIN_CM2_M:.2f} ≤ As,temp ≤ {TEMPERATURE_STEEL_MAX_CM2_M:.2f} ; "
         "As,adic = max(0, As,temp − As,princ) ; As,prov = Ab/s ≥ As,adic ; s ≤ smax"
     )
@@ -1020,7 +1020,7 @@ def shear_beta_trace(
         formula = (
             "Mu,usado = max(Mu, Vu·dv) ; εs = 1000·(Mu,usado/dv + Vu)/(Es·As,prov) ; "
             "dv = max(0.9d, 0.72h) ; sx = dv ; sxe = min(80,max(12,sx·1.38/(ag + 0.63))) ; "
-            "β = 4.8/(1 + 750·εs)·51/(39 + sxe) ; Vr = φv·0.265·β·√f'c·b·dv"
+            "β = (4.8/(1 + 750·εs))·(51/(39 + sxe)) ; Vr = φv·0.265·β·√f'c·b·dv"
         )
         legend = (
             "Procedimiento general MTC 2.9.1.5.6.3.4.2 / AASHTO 5.7.3.4.2 sin estribos transversales; "
@@ -1041,7 +1041,7 @@ def shear_beta_trace(
             f"sx = {case.shear_crack_spacing_in:.3f} in; ag = {ag:.2f} in\n"
             f"sxe = min(80,max(12,{case.shear_crack_spacing_in:.3f}·1.38/({ag:.2f} + 0.63))) "
             f"= {case.shear_effective_crack_spacing_in:.3f} in\n"
-            f"β = 4.8/(1 + 750·{case.shear_longitudinal_strain:.6f})·51/(39 + {case.shear_effective_crack_spacing_in:.3f}) "
+            f"β = (4.8/(1 + 750·{case.shear_longitudinal_strain:.6f}))·(51/(39 + {case.shear_effective_crack_spacing_in:.3f})) "
             f"= {case.shear_beta:.6f}\n"
             f"Vr = {phi_v:.3f}·0.265·{case.shear_beta:.6f}·√{fc:.1f}·100·{case.shear_effective_depth_cm:.2f}/1000 "
             f"= {case.shear_resistance_tn_m:.3f} Tn/m"
@@ -1084,22 +1084,31 @@ def stem_cut_continuous_pattern_trace(
     cut: AbutmentStemReinforcementCut,
 ) -> tuple[str, str, str, str, str]:
     bar = _bar_by_label(cut.lower_bar_label)
+    step = result.inputs.reinforcement.spacing_step_m
+    smax = result.inputs.reinforcement.maximum_spacing_m
+    raw = bar.area_cm2 / cut.minimum_as_cm2_m
+    grid_spacing = round(int(raw / step + 1e-9) * step, 3)
     formula = (
-        "smax,pat = Ab/As,temp ; n = ⌊smax,pat/sinf⌋ ; ssup = n·sinf ; "
+        "s_temp = Ab/As,temp ; s_grilla = ⌊s_temp/Δs⌋·Δs ; "
+        "smax,pat = min(s_grilla, smax) ; n = 2 ; ssup = n·sinf ; "
         "As,sup = Ab/ssup ; As,sup ≥ As,temp"
     )
     legend = (
-        "smax,pat: espaciamiento máximo compatible con el mínimo por temperatura; "
-        "n: número de barras inferiores entre barras superiores continuas; "
-        "sinf y ssup: espaciamientos inferior y superior; Ab: área de barra."
+        "s_temp: separación Ab/As,temp; s_grilla: s_temp ajustada al paso Δs; "
+        "smax: separación máxima; smax,pat: menor valor entre s_grilla y smax; "
+        "n: se continúa 1 de cada n barras inferiores; sinf y ssup: espaciamientos."
     )
     substitution = (
         f"As,temp = {cut.minimum_as_cm2_m:.3f} cm²/m\n"
         f"Ab = {bar.area_cm2:.3f} cm² ({cut.lower_bar_label})\n"
-        f"smax,pat = {bar.area_cm2:.3f}/{cut.minimum_as_cm2_m:.3f} = {cut.upper_spacing_limit_m:.3f} m\n"
+        f"s_temp = {bar.area_cm2:.3f}/{cut.minimum_as_cm2_m:.3f} = {raw:.3f} m\n"
+        f"s_grilla = ⌊{raw:.3f}/{step:.3f}⌋·{step:.3f} = {grid_spacing:.3f} m\n"
+        f"smax = {smax:.3f} m\n"
+        f"smax,pat = min({grid_spacing:.3f}, {smax:.3f}) = {cut.upper_spacing_limit_m:.3f} m\n"
         f"sinf = {cut.lower_spacing_m:.3f} m\n"
-        f"n = ⌊{cut.upper_spacing_limit_m:.3f}/{cut.lower_spacing_m:.3f}⌋ = {cut.continuous_every_n_bars}\n"
-        f"ssup = {cut.continuous_every_n_bars}·{cut.lower_spacing_m:.3f} = {cut.upper_spacing_m:.3f} m\n"
+        f"n = {cut.continuous_every_n_bars}\n"
+        f"ssup = {cut.continuous_every_n_bars}·{cut.lower_spacing_m:.3f} = {cut.upper_spacing_m:.3f} m "
+        f"≤ smax,pat = {cut.upper_spacing_limit_m:.3f} m\n"
         f"As,sup = {bar.area_cm2:.3f}/{cut.upper_spacing_m:.3f} = {cut.upper_provided_as_cm2_m:.3f} cm²/m"
     )
     result_text = (
@@ -1107,8 +1116,11 @@ def stem_cut_continuous_pattern_trace(
         f"{'OK' if cut.upper_provided_as_cm2_m + 1e-9 >= cut.minimum_as_cm2_m else 'NO'}."
     )
     comment = (
-        "El acero superior continuo reutiliza la misma barra de la parrilla inferior, "
-        f"continuando 1 de cada {cut.continuous_every_n_bars} barras para respetar el mínimo por temperatura."
+        f"s_temp = {raw:.3f} m no es la separación adoptada. "
+        f"La grilla de {step:.3f} m la deja en {grid_spacing:.3f} m y el tope smax = {smax:.3f} m "
+        f"fija smax,pat = {cut.upper_spacing_limit_m:.3f} m. "
+        f"El corte continúa 1 de cada {cut.continuous_every_n_bars} barras, "
+        f"con ssup = {cut.upper_spacing_m:.3f} m ≤ smax,pat."
     )
     return formula, legend, substitution, result_text, comment
 
@@ -1162,22 +1174,25 @@ def stem_cut_constructive_length_trace(
 ) -> tuple[str, str, str, str, str]:
     g = result.inputs.geometry
     formula = (
-        "α=90°-θ; hc=min(Hp, ht+ld·cosα); Lcort=hc/cosα+ld; Lcont=Hp/cosα+ld"
+        "α=90°-θ; hc=min(Hp, ht+ld_recto·cosα); "
+        "Lcort=hc/cosα+ld_zapata; Lcont=Hp/cosα+ld_zapata"
     )
     legend = (
         "hc: altura constructiva de terminación de barras cortadas sobre la zapata; "
-        "ht: altura teórica de corte; ld: longitud de desarrollo de la sección 7.2; "
+        "ht: altura teórica de corte; ld_recto: desarrollo recto de la sección 7.2, usado sobre la zapata; "
+        "ld_zapata: anclaje dentro de la zapata, recto o con gancho; "
         "Lcort: longitud de barras cortadas; Lcont: longitud de barras continuas; Hp: altura de pantalla."
     )
     bar_cos = cos(radians(90.0 - result.inputs.soil.wall_backface_angle_deg))
     substitution = (
-        f"cosα = {bar_cos:.6f}; ht = {cut.theoretical_cut_height_m:.3f} m; ld = {cut.development_extension_m:.3f} m\n"
+        f"cosα = {bar_cos:.6f}; ht = {cut.theoretical_cut_height_m:.3f} m\n"
+        f"ld_recto = {cut.development_extension_m:.3f} m; ld_zapata = {cut.footing_anchorage_m:.3f} m\n"
         f"hc = min(Hp, {cut.theoretical_cut_height_m:.3f} + {cut.development_extension_m:.3f}·{bar_cos:.6f}) "
         f"= {cut.constructive_cut_height_m:.3f} m sobre la zapata\n"
-        f"Lcort = {cut.constructive_cut_height_m:.3f}/{bar_cos:.6f} + {cut.development_extension_m:.3f} "
+        f"Lcort = {cut.constructive_cut_height_m:.3f}/{bar_cos:.6f} + {cut.footing_anchorage_m:.3f} "
         f"= {cut.lower_cut_bar_length_m:.3f} m\n"
         f"Hp = {g.stem_height_above_footing_m:.3f} m\n"
-        f"Lcont = {g.stem_height_above_footing_m:.3f}/{bar_cos:.6f} + {cut.development_extension_m:.3f} "
+        f"Lcont = {g.stem_height_above_footing_m:.3f}/{bar_cos:.6f} + {cut.footing_anchorage_m:.3f} "
         f"= {cut.continuous_bar_length_m:.3f} m"
     )
     result_text = (
@@ -1186,8 +1201,8 @@ def stem_cut_constructive_length_trace(
         f"{cut.upper_spacing_m:.3f} m): L = {cut.continuous_bar_length_m:.3f} m."
     )
     comment = (
-        "Las barras cortadas se prolongan ld por debajo de hc para desarrollo en zapata; "
-        "las continuas llegan hasta la coronación con ld adicional de anclaje."
+        "Sobre la zapata la barra sigue recta, así que hc se prolonga con ld_recto. "
+        "ld_zapata es solo el empotramiento dentro de la zapata y puede ser el gancho; no sube el corte."
     )
     return formula, legend, substitution, result_text, comment
 

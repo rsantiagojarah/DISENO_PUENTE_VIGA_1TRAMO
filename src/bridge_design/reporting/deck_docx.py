@@ -1822,7 +1822,7 @@ def _append_math_expression(parent, expression: str) -> None:
         _append_math_expression(parent, expression[1:-1])
         parent.append(_math_run(")"))
         return
-    for operators in (("≤", "≥", "<", ">", "="), ("+", "−")):
+    for operators in (("≤", "≥", "<", ">", "="), ("+", "−", "±")):
         split = _split_top_level(expression, operators)
         if split is not None:
             left, operator, right = split
@@ -1830,31 +1830,28 @@ def _append_math_expression(parent, expression: str) -> None:
             parent.append(_math_run(f" {operator} "))
             _append_math_expression(parent, right)
             return
-    # Explicitly grouped fractional factors are a product, not a nested
-    # denominator. This preserves the two factors in the general shear beta.
-    product = _split_top_level(expression, ("·",))
-    if product is not None:
-        left, operator, right = product
-        if all(_has_outer_group(part, "(", ")") and "/" in part for part in (left, right)):
-            _append_math_expression(parent, left[1:-1])
-            parent.append(_math_run(f" {operator} "))
-            _append_math_expression(parent, right[1:-1])
-            return
-    split = _split_top_level(expression, ("/",))
+    # Products and quotients associate to the left, so a later factor stays
+    # outside an earlier fraction: (a/b)·c and (a/b)/c.
+    split = _split_top_level_last(expression, ("·", "/"))
     if split is not None:
-        numerator, _, denominator = split
-        fraction = OxmlElement("m:f")
-        fraction_properties = OxmlElement("m:fPr")
-        fraction_type = OxmlElement("m:type")
-        fraction_type.set(qn("m:val"), "bar")
-        fraction_properties.append(fraction_type)
-        fraction.append(fraction_properties)
-        num = OxmlElement("m:num")
-        den = OxmlElement("m:den")
-        _append_math_expression(num, numerator)
-        _append_math_expression(den, denominator)
-        fraction.extend((num, den))
-        parent.append(fraction)
+        left, operator, right = split
+        if operator == "/":
+            fraction = OxmlElement("m:f")
+            fraction_properties = OxmlElement("m:fPr")
+            fraction_type = OxmlElement("m:type")
+            fraction_type.set(qn("m:val"), "bar")
+            fraction_properties.append(fraction_type)
+            fraction.append(fraction_properties)
+            num = OxmlElement("m:num")
+            den = OxmlElement("m:den")
+            _append_math_expression(num, left)
+            _append_math_expression(den, right)
+            fraction.extend((num, den))
+            parent.append(fraction)
+            return
+        _append_math_expression(parent, left)
+        parent.append(_math_run(f" {operator} "))
+        _append_math_expression(parent, right)
         return
     if expression.startswith("√"):
         radicand = expression[1:].strip()
@@ -1905,7 +1902,7 @@ def _split_top_level(expression: str, operators: tuple[str, ...]):
             continue
         for operator in operators:
             if expression.startswith(operator, index):
-                if operator in {"+", "−"} and index == 0:
+                if operator in {"+", "−", "±"} and index == 0:
                     continue
                 if operator == "/" and not _slash_is_fraction(expression, index):
                     continue
@@ -1914,6 +1911,58 @@ def _split_top_level(expression: str, operators: tuple[str, ...]):
                 if left and right:
                     return left, operator, right
     return None
+
+
+def _split_top_level_last(expression: str, operators: tuple[str, ...]):
+    """Return the rightmost top-level operator so · and / associate left."""
+    depths = {"(": 0, "[": 0, "{": 0}
+    closers = {")": "(", "]": "[", "}": "{"}
+    found = None
+    index = 0
+    while index < len(expression):
+        character = expression[index]
+        if character in depths:
+            depths[character] += 1
+            index += 1
+            continue
+        if character in closers:
+            opener = closers[character]
+            depths[opener] = max(depths[opener] - 1, 0)
+            index += 1
+            continue
+        if any(depths.values()):
+            index += 1
+            continue
+        matched = None
+        for operator in operators:
+            if expression.startswith(operator, index):
+                matched = operator
+                break
+        if matched is None:
+            index += 1
+            continue
+        if matched == "/" and not _slash_is_fraction(expression, index):
+            index += len(matched)
+            continue
+        if matched == "·" and not _dot_is_product(expression, index):
+            index += len(matched)
+            continue
+        left = expression[:index].strip()
+        right = expression[index + len(matched) :].strip()
+        if left and right:
+            found = (left, matched, right)
+        index += len(matched)
+    return found
+
+
+def _dot_is_product(expression: str, index: int) -> bool:
+    """Keep unit products such as tn·m as text instead of a spaced factor."""
+    left = expression[:index].rstrip()
+    right = expression[index + 1 :].lstrip()
+    unit_prefixes = ("tn", "Tn", "kgf", "kg")
+    return not (
+        any(left.endswith(prefix) for prefix in unit_prefixes) and right.startswith(("m", "s"))
+    )
 
 
 def _slash_is_fraction(expression: str, index: int) -> bool:

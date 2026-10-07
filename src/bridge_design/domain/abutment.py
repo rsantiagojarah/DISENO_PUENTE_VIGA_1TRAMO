@@ -628,6 +628,11 @@ class StructuralDesignCase:
     extreme_moment_status: str = ""
     signed_moment_envelope_tn_m_m: tuple[float, float] = (0.0, 0.0)
     required_faces: tuple[str, ...] = ()
+    applied_flexural_phi: float = 0.90
+    strength_phi: float = 0.90
+    extreme_phi: float = 0.90
+    strength_as_phi: float = 0.90
+    extreme_as_phi: float = 0.90
 
 
 @dataclass(frozen=True)
@@ -717,6 +722,7 @@ class AbutmentStemReinforcementCut:
     theoretical_cut_height_m: float
     constructive_cut_height_m: float
     development_extension_m: float
+    footing_anchorage_m: float
     lower_cut_bar_length_m: float
     continuous_bar_length_m: float
     controlling_moment_at_cut_tn_m_m: float
@@ -963,7 +969,9 @@ def solve_abutment_design(
     development_checks = _development_checks(data, structural_cases)
     secondary_reinforcement = _secondary_reinforcement(data, selected)
     stem_reinforcement_cut = _stem_reinforcement_cut(data, pressures, stem_design, development_checks)
-    bar_details = _bar_details(data, structural_cases, development_checks, secondary_reinforcement)
+    bar_details = _bar_details(
+        data, structural_cases, development_checks, secondary_reinforcement, stem_reinforcement_cut,
+    )
     return AbutmentDesignResult(
         inputs=data,
         dc_self_weight_tn_m=dc_weight,
@@ -1928,9 +1936,8 @@ def _structural_design(
     g = inputs.geometry
     r = inputs.reinforcement
     grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m, r.maximum_spacing_m)
-    stem_depth_cm = g.lower_stem_thickness_m * 100.0 - r.stem_cover_cm - r.stem_main_bar_diameter_cm / 2.0
-    footing_depth_cm = g.footing_thickness_m * 100.0 - r.footing_cover_cm - r.footing_main_bar_diameter_cm / 2.0
-    toe_depth_cm = g.footing_thickness_m * 100.0 - r.footing_cover_cm - r.toe_main_bar_diameter_cm / 2.0
+    stem_gross_cm = g.lower_stem_thickness_m * 100.0
+    footing_gross_cm = g.footing_thickness_m * 100.0
     stem_demands = _stem_design_demands(inputs, pressures)
     stem_mu = max(stem_demands["strength_mu"], stem_demands["extreme_mu"])
     stem_vu = max(stem_demands["strength_vu"], stem_demands["extreme_vu"])
@@ -1943,63 +1950,116 @@ def _structural_design(
     heel_mu = max(abs(moment) for moment, _ in heel_demands)
     heel_vu = max(abs(shear) for _, shear in heel_demands)
     footing_temperature_as = _footing_temperature_as(inputs)
-    stem_design = _reinforced_case(
-        "Pantalla",
-        stem_mu,
-        stem_depth_cm,
-        stem_temperature_as,
-        stem_vu,
-        inputs,
-        grid,
-        r.flexural_phi,
-        r.stem_main_bar_label,
-        stem_temperature_as,
-        selected_reinforcement.get("Pantalla"),
-        notes=(
-            "As = max(As Resistencia I, As Evento Extremo); cada estado se "
-            "verifica con φ limitado por la deformación neta de tracción."
+    stem_option = selected_reinforcement.get("Pantalla")
+    stem_design = _reinforce_at_adopted_depth(
+        lambda depth_cm: _reinforced_case(
+            "Pantalla",
+            stem_mu,
+            depth_cm,
+            stem_temperature_as,
+            stem_vu,
+            inputs,
+            grid,
+            r.flexural_phi,
+            r.stem_main_bar_label,
+            stem_temperature_as,
+            stem_option,
+            notes=(
+                "As = max(As Resistencia I, As Evento Extremo); cada estado se "
+                "verifica con φ limitado por la deformación neta de tracción."
+            ),
+            shear_method="general",
+            limit_states=stem_limit_states,
         ),
-        shear_method="general",
-        limit_states=stem_limit_states,
+        stem_gross_cm,
+        r.stem_cover_cm,
+        r.stem_main_bar_diameter_cm,
+        stem_option,
     )
-    heel_design = _reinforced_case(
-        "Zapata - talon superior",
-        heel_mu,
-        footing_depth_cm,
-        footing_temperature_as,
-        heel_vu,
-        inputs,
-        grid,
-        r.footing_design_phi_for_as,
-        r.heel_main_bar_label,
-        footing_temperature_as,
-        selected_reinforcement.get("Zapata - talon superior"),
-        notes="Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente.",
-        shear_method="simplified",
-    )
-    toe_design = None
-    if g.toe_length_m > 0.0:
-        toe_demands = tuple(
-            _toe_design_demands(inputs, state, toe_depth_cm) for state in states
-        )
-        toe_mu = max(abs(moment) for moment, _ in toe_demands)
-        toe_vu = max(abs(shear) for _, shear in toe_demands)
-        toe_design = _reinforced_case(
-            "Zapata - puntera inferior",
-            toe_mu,
-            toe_depth_cm,
+    heel_option = selected_reinforcement.get("Zapata - talon superior")
+    heel_design = _reinforce_at_adopted_depth(
+        lambda depth_cm: _reinforced_case(
+            "Zapata - talon superior",
+            heel_mu,
+            depth_cm,
             footing_temperature_as,
-            toe_vu,
+            heel_vu,
             inputs,
             grid,
             r.footing_design_phi_for_as,
-            r.toe_main_bar_label,
+            r.heel_main_bar_label,
             footing_temperature_as,
-            selected_reinforcement.get("Zapata - puntera inferior"),
+            heel_option,
             notes="Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente.",
             shear_method="simplified",
+        ),
+        footing_gross_cm,
+        r.footing_cover_cm,
+        r.footing_main_bar_diameter_cm,
+        heel_option,
+    )
+    toe_design = None
+    if g.toe_length_m > 0.0:
+        toe_option = selected_reinforcement.get("Zapata - puntera inferior")
+
+        def _toe_case(depth_cm: float) -> StructuralDesignCase:
+            toe_demands = tuple(
+                _toe_design_demands(inputs, state, depth_cm) for state in states
+            )
+            toe_mu = max(abs(moment) for moment, _ in toe_demands)
+            toe_vu = max(abs(shear) for _, shear in toe_demands)
+            return _reinforced_case(
+                "Zapata - puntera inferior",
+                toe_mu,
+                depth_cm,
+                footing_temperature_as,
+                toe_vu,
+                inputs,
+                grid,
+                r.footing_design_phi_for_as,
+                r.toe_main_bar_label,
+                footing_temperature_as,
+                toe_option,
+                notes="Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente.",
+                shear_method="simplified",
+            )
+
+        toe_design = _reinforce_at_adopted_depth(
+            _toe_case,
+            footing_gross_cm,
+            r.footing_cover_cm,
+            r.toe_main_bar_diameter_cm,
+            toe_option,
         )
     return stem_design, heel_design, toe_design
+
+
+def _section_effective_depth_cm(gross_depth_cm: float, cover_cm: float, bar_diameter_cm: float) -> float:
+    return gross_depth_cm - cover_cm - bar_diameter_cm / 2.0
+
+
+def _reinforce_at_adopted_depth(
+    build_case,
+    gross_depth_cm: float,
+    cover_cm: float,
+    assumed_diameter_cm: float,
+    selected_option: ReinforcementSpacingOption | None,
+) -> StructuralDesignCase:
+    """Size the section with the diameter of the bar that is actually adopted."""
+    if selected_option is not None:
+        return build_case(
+            _section_effective_depth_cm(gross_depth_cm, cover_cm, selected_option.bar.diameter_cm)
+        )
+    depth_cm = _section_effective_depth_cm(gross_depth_cm, cover_cm, assumed_diameter_cm)
+    case = build_case(depth_cm)
+    for _ in range(3):
+        adopted_diameter_cm = _bar_by_label(case.selected_bar_label).diameter_cm
+        updated_cm = _section_effective_depth_cm(gross_depth_cm, cover_cm, adopted_diameter_cm)
+        if abs(updated_cm - depth_cm) <= 1e-6:
+            return case
+        depth_cm = updated_cm
+        case = build_case(depth_cm)
+    return case
 
 
 def _key_structural_design(
@@ -2012,23 +2072,29 @@ def _key_structural_design(
     r = inputs.reinforcement
     grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m, r.maximum_spacing_m)
     bar = _bar_by_label(r.key_main_bar_label)
-    effective_depth_cm = inputs.key.width_m * 100.0 - r.footing_cover_cm - bar.diameter_cm / 2.0
     moment = _key_base_moment_tn_m(inputs, key)
     shear = key.passive_resistance_tn_m
     minimum_as = _key_temperature_as(inputs)
-    return _reinforced_case(
-        "Diente de concreto",
-        moment,
-        effective_depth_cm,
-        minimum_as,
-        shear,
-        inputs,
-        grid,
-        r.footing_design_phi_for_as,
-        r.key_main_bar_label,
-        minimum_as,
-        selected_reinforcement.get("Diente de concreto"),
-        shear_method="simplified",
+    key_option = selected_reinforcement.get("Diente de concreto")
+    return _reinforce_at_adopted_depth(
+        lambda depth_cm: _reinforced_case(
+            "Diente de concreto",
+            moment,
+            depth_cm,
+            minimum_as,
+            shear,
+            inputs,
+            grid,
+            r.footing_design_phi_for_as,
+            r.key_main_bar_label,
+            minimum_as,
+            key_option,
+            shear_method="simplified",
+        ),
+        inputs.key.width_m * 100.0,
+        r.footing_cover_cm,
+        bar.diameter_cm,
+        key_option,
     )
 
 
@@ -2112,7 +2178,7 @@ def _reinforced_case(
         selected_bar = selected_option.bar
         selected_spacing = selected_option.spacing_m
         provided_as = selected_option.provided_area_cm2_m
-    moment_resistance = _moment_resistance_tn_m(
+    governing_applied_phi, moment_resistance = _factored_flexural_resistance(
         provided_as,
         100.0,
         effective_depth_cm,
@@ -2120,13 +2186,14 @@ def _reinforced_case(
         inputs.materials.steel_yield_kg_cm2,
         governing_phi,
     )
-    state_status: dict[str, tuple[str, float, float]] = {}
+    state_status: dict[str, tuple[str, float, float, float]] = {}
+    as_phi_by_label: dict[str, float] = {}
     all_states_ok = True
-    for label, state_mu, state_phi, _as_state in flexural_as_by_state:
+    for label, state_mu, state_phi, as_state in flexural_as_by_state:
         state_required = mtc_minimum_flexural_moment_tn_m(
             state_mu, cracking_moment,
             inputs.reinforcement.minimum_flexural_capacity_multiplier)
-        state_resistance = _moment_resistance_tn_m(
+        state_phi_applied, state_resistance = _factored_flexural_resistance(
             provided_as,
             100.0,
             effective_depth_cm,
@@ -2134,8 +2201,17 @@ def _reinforced_case(
             inputs.materials.steel_yield_kg_cm2,
             state_phi,
         )
+        as_phi, _as_resistance = _factored_flexural_resistance(
+            as_state,
+            100.0,
+            effective_depth_cm,
+            inputs.materials.concrete_strength_kg_cm2,
+            inputs.materials.steel_yield_kg_cm2,
+            state_phi,
+        )
         ok = state_resistance + 1e-9 >= state_required
-        state_status[label] = ("OK" if ok else "NO", state_resistance, state_mu)
+        state_status[label] = ("OK" if ok else "NO", state_resistance, state_mu, state_phi_applied)
+        as_phi_by_label[label] = as_phi
         all_states_ok = all_states_ok and ok
     shear_detail = _shear_beta_detail(
         mu_tn_m=abs(mu_tn_m),
@@ -2193,6 +2269,11 @@ def _reinforced_case(
         extreme_moment_resistance_tn_m_m=extreme_info[1] if extreme_info else 0.0,
         strength_moment_status=strength_info[0] if strength_info else "",
         extreme_moment_status=extreme_info[0] if extreme_info else "",
+        applied_flexural_phi=governing_applied_phi,
+        strength_phi=strength_info[3] if strength_info else governing_applied_phi,
+        extreme_phi=extreme_info[3] if extreme_info else governing_applied_phi,
+        strength_as_phi=as_phi_by_label.get("Resistencia I", governing_applied_phi),
+        extreme_as_phi=as_phi_by_label.get("Evento Extremo", governing_applied_phi),
     )
 
 
@@ -2468,11 +2549,15 @@ def _bar_details(
     cases: tuple[StructuralDesignCase | None, ...],
     development_checks: tuple[AbutmentDevelopmentCheck, ...],
     secondary_cases: tuple[AbutmentSecondaryReinforcementCase, ...],
+    stem_cut: AbutmentStemReinforcementCut | None = None,
 ) -> tuple[AbutmentBarDetail, ...]:
     development_by_element = {check.element: check for check in development_checks}
     details: list[AbutmentBarDetail] = []
     for index, case in enumerate((case for case in cases if case is not None), start=1):
         check = development_by_element[case.name]
+        if case.name == "Pantalla" and stem_cut is not None and stem_cut.status == "OK":
+            details.extend(_stem_cut_bar_details(case, check, stem_cut))
+            continue
         details.append(
             AbutmentBarDetail(
                 mark=f"E{index}",
@@ -2514,6 +2599,38 @@ def _bar_detail_group_rank(element: str) -> int:
     return 2
 
 
+def _stem_cut_bar_details(
+    case: StructuralDesignCase,
+    check: AbutmentDevelopmentCheck,
+    stem_cut: AbutmentStemReinforcementCut,
+) -> tuple[AbutmentBarDetail, AbutmentBarDetail]:
+    anchorage_m = _required_anchor_length_cm(check) / 100.0
+    anchorage = f"{_detail_note(case.name)}; {check.anchorage_type}"
+    every = stem_cut.continuous_every_n_bars
+    return (
+        AbutmentBarDetail(
+            mark="",
+            element=case.name,
+            face="Cara relleno, barras cortadas",
+            bar_label=stem_cut.lower_bar_label,
+            spacing_m=stem_cut.lower_spacing_m,
+            length_m=stem_cut.lower_cut_bar_length_m,
+            anchorage_m=anchorage_m,
+            note=f"Se corta 1 de cada {every}; {anchorage}",
+        ),
+        AbutmentBarDetail(
+            mark="",
+            element=case.name,
+            face=f"Cara relleno, continua 1 de cada {every}",
+            bar_label=stem_cut.upper_bar_label,
+            spacing_m=stem_cut.upper_spacing_m,
+            length_m=stem_cut.continuous_bar_length_m,
+            anchorage_m=anchorage_m,
+            note=f"Continúa 1 de cada {every} hasta la coronación; {anchorage}",
+        ),
+    )
+
+
 def _stem_reinforcement_cut(
     inputs: AbutmentInputs,
     pressures: SoilPressureResult,
@@ -2521,20 +2638,24 @@ def _stem_reinforcement_cut(
     development_checks: tuple[AbutmentDevelopmentCheck, ...],
 ) -> AbutmentStemReinforcementCut | None:
     development = next((check for check in development_checks if check.element == "Pantalla"), None)
+    straight_m = development.required_ld_cm / 100.0 if development is not None else 0.0
+    footing_m = _required_anchor_length_cm(development) / 100.0 if development is not None else 0.0
     return _single_stem_reinforcement_cut(
         inputs, stem_design.selected_bar_label, stem_design.selected_spacing_m,
         stem_design.provided_as_cm2_m, stem_design.temperature_as_cm2_m,
-        _required_anchor_length_cm(development) / 100.0 if development is not None else 0.0,
+        straight_m,
         inputs.geometry.stem_height_above_footing_m,
         lambda y, area, diameter: _stem_cut_upper_steel_satisfies(inputs, pressures, y, area, diameter),
         lambda y, diameter, area: _stem_cut_design_at_height(inputs, pressures, y, diameter),
+        adopted_every_n_bars=2,
+        footing_anchorage_m=footing_m,
     )
 
 
 def _single_stem_reinforcement_cut(
     inputs, bar_label, spacing_m, provided_as, temperature_as, development_extension_m,
     height, upper_steel_satisfies, design_at_height, *, maximum_spacing_m=None,
-    resistance_at_height=None,
+    resistance_at_height=None, adopted_every_n_bars=None, footing_anchorage_m=None,
 ) -> AbutmentStemReinforcementCut | None:
     """Shared pattern, all-upper-length search, development and cutting lengths.
 
@@ -2552,9 +2673,13 @@ def _single_stem_reinforcement_cut(
         temperature_as,
         grid,
     )
-    continuous_every_n_bars = int(
-        (upper_spacing_limit + 1e-9) / spacing_m
-    )
+    if adopted_every_n_bars is None:
+        continuous_every_n_bars = int(
+            (upper_spacing_limit + 1e-9) / spacing_m
+        )
+    else:
+        # El patrón pedido solo vale si su separación cabe en el tope ya calculado.
+        continuous_every_n_bars = adopted_every_n_bars
     if continuous_every_n_bars < 2:
         return None
 
@@ -2565,6 +2690,8 @@ def _single_stem_reinforcement_cut(
         continuous_every_n_bars * spacing_m,
         10,
     )
+    if upper_spacing > upper_spacing_limit + 1e-9:
+        return None
 
     upper_as = lower_bar.area_cm2 / upper_spacing
     if upper_steel_satisfies(0.0, upper_as, lower_bar.diameter_cm):
@@ -2583,6 +2710,8 @@ def _single_stem_reinforcement_cut(
         theoretical_cut = high
 
     bar_cos = cos(radians(90.0 - inputs.soil.wall_backface_angle_deg))
+    # ld recto sube el corte en la pantalla. El gancho solo embebe la barra en la zapata.
+    anchorage_m = development_extension_m if footing_anchorage_m is None else footing_anchorage_m
     constructive_cut = min(height, theoretical_cut + development_extension_m * bar_cos)
     (
         moment_at_cut,
@@ -2607,7 +2736,8 @@ def _single_stem_reinforcement_cut(
     notes = (
         "Acero superior continuo: "
         f"1 de cada {continuous_every_n_bars} barras inferiores; "
-        "las barras cortadas se prolongan ld sobre el corte teorico."
+        "las barras cortadas se prolongan el desarrollo recto sobre el corte teorico. "
+        "El anclaje en zapata, recto o con gancho, no modifica esa altura."
     )
     if constructive_cut >= height - r.spacing_step_m:
         status = "NO CONVIENE"
@@ -2627,8 +2757,9 @@ def _single_stem_reinforcement_cut(
         theoretical_cut_height_m=theoretical_cut,
         constructive_cut_height_m=constructive_cut,
         development_extension_m=development_extension_m,
-        lower_cut_bar_length_m=constructive_cut / bar_cos + development_extension_m,
-        continuous_bar_length_m=height / bar_cos + development_extension_m,
+        footing_anchorage_m=anchorage_m,
+        lower_cut_bar_length_m=constructive_cut / bar_cos + anchorage_m,
+        continuous_bar_length_m=height / bar_cos + anchorage_m,
         controlling_moment_at_cut_tn_m_m=moment_at_cut,
         required_as_at_cut_cm2_m=required_as,
         moment_resistance_at_cut_tn_m_m=moment_resistance_at_cut,
@@ -3615,14 +3746,17 @@ def _flexural_steel_area_workbook_cm2_m(
     )
 
 
-def _moment_resistance_tn_m(
+def _factored_flexural_resistance(
     provided_as_cm2_m: float,
     width_cm: float,
     effective_depth_cm: float,
     concrete_strength_kg_cm2: float,
     steel_yield_kg_cm2: float,
     phi: float,
-) -> float:
+) -> tuple[float, float]:
+    """Return the strain-limited resistance factor and φ·Mn."""
+    if provided_as_cm2_m <= 0.0:
+        return phi, 0.0
     response = rectangular_flexural_response(
         steel_area_cm2=provided_as_cm2_m,
         concrete_width_cm=width_cm,
@@ -3631,7 +3765,26 @@ def _moment_resistance_tn_m(
         steel_yield_kg_cm2=steel_yield_kg_cm2,
         steel_elastic_modulus_kg_cm2=STEEL_ELASTIC_MODULUS_KG_CM2,
     )
-    return min(phi, response.resistance_factor) * response.nominal_moment_tn_m
+    applied_phi = min(phi, response.resistance_factor)
+    return applied_phi, applied_phi * response.nominal_moment_tn_m
+
+
+def _moment_resistance_tn_m(
+    provided_as_cm2_m: float,
+    width_cm: float,
+    effective_depth_cm: float,
+    concrete_strength_kg_cm2: float,
+    steel_yield_kg_cm2: float,
+    phi: float,
+) -> float:
+    return _factored_flexural_resistance(
+        provided_as_cm2_m,
+        width_cm,
+        effective_depth_cm,
+        concrete_strength_kg_cm2,
+        steel_yield_kg_cm2,
+        phi,
+    )[1]
 
 
 def _bar_by_label(label: str):

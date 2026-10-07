@@ -667,10 +667,10 @@ def test_structural_design_matches_reference_workbook_with_original_cover() -> N
 
     assert result.stem_design.strength_limit_mu_tn_m_m == pytest.approx(71.488083, abs=1e-6)
     assert result.stem_design.extreme_limit_mu_tn_m_m == pytest.approx(72.436292, abs=1e-6)
-    assert result.stem_design.strength_limit_as_cm2_m == pytest.approx(23.259040, abs=1e-6)
-    assert result.stem_design.extreme_limit_as_cm2_m == pytest.approx(23.578441, abs=1e-6)
+    assert result.stem_design.strength_limit_as_cm2_m == pytest.approx(23.259780, abs=1e-6)
+    assert result.stem_design.extreme_limit_as_cm2_m == pytest.approx(23.579192, abs=1e-6)
     assert result.stem_design.controlling_moment_tn_m_m == pytest.approx(72.436292, abs=1e-6)
-    assert result.stem_design.strength_as_cm2_m == pytest.approx(23.578441, abs=1e-6)
+    assert result.stem_design.strength_as_cm2_m == pytest.approx(23.579192, abs=1e-6)
     assert result.stem_design.selected_bar_label == '3/4"'
     assert result.stem_design.selected_spacing_m == pytest.approx(0.100)
     assert result.stem_design.moment_status == "OK"
@@ -710,6 +710,31 @@ def test_heel_state_demand_matches_structural_envelope() -> None:
     assert result.heel_design.signed_moment_envelope_tn_m_m == pytest.approx((min(moments), max(moments)))
     assert result.heel_design.controlling_moment_tn_m_m == pytest.approx(max(map(abs, moments)))
     assert result.heel_design.shear_demand_tn_m == pytest.approx(max(map(abs, shears)))
+
+
+def test_adopted_toe_bar_sets_effective_depth_and_stem_phi_follows_strain() -> None:
+    from pathlib import Path
+
+    from bridge_design.cli.yaml_inputs import abutment_inputs_from_yaml
+    from bridge_design.cli.yaml_io import load_yaml_file
+    from bridge_design.domain.cantilever_wall import solve_cantilever_wall_design
+    from bridge_design.domain.rebar_catalog import reinforcing_bar_by_label
+    from bridge_design.reporting.abutment_docx_detail import heel_toe_demand_trace
+
+    data = load_yaml_file(Path(__file__).parents[1] / "modelo_muro_usuario.yaml")
+    result = solve_cantilever_wall_design(abutment_inputs_from_yaml(data, pure_wall=True))
+    toe = result.toe_design
+    bar = reinforcing_bar_by_label(toe.selected_bar_label)
+    assert toe.effective_depth_cm == pytest.approx(100.0 - 7.5 - bar.diameter_cm / 2.0)
+    assert toe.moment_status == "OK"
+    assert toe.shear_status == "OK"
+    comment = heel_toe_demand_trace(result, toe)[4]
+    assert "tracción en cara inferior (puntera)" in comment
+    stem = result.stem_design
+    assert stem.extreme_as_phi == pytest.approx(0.90)
+    assert stem.extreme_phi == pytest.approx(0.90)
+    assert stem.strength_as_phi == pytest.approx(0.90)
+    assert stem.strength_phi == pytest.approx(0.90)
 
 
 def test_default_stem_rejects_insufficient_strain_compatible_capacity() -> None:
@@ -759,20 +784,29 @@ def test_abutment_generates_single_stem_reinforcement_cut() -> None:
     assert cut.upper_spacing_m == pytest.approx(
         cut.continuous_every_n_bars * cut.lower_spacing_m
     )
-    assert cut.continuous_every_n_bars == 3
-    assert cut.upper_spacing_m == pytest.approx(0.300)
+    assert cut.continuous_every_n_bars == 2
+    assert cut.upper_spacing_m == pytest.approx(2 * cut.lower_spacing_m)
+    assert cut.upper_spacing_m <= cut.upper_spacing_limit_m + 1e-9
     assert cut.upper_provided_as_cm2_m >= cut.minimum_as_cm2_m
     assert cut.moment_resistance_at_cut_tn_m_m >= cut.required_moment_at_cut_tn_m_m - 1e-6
     assert cut.upper_spacing_limit_m == pytest.approx(0.300)
     assert cut.required_as_at_cut_cm2_m <= cut.upper_provided_as_cm2_m + 1e-6
+    pantalla = next(check for check in result.development_checks if check.element == "Pantalla")
+    assert cut.development_extension_m == pytest.approx(pantalla.required_ld_cm / 100.0)
+    assert cut.footing_anchorage_m == pytest.approx(
+        pantalla.required_hooked_ld_cm / 100.0
+        if pantalla.anchorage_type in ("GANCHO", "SOLO GANCHO")
+        else pantalla.required_ld_cm / 100.0
+    )
     assert cut.constructive_cut_height_m == pytest.approx(min(
         result.inputs.geometry.stem_height_above_footing_m,
         cut.theoretical_cut_height_m + cut.development_extension_m,
     ))
     assert cut.lower_cut_bar_length_m == pytest.approx(
-        cut.constructive_cut_height_m + cut.development_extension_m
+        cut.constructive_cut_height_m + cut.footing_anchorage_m
     )
     assert cut.continuous_bar_length_m >= cut.lower_cut_bar_length_m
+    assert cut.development_extension_m > cut.footing_anchorage_m
     assert cut.status == "NO CONVIENE"
 
 
@@ -785,7 +819,7 @@ def test_abutment_report_includes_stem_reinforcement_cut() -> None:
     assert "Altura teorica de corte" in report
     assert "Altura constructiva de corte" in report
     assert "Acero continuo superior" in report
-    assert "Continua 1 de cada 3 barras inferiores" in report
+    assert "Continua 1 de cada 2 barras inferiores" in report
 
 
 def test_abutment_report_can_omit_stem_reinforcement_cut() -> None:
@@ -853,6 +887,9 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
         "E8",
         "E9",
     ]
+    cut = result.stem_reinforcement_cut
+    assert cut is not None and cut.status == "NO CONVIENE"
+    assert result.bar_details[0].face == "Cara relleno"
     assert any(detail.element == "Diente de concreto" for detail in result.bar_details)
 
 

@@ -22,7 +22,47 @@ def test_general_shear_beta_preserves_two_fractional_factors():
     assert len(fractions) == 2
     assert not paragraph._p.xpath('.//m:den//m:f')
     assert [''.join(f.find(qn('m:num')).itertext()) for f in fractions] == ['4.8', '51']
-    assert [''.join(f.find(qn('m:den')).itertext()) for f in fractions] == ['(1 + 750·εs)', '(39 + sxe)']
+    assert [''.join(f.find(qn('m:den')).itertext()) for f in fractions] == ['(1 + 750 · εs)', '(39 + sxe)']
+
+
+def _fraction_texts(paragraph):
+    return [
+        (
+            ''.join(fraction.find(qn('m:num')).itertext()),
+            ''.join(fraction.find(qn('m:den')).itertext()),
+        )
+        for fraction in paragraph._p.xpath('.//m:f')
+    ]
+
+
+def test_published_abutment_factors_stay_outside_the_first_denominator():
+    document = Document()
+    document.styles.add_style("Equation", WD_STYLE_TYPE.PARAGRAPH)
+    pressure = _add_native_equation(document, "qmax = (66.944/6.000)·(1 + 6·0.841/6.000)/10 = 2.054")
+    pressure_fractions = _fraction_texts(pressure)
+    assert any(denominator.strip() == "10" for _, denominator in pressure_fractions)
+    assert ("66.944", "6.000") in pressure_fractions
+    assert any("0.841" in numerator and denominator.strip() == "6.000" for numerator, denominator in pressure_fractions)
+    general = _add_native_equation(document, "qmax,min = (Vu/B)·(1 ± 6|e|/B)/10")
+    general_fractions = _fraction_texts(general)
+    assert ("Vu", "B") in general_fractions
+    assert any(denominator.strip() == "10" for _, denominator in general_fractions)
+    eccentricity = next(item for item in general_fractions if "|e|" in item[0] and "Vu" not in item[0])
+    assert eccentricity[0].strip() == "6|e|"
+    assert eccentricity[1].strip() == "B"
+    general_text = ''.join(general._p.xpath('.//m:t/text()'))
+    assert "1" in general_text and "±" in general_text
+    meyerhof = _add_native_equation(document, "qM = (66.944/4.318)/10 = 1.550")
+    assert _fraction_texts(meyerhof)[0][1] == '10'
+    temperature = _add_native_equation(document, "As,temp = (7.65·b·h/(2·(b+h)·fy))·100")
+    temperature_text = ''.join(temperature._p.xpath('.//m:t/text()'))
+    assert '100' in temperature_text
+    assert all(denominator != '100' and not denominator.endswith('·100') for _, denominator in _fraction_texts(temperature))
+    beta = _add_native_equation(document, "β = (4.8/(1 + 750·0.002255))·(51/(39 + 32.438)) = 1.273233")
+    beta_fractions = _fraction_texts(beta)
+    assert [item[0] for item in beta_fractions] == ['4.8', '51']
+    assert '32.438' in beta_fractions[1][1]
+    assert '0.002255' in beta_fractions[0][1]
 
 
 def test_report_units_stay_inline_and_calculation_divisions_remain_fractions():

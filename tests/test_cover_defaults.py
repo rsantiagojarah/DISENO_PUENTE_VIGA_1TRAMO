@@ -26,12 +26,14 @@ def test_superstructure_keeps_approved_internal_covers():
 
 @pytest.mark.parametrize("inputs", [AbutmentInputs(), cantilever_wall_inputs()])
 def test_retaining_structures_use_internal_cover_in_effective_depth(inputs):
+    from bridge_design.domain.rebar_catalog import reinforcing_bar_by_label
+
     assert inputs.reinforcement.stem_cover_cm == 7.5
     assert inputs.reinforcement.footing_cover_cm == 7.5
     result = solve_abutment_design(inputs)
+    bar = reinforcing_bar_by_label(result.stem_design.selected_bar_label)
     assert result.stem_design.effective_depth_cm == pytest.approx(
-        inputs.geometry.lower_stem_thickness_m * 100 - 7.5
-        - inputs.reinforcement.stem_main_bar_diameter_cm / 2)
+        inputs.geometry.lower_stem_thickness_m * 100 - 7.5 - bar.diameter_cm / 2)
 
 
 def test_all_connected_regions_use_internal_cover():

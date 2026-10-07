@@ -361,6 +361,7 @@ def test_pure_wall_omits_cut_when_no_continuous_subset_is_possible() -> None:
 def test_pure_wall_main_stem_reinforcement_is_not_less_than_exterior_vertical_minimum() -> None:
     from bridge_design.domain.abutment import AbutmentGeometryInputs, AbutmentInputs
     from bridge_design.domain.cantilever_wall import solve_cantilever_wall_design
+    from bridge_design.domain.rebar_catalog import reinforcing_bar_by_label
 
     result = solve_cantilever_wall_design(
         AbutmentInputs(
@@ -387,8 +388,10 @@ def test_pure_wall_main_stem_reinforcement_is_not_less_than_exterior_vertical_mi
     secondary_by_name = {case.name: case for case in result.secondary_reinforcement}
     exterior_vertical = secondary_by_name["Pantalla - vertical exterior"]
 
-    assert result.stem_design.effective_depth_cm == pytest.approx(30 - 7.5 - 1.905 / 2)
-    assert result.stem_design.required_as_cm2_m == pytest.approx(5.636822, abs=1e-6)
+    assert result.stem_design.effective_depth_cm == pytest.approx(
+        30 - 7.5 - reinforcing_bar_by_label(result.stem_design.selected_bar_label).diameter_cm / 2
+    )
+    assert result.stem_design.required_as_cm2_m == pytest.approx(5.637519, abs=1e-6)
     assert result.stem_design.required_as_cm2_m >= exterior_vertical.required_as_cm2_m
 
 
