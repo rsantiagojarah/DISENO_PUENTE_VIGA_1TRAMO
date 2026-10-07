@@ -98,9 +98,9 @@ def surcharge_height_trace(result: AbutmentDesignResult) -> tuple[str, str, str,
     h = g.retained_height_m
     h_eq = result.pressures.live_surcharge_height_m
     if soil.vehicular_surcharge_height_m is not None:
-        formula = "h' = h's,ingresada"
-        substitution = f"h' = {soil.vehicular_surcharge_height_m:.3f} m (dato de entrada)"
-        comment = "Se adopta la altura equivalente ingresada por el usuario."
+        formula = "h' = h's,adoptada"
+        substitution = f"h' = {soil.vehicular_surcharge_height_m:.3f} m"
+        comment = "La sobrecarga vehicular se representa mediante la altura equivalente adoptada."
     else:
         default = equivalent_vehicular_surcharge_height_m(h)
         formula = "h' = f(H) según tabla de altura equivalente (H≤1.5→1.20; 3.0→0.90; ≥6.0→0.60 m)"
@@ -526,7 +526,7 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
             )),
             f"Mu,R={demands['strength_mu']:.3f} Tn·m/m; Mu,E={demands['extreme_mu']:.3f} Tn·m/m.",
             "MTC 2018: Art. 2.4.4.1.5.3 y Tabla 2.4.4.1.5.3-1; Apéndice A.11.3.1; Art. 2.8.1.1.14.1. "
-            "Fuerzas en Tn/m y momentos en Tn·m/m. No se acredita compresión axial como resistencia adicional. "
+            "Fuerzas en Tn/m y momentos en Tn·m/m. La resistencia a flexión se calcula con el bloque equivalente de compresión y el acero de tracción. "
             + ("Se integra el concreto sobre cada corte." if result.inputs.is_pure_wall else
                "Estribo: cara vertical equivalente para el coeficiente; brazos sobre el perfil escalonado. "
                f"MPEQ={demands['peq_moment']:.5f}; MBR={demands['br_moment']:.5f} Tn·m/m."),
@@ -1264,8 +1264,7 @@ def development_trace(result: AbutmentDesignResult, check) -> tuple[str, str, st
         f"ld recto = {check.required_ld_cm:.2f} cm; ld gancho = {check.required_hooked_ld_cm:.2f} cm. "
         f"Longitud utilizada en el detalle propuesto = {required:.2f} cm."
     )
-    comment = ("Se comparan independientemente ld recto y ld gancho con la longitud disponible. "
-               "La alternativa con gancho requiere comprobar su acomodo, doblado e interferencias.")
+    comment = "Se comparan independientemente las longitudes de desarrollo recto y con gancho con la longitud disponible."
     return formula, legend, substitution, result_text, comment
 
 
@@ -1294,7 +1293,7 @@ def passive_key_height_trace(result: AbutmentDesignResult) -> tuple[str, str, st
     result_text = f"El aporte pasivo factorizado del dentellón es Rk = {key.factored_passive_tn_m:.3f} Tn/m."
     comment = (
         "La resistencia pasiva factorizada se suma a la fricción en la verificación al deslizamiento "
-        "cuando el dentellón está habilitado."
+        "del muro con dentellón."
     )
     return formula, legend, substitution, result_text, comment
 

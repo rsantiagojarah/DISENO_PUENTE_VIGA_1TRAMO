@@ -31,6 +31,7 @@ from bridge_design.domain.load_combinations import combine_transverse_slab_momen
 from bridge_design.reporting.deck_docx_charts import save_strength_chart
 from bridge_design.reporting import deck_docx_detail as detail
 from bridge_design.reporting.models import DeckReportData, selected_option
+from bridge_design.reporting.deck_report_notes import formal_cantilever_notes, formal_interior_collision_notes
 
 NAVY = "173746"
 TEAL = "155E75"
@@ -599,8 +600,7 @@ def _transverse_slab(document: Document, data: DeckReportData, chart_dir: Path) 
     _body(
         document,
         "Para la losa transversal el diseño principal se basa en flexión. Las reacciones "
-        "de apoyo del modelo se conservan para la transferencia a las vigas; el cortante "
-        "local no define un refuerzo independiente en este módulo."
+        "de apoyo del modelo se utilizan para la transferencia de cargas a las vigas."
     )
 
 
@@ -920,7 +920,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         f"As,prov = {girder_detail.selected_main_bar.provided_area_cm2:.3f} cm²\n"
         f"ld = {girder_detail.development_length_m:.3f} m",
         f"Se mantienen {girder_detail.continuous_bar_count} barras continuas y se definen {girder_detail.physical_cut_count} cortes físicos con prolongación de desarrollo.",
-        "Los puntos teóricos de corte se desplazan mediante ld; si la longitud disponible no fuera suficiente, las barras deberían continuarse o anclarse.",
+        "Los puntos teóricos de corte se desplazan mediante la longitud de desarrollo ld.",
         REF_DEVELOPMENT,
     )
     document.add_heading(f"{number}.7 Diagramas de diseño", level=2)
@@ -1109,9 +1109,11 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
         REF_COMB,
     )
     collision = result.barrier_collision
-    for note in result.applicability_notes:
+    for note in formal_cantilever_notes(result):
         _comment(document, note)
-    document.add_heading("6.2 Colisión y transferencia de la barrera", level=2)
+    has_collision = collision is not None or result.interior_collision is not None
+    if has_collision:
+        document.add_heading("6.2 Colisión y transferencia de la barrera", level=2)
     if collision is not None:
         _comment(document, f"N simultanea={collision.axial_tension_tn_m:.3f} Tn/m; As incluye N/(phi*fy). {collision.status}: {collision.scope_note}")
         _table(document, ("Caso", "M Tn.m/m", "N Tn/m", "V Tn/m", "Estado"),
@@ -1133,12 +1135,7 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
         )
     elif result.interior_collision is not None:
         _interior_collision_docx(document, result.interior_collision)
-    else:
-        _comment(
-            document,
-            "No existe una verificación local de colisión aplicable a la posición declarada de la barrera.",
-        )
-    document.add_heading("6.3 Flexión y acero adoptado", level=2)
+    document.add_heading(f"6.{3 if has_collision else 2} Flexión y acero adoptado", level=2)
     _flexural_calc(document, "Acero superior en la raíz", flex, option, data.project_inputs.materials.concrete, data.project_inputs.materials.steel, strip=True)
     _calc(
         document,
@@ -1150,7 +1147,7 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
         _compliance_comment(temperature, "La disposición se mantiene en la dirección secundaria del voladizo."),
         REF_TEMP,
     )
-    document.add_heading("6.4 Cortante, fisuración y desarrollo", level=2)
+    document.add_heading(f"6.{4 if has_collision else 3} Cortante, fisuración y desarrollo", level=2)
     shear = result.shear
     sh_formula, sh_legend, sh_sub, sh_result, sh_comment = detail.cantilever_shear_trace(shear)
     _calc(
@@ -1303,7 +1300,7 @@ def _interior_collision_docx(document: Document, collision) -> None:
         document,
         f"Resultado local: {collision.status}. Conexión barrera–losa: {collision.connection_status}.",
     )
-    for note in collision.notes:
+    for note in formal_interior_collision_notes(collision):
         _comment(document, note)
 
 
@@ -1319,7 +1316,7 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
     _body(
         document,
         "El diafragma se analiza transversalmente como viga continua entre vigas principales. "
-        "La altura ingresada corresponde al concreto bajo la losa; el peralte resistente total "
+        "La altura adoptada corresponde al concreto bajo la losa; el peralte resistente total "
         "incluye el espesor de la losa monolítica. "
         "Las cargas permanentes y peatonales permanecen fijas; las líneas de ruedas se ubican "
         "desde ambos accesos físicos al tablero y se combinan en una única envolvente superior e inferior."
@@ -1426,7 +1423,7 @@ def _reactions(document: Document, data: DeckReportData) -> None:
         "En LL+IM se maximiza independientemente la reacción de cada extremo mediante su línea de influencia, "
         "incluyendo IM y el factor de distribución de cortante gV. "
         "La tabla 8.1 presenta las acciones globales que deben transferirse al estribo. "
-        "Todas las magnitudes se muestran sin factor para que cada módulo receptor forme la combinación requerida."
+        "Las acciones se expresan sin factores de carga para su combinación en el diseño de la subestructura."
     )
     rows = []
     for label, result, include_pl in (
@@ -1485,10 +1482,10 @@ def _reactions(document: Document, data: DeckReportData) -> None:
         f"Ejemplo DC en apoyo izquierdo: Rint = {int_dc_l:.3f} Tn/viga; Rext = {ext_dc_l:.3f} Tn/viga. "
         f"Las máximas reacciones locales de LL+IM ya incluyen gV y el IM; no se vuelve a aplicar ninguno al transferirlas.",
         "El estribo combina estas acciones con sus factores LRFD propios; aquí sólo se entregan valores sin factor.",
-        "No deben sumarse posiciones vehiculares incompatibles al formar otra envolvente fuera de este módulo.",
+        "Cada caso conserva las reacciones de una misma posición vehicular.",
         REF_DEAD_LOAD,
     )
-    _comment(document, "Las reacciones de LL+IM son envolventes de carga móvil. No deben sumarse posiciones vehiculares incompatibles al usarlas en otra combinación.")
+    _comment(document, "Las reacciones de LL+IM son envolventes de carga móvil; los máximos de cada apoyo corresponden a sus respectivas posiciones vehiculares.")
 
 
 def _global_abutment_load_rows(data: DeckReportData, live_cases) -> tuple[list[tuple[str, ...]], tuple[str, ...]]:
@@ -1541,16 +1538,9 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
         rows.append(("Voladizo", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
     collision = data.cantilever_result.barrier_collision
     interior_collision = data.cantilever_result.interior_collision
-    collision_status = (
-        collision.status
-        if collision is not None
-        else "NO APLICA - BARRERA EN LOSA INTERIOR"
-        if interior_collision is not None
-        else "PENDIENTE"
-    )
-    rows.append(("Voladizo", "Conexion y todos los casos de colision",
-                 "Casos 1/2/3 + yield-line/dowel/desarrollo",
-                 collision_status))
+    if collision is not None:
+        rows.append(("Voladizo", "Conexion y todos los casos de colision",
+                     "Casos 1/2/3 + yield-line/dowel/desarrollo", collision.status))
     if interior_collision is not None:
         rows.append(("Losa interior", "Transferencia local de colision",
                      "Horizontal + vertical; conexion por capacidad", interior_collision.status))
@@ -1558,24 +1548,24 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
             rows.append(("Losa interior", f"Minimo por colision, cara {face.face}",
                          _option_text(face.option), face.status))
         _comment(document,
-            "Las alternativas de colision son minimos calculados, no una sustitucion automatica del acero "
-            "elegido para la losa. El armado definitivo debe cubrir ambas demandas por cara. "
-            "El estado de conexion por capacidad indicado aqui prevalece sobre la comprobacion "
-            "de anclaje reducido de la barrera aislada.")
+            "Se presentan por cara el refuerzo adoptado para las acciones de la losa y los minimos "
+            "calculados para colision. Los estados corresponden a cada comprobacion por separado. "
+            "La conexion barrera-losa se evalua por capacidad con las longitudes de desarrollo calculadas.")
     for label, option in data.diaphragm_selected:
         rows.append(("Diafragma", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
     _table(document, ("Elemento", "Función", "Refuerzo adoptado", "Estado"), tuple(rows), widths=(32, 62, 48, 25), font_size=7.6)
     _comment(
         document,
-        "Las opciones listadas son las disposiciones adoptadas y verificadas por resistencia, cuantía mínima, separación, servicio y detalle según corresponda. Si una verificación cambiara a NO CUMPLE, deberá incrementarse el área provista, reducirse el espaciamiento o modificarse la geometría antes de emitir planos."
+        "El cuadro presenta el refuerzo y los estados de las comprobaciones desarrolladas para cada elemento. "
+        "Las secciones precedentes detallan los resultados de resistencia, cuantía mínima, separación, servicio y desarrollo según corresponda."
     )
 
 
 def _references(document: Document) -> None:
     document.add_heading("10. Referencias normativas", level=1)
     for text in (
-        "Ministerio de Transportes y Comunicaciones. Manual de Puentes, Lima, 2018. Archivo: docs/Manual de Puentes MTC 2018 (PGA).pdf.",
-        "Rodríguez Serquén, Arturo. Puentes con AASHTO LRFD 2020, 9th Edition. Archivo de consulta en la carpeta docs del proyecto.",
+        "Ministerio de Transportes y Comunicaciones. Manual de Puentes, Lima, 2018.",
+        "Rodríguez Serquén, Arturo. Puentes con AASHTO LRFD 2020, 9th Edition.",
         "AASHTO LRFD Bridge Design Specifications, criterios incorporados por las referencias y numeración equivalentes indicadas en el Manual MTC 2018.",
     ):
         p = document.add_paragraph(style="List Bullet")
@@ -2153,8 +2143,8 @@ def _sectional_shear_calc_fields(shear, stirrup) -> tuple[str, str, str, str, st
         "Vu no supera φVn,max, por lo que el alma puede resistir el cortante con la armadura transversal adoptada."
         if limit_ok
         else (
-            "Vu supera φVn,max. Aumentar estribos no incrementa la resistencia de la sección; "
-            "debe revisarse el ancho de alma, el peralte o f'c."
+            "Vu supera φVn,max: la sección no cumple el límite de resistencia al cortante, "
+            "determinado por el ancho de alma, el peralte efectivo y la resistencia del concreto."
         )
     )
     if not limit_ok:
@@ -2188,15 +2178,14 @@ def _sectional_shear_calc_fields(shear, stirrup) -> tuple[str, str, str, str, st
 def _option_text(option) -> str:
     if option is None:
         return "opción de cálculo no disponible"
-    suffix = " (selección personalizada del usuario)" if getattr(option, "is_custom", False) else ""
     if hasattr(option, "bar_count"):
         layer_word = "capa" if option.layers == 1 else "capas"
-        return f"{option.bar_count} barras de {option.bar_label} distribuidas en {option.layers} {layer_word}, As = {option.provided_area_cm2:.3f} cm²{suffix}"
+        return f"{option.bar_count} barras de {option.bar_label} distribuidas en {option.layers} {layer_word}, As = {option.provided_area_cm2:.3f} cm²"
     if hasattr(option, "legs"):
-        return f"estribo {option.bar_label}, {option.legs} ramas @ {option.spacing_m:.3f} m, Av = {option.provided_av_cm2_m:.3f} cm²/m{suffix}"
+        return f"estribo {option.bar_label}, {option.legs} ramas @ {option.spacing_m:.3f} m, Av = {option.provided_av_cm2_m:.3f} cm²/m"
     bar = getattr(option, "bar", None)
     label = getattr(bar, "label", getattr(option, "bar_label", "barra"))
-    return f"{label} @ {option.spacing_m:.3f} m, As = {option.provided_area_cm2_m:.3f} cm²/m{suffix}"
+    return f"{label} @ {option.spacing_m:.3f} m, As = {option.provided_area_cm2_m:.3f} cm²/m"
 
 
 def _option_status(option) -> str:
@@ -2206,14 +2195,14 @@ def _option_status(option) -> str:
 def _compliance_comment(option, ok_text: str) -> str:
     if option is not None and bool(getattr(option, "is_compliant", False)):
         return ok_text
-    return "La opción no satisface la verificación; se debe aumentar el área, reducir el espaciamiento o revisar la geometría antes de emitir el diseño."
+    return "El refuerzo adoptado no cumple con el criterio de aceptación de la verificación."
 
 
 def _status_comment(status: str, ok_text: str) -> str:
     normalized = str(status).upper()
     if normalized in {"OK", "CUMPLE", "ADECUADO"}:
         return ok_text
-    return "La verificación no cumple; debe incrementarse la capacidad o reducirse la demanda y repetirse el cálculo antes de emitir el diseño."
+    return "La verificación no cumple con el criterio de aceptación establecido."
 
 
 def _looks_compliant(text_value: str) -> bool:

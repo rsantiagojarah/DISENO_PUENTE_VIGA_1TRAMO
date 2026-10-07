@@ -152,6 +152,7 @@ def abutment_yaml_template(
                 "h_sobrecarga_vehicular_equivalente_m": equivalent_vehicular_surcharge_height_m(g.retained_height_m),
                 "qadm_capacidad_portante_kg_cm2": soil.allowable_bearing_kg_cm2,
                 "angulo_friccion_relleno_grados": soil.friction_angle_deg,
+                "delta_suelo_cimentacion_grados": soil.base_interface_friction_deg,
                 "delta_muro_suelo_grados": soil.wall_soil_friction_deg,
                 "beta_pendiente_relleno_grados": soil.backfill_slope_deg,
                 "theta_cara_posterior_desde_horizontal_grados": "auto" if pure_wall else soil.wall_backface_angle_deg,
@@ -234,6 +235,7 @@ def abutment_inputs_from_yaml(
     soil_inputs = AbutmentSoilInputs(
         allowable_bearing_kg_cm2=float(_value(soil, "qadm_capacidad_portante_kg_cm2", s0.allowable_bearing_kg_cm2)),
         friction_angle_deg=float(_value(soil, "angulo_friccion_relleno_grados", s0.friction_angle_deg)),
+        foundation_interface_friction_deg=_float_or_none(soil, "delta_suelo_cimentacion_grados", None),
         wall_soil_friction_deg=float(_value(soil, "delta_muro_suelo_grados", s0.wall_soil_friction_deg)),
         backfill_slope_deg=float(_value(soil, "beta_pendiente_relleno_grados", s0.backfill_slope_deg)),
         wall_backface_angle_deg=resolve_wall_backface_angle(

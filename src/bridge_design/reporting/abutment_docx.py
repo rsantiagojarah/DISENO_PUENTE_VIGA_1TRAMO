@@ -295,7 +295,7 @@ def _cover(document: Document, result: AbutmentDesignResult, labels: _ReportLabe
 
 def _contents(document: Document) -> None:
     document.add_heading("Contenido", level=1)
-    _body(document, "La memoria se organiza siguiendo la secuencia del modelo de cálculo y conserva estilos jerárquicos de Word.")
+    _body(document, "La memoria desarrolla las bases de diseño, las acciones, las verificaciones de estabilidad y el diseño del refuerzo de concreto armado.")
     _table(
         document,
         ("Sección", "Contenido desarrollado"),
@@ -337,6 +337,7 @@ def _design_basis(
             ("Peso específico del concreto", "γc", f"{m.concrete_unit_weight_kg_m3 / 1000:.3f} Tn/m³"),
             ("Peso específico del suelo", "γs", f"{m.soil_unit_weight_kg_m3 / 1000:.3f} Tn/m³"),
             ("Ángulo de fricción", "φ", f"{data.soil.friction_angle_deg:.2f}°"),
+            ("Fricción suelo-cimentación", "δb", f"{data.soil.base_interface_friction_deg:.2f}°"),
             ("Fricción muro-suelo", "δ", f"{data.soil.wall_soil_friction_deg:.2f}°"),
             ("Pendiente del relleno", "β", f"{data.soil.backfill_slope_deg:.2f}°"),
             ("Ángulo de la cara posterior", "θ", f"{data.soil.wall_backface_angle_deg:.2f}°"),
@@ -643,7 +644,7 @@ def _stability_state_calculations(
     condition: str,
 ) -> None:
     b = result.inputs.geometry.footing_width_m
-    phi = result.inputs.soil.friction_angle_deg
+    phi = result.inputs.soil.base_interface_friction_deg
     factors = factors_for_state(result, state)
     title = f"{state.name} - {condition}"
     document.add_heading(title, level=3)
@@ -707,8 +708,8 @@ def _stability_state_calculations(
     _calc(
         document,
         "Verificación al deslizamiento",
-        "Ff = Vu·tan(φ) ; Rdes = Ff + φep·Rep ≥ Hu",
-        "Ff: resistencia por fricción; φ: fricción del suelo; φep·Rep: resistencia pasiva factorizada; Hu: demanda horizontal.",
+        "Ff = Vu·tan(δb) ; Rdes = Ff + φep·Rep ≥ Hu",
+        "Ff: resistencia por fricción de la base; δb: fricción suelo-cimentación; φep·Rep: resistencia pasiva factorizada; Hu: demanda horizontal.",
         f"Ff = {state.vu_tn_m:.3f}·tan({phi:.3f}°) = {state.friction_resistance_tn_m:.3f} Tn/m\n"
         f"Rdes = {state.friction_resistance_tn_m:.3f} + {passive_contribution:.3f} = {total_resistance:.3f} Tn/m\n"
         f"{total_resistance:.3f} ≥ {state.hu_tn_m:.3f}",
@@ -898,8 +899,7 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
                 else ""
             )
         ),
-        f"Se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"
-        f"{' (selección personalizada del usuario)' if case.is_custom_selection else ''}, "
+        f"Se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m, "
         f"con estado a flexión {case.moment_status}.",
         _status_comment(
             case.moment_status,
@@ -933,7 +933,7 @@ def _service_and_detailing(document: Document, result: AbutmentDesignResult) -> 
     document.add_heading("7.3 Corte del acero principal de pantalla", level=2)
     cut = result.stem_reinforcement_cut
     if cut is None:
-        _body(document, "No se adopta corte del acero principal porque la reducción no resulta práctica con la selección final.")
+        _body(document, "Se adopta el acero principal continuo en toda la altura de la pantalla.")
     else:
         _calc(
             document,
@@ -999,7 +999,7 @@ def _summary(document: Document, result: AbutmentDesignResult) -> None:
         ),
         widths=(17, 38, 41, 19, 17, 17, 20),
     )
-    _comment(document, "Las longitudes corresponden a la franja de diseño y deben coordinarse con recubrimientos, empalmes, radios de doblado y planos de construcción.")
+    _comment(document, "El cuadro presenta las longitudes de las barras y del anclaje calculadas para la franja de diseño.")
     document.add_heading("8.2 Resumen del diseño", level=2)
     rows = []
     for case in _structural_cases(result):
@@ -1013,14 +1013,15 @@ def _summary(document: Document, result: AbutmentDesignResult) -> None:
     all_statuses += [check.status for check in result.crack_checks]
     all_statuses += [check.status for check in result.development_checks]
     overall = "CUMPLE" if all(_is_ok(value) for value in all_statuses) else "REVISAR"
-    _comment(document, f"Estado global del diseño adoptado: {overall}. El reporte conserva exclusivamente las opciones de refuerzo seleccionadas en el flujo de diseño.")
+    _comment(document, f"Resultado conjunto de las verificaciones de concreto armado: {overall}. "
+             "Se consideran flexión, cortante, acero secundario, fisuración y longitudes de desarrollo del refuerzo adoptado.")
 
 
 def _references(document: Document) -> None:
     document.add_heading("9. Referencias normativas", level=1)
     for text in (
-        "Ministerio de Transportes y Comunicaciones. Manual de Puentes, Lima, 2018. Archivo de consulta: docs/Manual de Puentes MTC 2018 (PGA).pdf.",
-        "Rodríguez Serquén, Arturo. Puentes con AASHTO LRFD 2020, 9th Edition. Archivo de consulta en la carpeta docs del proyecto.",
+        "Ministerio de Transportes y Comunicaciones. Manual de Puentes, Lima, 2018.",
+        "Rodríguez Serquén, Arturo. Puentes con AASHTO LRFD 2020, 9th Edition.",
         "AASHTO LRFD Bridge Design Specifications, criterios equivalentes incorporados mediante las referencias del Manual de Puentes MTC 2018.",
     ):
         document.add_paragraph(text, style="List Bullet")
@@ -1057,7 +1058,7 @@ def _bar_area_cm2(label: str) -> float:
 
 
 def _status_comment(status: str, ok_text: str) -> str:
-    return ok_text if _is_ok(status) else "La verificación no cumple; debe modificarse la geometría o el refuerzo y repetirse el cálculo antes de emitir planos."
+    return ok_text if _is_ok(status) else "La verificación no cumple con el criterio de aceptación establecido."
 
 
 def _is_ok(status: str) -> bool:

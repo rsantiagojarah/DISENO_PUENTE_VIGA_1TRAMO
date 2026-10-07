@@ -35,7 +35,8 @@ def collect_connected_inputs(*, side=None, foundation_geometry=None, collect_det
     left = side if side is not None else collect_abutment_inputs(title="ESTRIBO COMUN CON CAJUELA", defaults_note=note,
                                    load_title="REACCIONES DEL TABLERO - ESTRIBO IZQUIERDO",
                                    collect_key=False, geometry_defaults=connected_geometry_defaults(),
-                                   load_defaults=connected_load_defaults())
+                                   load_defaults=connected_load_defaults(),
+                                   ask_foundation_interface=False)
     if collect_detailing:
         left = _collect_connected_detailing(left, "comun")
     right = replace(left)

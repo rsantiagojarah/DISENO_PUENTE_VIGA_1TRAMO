@@ -141,7 +141,7 @@ def test_sloping_fill_rejected_and_rough_interface_supported():
 
 def test_console_accepts_compatible_inclined_theta(monkeypatch):
     from bridge_design.cli.abutment_input_prompts import _collect_soil
-    answers=iter(["0","","30","0","0","88","","0","",""])
+    answers=iter(["0","","30","","0","0","88","","0","",""])
     monkeypatch.setattr("builtins.input",lambda _:next(answers))
     assert _collect_soil(wall().geometry,element_label="muro").wall_backface_angle_deg==88
 

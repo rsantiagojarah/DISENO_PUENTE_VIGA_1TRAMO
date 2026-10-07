@@ -230,6 +230,14 @@ class AbutmentSoilInputs:
     fpga: float = 1.20
     vehicular_surcharge_height_m: float | None = None
     pedestrian_surcharge_tn_m2: float = 0.0
+    foundation_interface_friction_deg: float | None = None
+
+    @property
+    def base_interface_friction_deg(self) -> float:
+        """Concrete-foundation interface angle used only for footing sliding."""
+        if self.foundation_interface_friction_deg is None:
+            return self.friction_angle_deg
+        return self.foundation_interface_friction_deg
 
     def __post_init__(self) -> None:
         require_positive(self.allowable_bearing_kg_cm2, "qadm")
@@ -243,6 +251,11 @@ class AbutmentSoilInputs:
         if self.vehicular_surcharge_height_m is not None:
             require_non_negative(self.vehicular_surcharge_height_m, "h' sobrecarga vehicular")
         require_non_negative(self.pedestrian_surcharge_tn_m2, "sobrecarga peatonal")
+        foundation_friction = self.foundation_interface_friction_deg
+        if foundation_friction is not None and (
+            not isfinite(foundation_friction) or foundation_friction <= 0.0 or foundation_friction >= 90.0
+        ):
+            raise ValueError("delta suelo-cimentacion debe ser mayor que 0 y menor que 90 grados.")
         _validate_coulomb_angles(
             self.friction_angle_deg,
             self.wall_soil_friction_deg,
@@ -1807,7 +1820,7 @@ def _stability_state(
     x_resultant = (mvu - mhu) / vu
     eccentricity = inputs.geometry.footing_width_m / 2.0 - x_resultant
     abs_eccentricity = abs(eccentricity)
-    friction = tan(radians(inputs.soil.friction_angle_deg)) * vu
+    friction = tan(radians(inputs.soil.base_interface_friction_deg)) * vu
     key_resistance = friction + (key.factored_passive_tn_m if key is not None else 0.0)
     q_allow = _allowable_factored_bearing(inputs, factors)
     b = inputs.geometry.footing_width_m

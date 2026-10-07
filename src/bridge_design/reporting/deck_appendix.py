@@ -7,6 +7,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyle, XPreformatted
 
 from bridge_design.reporting.pdf_style import PALE, RULE, p, register_arial_narrow
+from bridge_design.reporting.deck_report_notes import formal_audit_line
 
 
 def audit_appendix(sections: tuple[tuple[str, str], ...], styles) -> list:
@@ -14,8 +15,8 @@ def audit_appendix(sections: tuple[tuple[str, str], ...], styles) -> list:
     story = [
         p("Anexo A. Trazabilidad numerica completa", styles["h1"]),
         p(
-            "Este anexo reproduce la salida numerica completa del motor: casos sin factor, "
-            "combinaciones, opciones de acero, verificaciones de servicio, fatiga, desarrollo y "
+            "Este anexo presenta los casos sin factor, las combinaciones, el refuerzo adoptado "
+            "y las verificaciones de servicio, fatiga, desarrollo y "
             "detalle constructivo. Es parte integral de la memoria.",
             styles["body"],
         ),
@@ -32,7 +33,7 @@ def _trace_blocks(text: str, styles) -> list:
     mono_style.fontName = font
     mono_style.fontSize = 5.8
     mono_style.leading = 6.8
-    lines = [line.rstrip() for line in text.splitlines()]
+    lines = [formal_audit_line(line.rstrip()) for line in text.splitlines()]
     blocks: list = []
     current: list[str] = []
     for line in lines:

@@ -38,6 +38,7 @@ def collect_abutment_inputs(
     geometry_defaults: AbutmentGeometryInputs | None = None,
     shared_bearing_soil: AbutmentSoilInputs | None = None,
     shared_materials: AbutmentMaterialInputs | None = None,
+    ask_foundation_interface: bool = True,
 ) -> AbutmentInputs:
     """Collect abutment design inputs from terminal."""
     print("=" * 72)
@@ -51,7 +52,12 @@ def collect_abutment_inputs(
         loads = _collect_loads(load_defaults, load_title, load_note)
     else:
         loads = cantilever_wall_load_inputs()
-    soil = _collect_soil(geometry, element_label, shared_bearing_soil)
+    soil = _collect_soil(
+        geometry,
+        element_label,
+        shared_bearing_soil,
+        ask_foundation_interface=ask_foundation_interface,
+    )
     gamma_eq = _prompt_gamma_eq(GAMMA_EQ_DEFAULT)
     key = (
         collect_abutment_key(default_passive_soil_height_m=geometry.front_soil_depth_m)
@@ -192,6 +198,7 @@ def _collect_soil(
     element_label: str = "estribo",
     shared_bearing_soil: AbutmentSoilInputs | None = None,
     *, fixed_backface_angle: float | None = None,
+    ask_foundation_interface: bool = True,
 ) -> AbutmentSoilInputs:
     default = AbutmentSoilInputs()
     default_h_eq = equivalent_vehicular_surcharge_height_m(geometry.retained_height_m)
@@ -209,6 +216,9 @@ def _collect_soil(
         default.allowable_bearing_kg_cm2,
     )
     friction_angle = prompt_float("Angulo de friccion del relleno", "grados", default.friction_angle_deg)
+    foundation_interface = (
+        _prompt_foundation_interface(friction_angle) if ask_foundation_interface else None
+    )
     wall_soil_friction = prompt_non_negative_float("delta muro-suelo", "grados", default.wall_soil_friction_deg)
     while wall_soil_friction > friction_angle:
         print("delta no puede superar el angulo de friccion del relleno.")
@@ -244,7 +254,21 @@ def _collect_soil(
             "Ton/m2",
             default.pedestrian_surcharge_tn_m2,
         ),
+        foundation_interface_friction_deg=foundation_interface,
     )
+
+
+def _prompt_foundation_interface(friction_angle_deg: float) -> float:
+    """Ask the concrete-to-foundation friction angle used only for sliding."""
+    suggested = friction_angle_deg * 2.0 / 3.0
+    print("delta suelo-cimentacion es la interfaz concreto-suelo de la zapata.")
+    print("Se usa solo en el deslizamiento: Ff = Vu*tan(delta). El angulo del relleno sigue en los empujes.")
+    print("Valor sugerido: 2/3 del angulo de friccion del relleno. Use el delta del estudio de suelos si difiere.")
+    while True:
+        value = prompt_float("delta suelo-cimentacion", "grados", suggested)
+        if value < 90.0:
+            return value
+        print("delta suelo-cimentacion debe ser menor que 90 grados.")
 
 
 def _prompt_gamma_eq(default: float) -> float:

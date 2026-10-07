@@ -8,6 +8,7 @@ from reportlab.lib.units import mm
 from bridge_design.domain.diaphragm import combine_diaphragm_moments
 from bridge_design.reporting.deck_charts import moment_shear_pair
 from bridge_design.reporting.models import DeckReportData, selected_option
+from bridge_design.reporting.deck_report_notes import formal_cantilever_notes, formal_interior_collision_notes
 from bridge_design.reporting.pdf_style import data_table, formula_card, p
 
 
@@ -121,7 +122,7 @@ def cantilever_story(data: DeckReportData, styles) -> list:
             styles,
         ),
     ]
-    story.extend(p(note, styles["body"]) for note in result.applicability_notes)
+    story.extend(p(note, styles["body"]) for note in formal_cantilever_notes(result))
     if result.barrier_collision is not None:
         collision = result.barrier_collision
         story.append(formula_card(
@@ -265,7 +266,7 @@ def _interior_collision_story(collision, styles) -> list:
             ),
         ]
     )
-    story.extend(p(note, styles["small"]) for note in collision.notes)
+    story.extend(p(note, styles["small"]) for note in formal_interior_collision_notes(collision))
     return story
 
 
@@ -281,7 +282,7 @@ def diaphragm_story(data: DeckReportData, styles) -> list:
         p("7. Diafragmas", styles["h1"]),
         p(
             "El diafragma se analiza transversalmente entre vigas con voladizos extremos. Las "
-            "alturas ingresadas corresponden al concreto bajo la losa y el peralte resistente "
+            "alturas adoptadas corresponden al concreto bajo la losa y el peralte resistente "
             "incluye el espesor de la losa monolitica. Las "
             "cargas permanentes y peatonales actuan en su ubicacion fisica; las ruedas se desplazan "
             "en ambos sentidos, de izquierda a derecha y de derecha a izquierda, invirtiendo "

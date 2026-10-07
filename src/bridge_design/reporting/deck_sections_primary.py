@@ -38,8 +38,8 @@ def cover_story(data: DeckReportData, styles) -> list:
         ),
         Spacer(1, 32 * mm),
         p(
-            "Documento generado automaticamente con los valores adoptados durante la ejecucion. "
-            "Las sustituciones numericas y verificaciones corresponden a esta corrida de calculo.",
+            "La memoria desarrolla las expresiones, sustituciones numericas y verificaciones "
+            "correspondientes a la geometria, las acciones y el refuerzo adoptados.",
             styles["small"],
         ),
         PageBreak(),
@@ -52,7 +52,7 @@ def input_story(data: DeckReportData, styles) -> list:
     c = inputs.materials.concrete
     v = inputs.live_loads.vehicular
     story = [
-        p("1. Alcance, criterios y datos de entrada", styles["h1"]),
+        p("1. Bases de diseno y parametros adoptados", styles["h1"]),
         p(
             "El tablero se modela con losa transversal continua sobre las vigas principales, "
             "vigas longitudinales simplemente apoyadas, barreras de concreto, voladizos y "

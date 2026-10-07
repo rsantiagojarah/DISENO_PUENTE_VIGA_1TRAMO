@@ -158,7 +158,7 @@ def test_yaml_and_reports_carry_actual_and_virtual_delta(pure):
 
 def test_console_accepts_nonzero_delta(monkeypatch):
     from bridge_design.cli.abutment_input_prompts import _collect_soil
-    answers=iter(["0","","30","15","0","88","","0","",""])
+    answers=iter(["0","","30","","15","0","88","","0","",""])
     monkeypatch.setattr("builtins.input",lambda _:next(answers))
     assert _collect_soil(wall().geometry,element_label="muro").wall_soil_friction_deg==15
 

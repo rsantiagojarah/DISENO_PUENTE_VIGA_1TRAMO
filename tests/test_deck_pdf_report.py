@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 from pathlib import Path
+from types import SimpleNamespace
 
 from lxml import etree
 
@@ -59,6 +60,13 @@ def test_deck_command_generates_detailed_word_memory_automatically(tmp_path) -> 
     assert "Referencia normativa" in xml
     assert "páginas PDF" not in xml
     assert "página PDF" not in xml
+    for operational_text in (
+        "selección personalizada del usuario", "este módulo", "módulo receptor",
+        "Archivo de consulta", "carpeta docs", "Archivo: docs/", "PENDIENTE",
+        "antes de emitir", "deberían continuarse", "altura ingresada",
+        "sustitucion automatica", "requiere el modelo global", "no certifica",
+    ):
+        assert operational_text not in xml
     assert "m:oMath" in xml
     assert "m:f" in xml
     assert "Cargas permanentes distribuidas sobre la viga" in xml
@@ -116,3 +124,50 @@ def test_cancelled_save_dialog_does_not_write_a_report(monkeypatch, tmp_path) ->
     monkeypatch.setattr(deck_docx, "select_deck_docx_save_path", lambda: None)
     assert deck_docx.generate_deck_docx_with_dialog(object()) is None
     assert list(tmp_path.iterdir()) == []
+
+
+def test_formal_deck_text_preserves_custom_steel_and_failed_checks() -> None:
+    option = SimpleNamespace(is_custom=True, is_compliant=False, bar_count=4,
+                             bar_label='1"', layers=2, provided_area_cm2=20.0)
+    assert deck_docx._option_text(option) == '4 barras de 1" distribuidas en 2 capas, As = 20.000 cm²'
+    assert deck_docx._option_status(option) == "REVISAR"
+    assert "no cumple" in deck_docx._compliance_comment(option, "CUMPLE")
+    assert not deck_docx._looks_compliant(deck_docx._status_comment("NO CUMPLE", "CUMPLE"))
+
+
+def test_shared_deck_notes_describe_only_the_calculated_scope() -> None:
+    from bridge_design.reporting.deck_report_notes import (
+        formal_cantilever_notes, formal_interior_collision_notes,
+    )
+
+    result = SimpleNamespace(applicability_notes=(
+        "Colision local de barrera sobre voladizo: NO APLICABLE. PENDIENTE: verificar transferencia.",
+        "Demanda de barrera conservada: Ft=25.000 Tn; Anclaje: NO CUMPLE.",
+    ))
+    notes = formal_cantilever_notes(result)
+    assert "acciones directas" in notes[0]
+    assert notes[1] == result.applicability_notes[1]
+    assert "PENDIENTE" not in " ".join(notes)
+    collision = SimpleNamespace(notes=(
+        "Armadura indicada: minimo TOTAL por colision. Adoptar la MAYOR demanda.",
+        "Alcance: transferencia LOCAL; requiere el modelo global.",
+    ))
+    notes = formal_interior_collision_notes(collision)
+    assert "minimo total por colision" in notes[0]
+    assert "transferencia local barrera-losa" in notes[1]
+
+
+def test_formal_pdf_appendix_retains_numerical_rows_and_failed_results() -> None:
+    from bridge_design.reporting.deck_report_notes import formal_audit_line
+    from bridge_design.reporting.deck_appendix import audit_appendix
+    from bridge_design.reporting.pdf_style import report_styles
+
+    row = "  | Viga interior | Mu=125.000 | Mr=100.000 | NO CUMPLE |"
+    assert formal_audit_line(row) == row
+    note = "Alcance: transferencia LOCAL barrera-losa. La distribucion horizontal requiere el modelo global."
+    assert "transferencia local barrera-losa" in formal_audit_line(note)
+    assert "requiere" not in formal_audit_line(note)
+    story = audit_appendix((("Viga interior", row + "\n\n" + note),), report_styles())
+    assert story
+    assert "motor" not in story[1].getPlainText()
+    assert "verificaciones de servicio, fatiga, desarrollo" in story[1].getPlainText()

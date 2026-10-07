@@ -24,7 +24,7 @@ def geometry():
 
 @pytest.mark.parametrize("answer", ["", "auto", " AUTO "])
 def test_enter_or_auto_uses_full_precision_geometry(monkeypatch, capsys, answer):
-    answers = iter(["", "", "", "", "", answer, "", "", "", ""])
+    answers = iter(["", "", "", "", "", "", answer, "", "", "", ""])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     soil = _collect_soil(geometry(), element_label="muro")
     assert soil.wall_backface_angle_deg == pytest.approx(85.42607874009914, abs=1e-12)
@@ -33,7 +33,7 @@ def test_enter_or_auto_uses_full_precision_geometry(monkeypatch, capsys, answer)
 
 @pytest.mark.parametrize("answer, expected", [("90", 90.0), ("88", 88.0)])
 def test_console_preserves_manual_choice(monkeypatch, answer, expected):
-    answers = iter(["", "", "", "", "", answer, "", "", "", ""])
+    answers = iter(["", "", "", "", "", "", answer, "", "", "", ""])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     assert _collect_soil(geometry(), element_label="muro").wall_backface_angle_deg == expected
 
@@ -45,7 +45,7 @@ def test_equal_thickness_auto_is_vertical(monkeypatch):
 
 
 def test_invalid_automatic_slope_reprompts_without_silent_geometry_change(monkeypatch, capsys):
-    answers = iter(["", "", "", "", "5", "", "90", "", "", "", ""])
+    answers = iter(["", "", "", "", "", "5", "", "90", "", "", "", ""])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     soil = _collect_soil(geometry(), element_label="muro")
     assert soil.wall_backface_angle_deg == 90.0

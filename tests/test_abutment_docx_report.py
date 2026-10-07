@@ -2,6 +2,9 @@
 
 from pathlib import Path
 from zipfile import ZipFile
+from dataclasses import replace
+
+from docx import Document
 
 from bridge_design.domain.abutment import AbutmentGeometryInputs, AbutmentInputs, solve_abutment_design
 from bridge_design.reporting import abutment_docx
@@ -97,7 +100,12 @@ def test_pure_wall_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
         ),
         is_pure_wall=True,
     )
+    wall_inputs = replace(
+        wall_inputs,
+        soil=replace(wall_inputs.soil, vehicular_surcharge_height_m=0.75),
+    )
     result = solve_abutment_design(wall_inputs)
+    result = replace(result, stem_design=replace(result.stem_design, is_custom_selection=True))
     assert result.stem_reinforcement_cut is not None
     output = abutment_docx.generate_abutment_docx(
         result,
@@ -140,6 +148,30 @@ def test_pure_wall_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "Cuadro de barras" in xml
     assert "H20-H21" not in xml
     assert "H21:" not in xml
+    for operational_text in (
+        "usuario", "estilos jerárquicos de Word", "dato de entrada",
+        "flujo de diseño", "Archivo de consulta", "carpeta docs",
+        "requiere comprobar", "deben coordinarse", "No se acredita",
+    ):
+        assert operational_text not in xml
+    assert "h's,adoptada" in xml
+    assert "0.750" in xml
+    assert "Estado por longitudes" in xml
+    assert "Resultado conjunto de las verificaciones de concreto armado" in xml
+
+
+def test_formal_word_report_preserves_failed_design_statuses() -> None:
+    result = solve_abutment_design(AbutmentInputs(is_pure_wall=True))
+    result = replace(result, stem_design=replace(result.stem_design, moment_status="NO"))
+    document = Document()
+    abutment_docx._configure_document(document)
+    abutment_docx._structural_case(document, result, result.stem_design)
+    abutment_docx._summary(document, result)
+    text = "\n".join(p.text for p in document.paragraphs)
+    assert "con estado a flexión NO" in text
+    assert "La verificación no cumple con el criterio de aceptación establecido." in text
+    assert "Resultado conjunto de las verificaciones de concreto armado: REVISAR" in text
+    assert "antes de emitir planos" not in text
 
 
 def test_pure_wall_without_toe_omits_toe_design_from_word_report(tmp_path: Path) -> None:

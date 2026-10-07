@@ -546,7 +546,7 @@ def test_wall_soil_prompt_accepts_zero_vehicular_surcharge(monkeypatch) -> None:
     from bridge_design.cli.abutment_input_prompts import _collect_soil
     from bridge_design.domain.abutment import AbutmentGeometryInputs
 
-    answers = iter(["0", "", "", "", "", "", "", "", "", ""])
+    answers = iter(["0", "", "", "", "", "", "", "", "", "", ""])
     prompts: list[str] = []
 
     def fake_input(prompt: str) -> str:
@@ -559,6 +559,8 @@ def test_wall_soil_prompt_accepts_zero_vehicular_surcharge(monkeypatch) -> None:
 
     assert soil.vehicular_surcharge_height_m == 0.0
     assert soil.allowable_bearing_kg_cm2 > 0.0
+    assert soil.foundation_interface_friction_deg == pytest.approx(20.0)
+    assert "delta suelo-cimentacion (grados) [20]: " in prompts
     assert "h' sobrecarga vehicular equivalente (m) [0.6]: " in prompts
     assert "qadm capacidad portante admisible (kg/cm2) [2.67]: " in prompts
     assert any("Enter=auto, vertical=90" in prompt and "[auto:" in prompt for prompt in prompts)
@@ -568,7 +570,7 @@ def test_wall_soil_prompt_rejects_theta_measured_from_vertical(monkeypatch, caps
     from bridge_design.cli.abutment_input_prompts import _collect_soil
     from bridge_design.domain.abutment import AbutmentGeometryInputs
 
-    answers = iter(["0", "", "28", "0", "", "5", "90", "", "", "", ""])
+    answers = iter(["0", "", "28", "", "0", "", "5", "90", "", "", "", ""])
 
     def fake_input(prompt: str) -> str:
         return next(answers)
@@ -669,6 +671,53 @@ def test_pure_wall_report_uses_reorganized_design_structure() -> None:
     assert "CALCULO DE ACERO" in report
     assert "DISENO DE PANTALLA" in report
     assert "DISENO DE CIMENTACION" in report
+
+
+def test_foundation_interface_angle_changes_only_sliding() -> None:
+    from math import radians, tan
+
+    from bridge_design.cli.yaml_inputs import (
+        abutment_inputs_from_yaml,
+        abutment_yaml_template,
+        cantilever_wall_inputs_from_yaml,
+        cantilever_wall_yaml_template,
+    )
+    from bridge_design.domain.abutment import AbutmentInputs, AbutmentSoilInputs, solve_abutment_design
+
+    phi = 36.12
+    delta = 24.08
+    for pure_wall in (True, False):
+        full = solve_abutment_design(AbutmentInputs(
+            is_pure_wall=pure_wall,
+            soil=AbutmentSoilInputs(friction_angle_deg=phi),
+        ))
+        reduced = solve_abutment_design(AbutmentInputs(
+            is_pure_wall=pure_wall,
+            soil=AbutmentSoilInputs(friction_angle_deg=phi, foundation_interface_friction_deg=delta),
+        ))
+        assert reduced.with_bridge[0].vu_tn_m == pytest.approx(full.with_bridge[0].vu_tn_m)
+        assert full.with_bridge[0].friction_resistance_tn_m == pytest.approx(
+            full.with_bridge[0].vu_tn_m * tan(radians(phi))
+        )
+        assert reduced.with_bridge[0].friction_resistance_tn_m == pytest.approx(
+            reduced.with_bridge[0].vu_tn_m * tan(radians(delta))
+        )
+
+    wall = cantilever_wall_yaml_template()
+    abutment = abutment_yaml_template()
+    assert wall["suelo_sismo"]["delta_suelo_cimentacion_grados"] == 30.0
+    assert abutment["suelo_sismo"]["delta_suelo_cimentacion_grados"] == 30.0
+    del wall["suelo_sismo"]["delta_suelo_cimentacion_grados"]
+    del abutment["suelo_sismo"]["delta_suelo_cimentacion_grados"]
+    assert cantilever_wall_inputs_from_yaml(wall).soil.base_interface_friction_deg == 30.0
+    assert abutment_inputs_from_yaml(abutment).soil.foundation_interface_friction_deg is None
+    wall["suelo_sismo"]["delta_suelo_cimentacion_grados"] = delta
+    loaded = cantilever_wall_inputs_from_yaml(wall)
+    assert loaded.soil.foundation_interface_friction_deg == delta
+    assert loaded.soil.friction_angle_deg == 30.0
+    with pytest.raises(ValueError, match="delta suelo-cimentacion"):
+        wall["suelo_sismo"]["delta_suelo_cimentacion_grados"] = 90
+        cantilever_wall_inputs_from_yaml(wall)
 
 
 def test_pyproject_exposes_wall_console_commands() -> None:

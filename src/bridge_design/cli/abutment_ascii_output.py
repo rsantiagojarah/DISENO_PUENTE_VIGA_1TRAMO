@@ -1,7 +1,6 @@
 """ASCII report for cantilever abutment design."""
 
 import re
-from math import radians, tan
 
 from bridge_design.cli.ascii_tables import audit_block_title, audit_subtitle, boxed_table, key_value_box
 from bridge_design.domain.abutment import (
@@ -378,7 +377,14 @@ def _format_input_summary(result: AbutmentDesignResult) -> list[str]:
                 ("PLL+IM vehicular", f"{loads.pll_im_tn_m:.3f} Ton/m"),
             ]
         )
-    values.append(("Sobrecarga peatonal en relleno", f"{soil.pedestrian_surcharge_tn_m2:.3f} Ton/m2"))
+    values.extend(
+        [
+            ("Angulo de friccion del relleno", f"{soil.friction_angle_deg:.3f} grados"),
+            ("delta suelo-cimentacion", f"{soil.base_interface_friction_deg:.3f} grados"),
+            ("delta muro-suelo", f"{soil.wall_soil_friction_deg:.3f} grados"),
+            ("Sobrecarga peatonal en relleno", f"{soil.pedestrian_surcharge_tn_m2:.3f} Ton/m2"),
+        ]
+    )
     return [
         "",
         *key_value_box(
@@ -656,7 +662,7 @@ def _format_soil_pressure_procedure(result: AbutmentDesignResult) -> list[str]:
 def _format_stability_procedure(result: AbutmentDesignResult) -> list[str]:
     g = result.inputs.geometry
     soil = result.inputs.soil
-    tan_phi = tan(radians(soil.friction_angle_deg))
+    base_friction = soil.base_interface_friction_deg
     rows = []
     states = (
         result.with_bridge + result.service_with_bridge
@@ -679,7 +685,7 @@ def _format_stability_procedure(result: AbutmentDesignResult) -> list[str]:
                 (state.name, "MHu", "sum(gamma_i * P_i * y_i)", f"{state.overturning_moment_tn_m_m:.3f} Tn*m/m"),
                 (state.name, "xR", "(MVu - MHu) / Vu", f"{state.resultant_x_m:.3f} m"),
                 (state.name, "e", "B/2 - xR", f"{g.footing_width_m / 2.0:.3f} - {state.resultant_x_m:.3f} = {state.eccentricity_m:.3f} m"),
-                (state.name, "Ff", "Vu * tan(phi)", f"{state.vu_tn_m:.3f}*tan({soil.friction_angle_deg:.3f}) = {state.friction_resistance_tn_m:.3f} Tn/m"),
+                (state.name, "Ff", "Vu * tan(delta suelo-cimentacion)", f"{state.vu_tn_m:.3f}*tan({base_friction:.3f}) = {state.friction_resistance_tn_m:.3f} Tn/m"),
                 (state.name, "Contacto", "segun estado limite", f"{state.contact_type}; Lc/B={state.contact_length_ratio:.3f}"),
                 (state.name, "B' Meyerhof", "B - 2|e|", f"{state.effective_width_m:.3f} m"),
                 (state.name, "q Meyerhof", "Vu/B'/10", f"{state.geotechnical_pressure_kg_cm2:.3f} kg/cm2"),
@@ -904,7 +910,7 @@ def _format_stability(title: str, result: AbutmentDesignResult, states: tuple[St
     lines = ["", *audit_subtitle("", title, 112)]
     data = result.inputs
     b = data.geometry.footing_width_m
-    phi = data.soil.friction_angle_deg
+    base_friction = data.soil.base_interface_friction_deg
     bearing_fs = data.soil.bearing_capacity_factor_fs
     q_allow = data.soil.allowable_bearing_kg_cm2
     for state in states:
@@ -922,7 +928,7 @@ def _format_stability(title: str, result: AbutmentDesignResult, states: tuple[St
             ("x resultante", f"({state.stabilizing_moment_tn_m_m:.3f}-{state.overturning_moment_tn_m_m:.3f})/{state.vu_tn_m:.3f}", f"{state.resultant_x_m:.3f} m"),
             ("Excentricidad e", f"{b:.3f}/2 - {state.resultant_x_m:.3f}", f"{state.eccentricity_m:.3f} m"),
             ("Limite emax", _eccentricity_limit_formula(result, state, b), f"{state.eccentricity_limit_m:.3f} m"),
-            ("Resistencia por friccion Ff", f"{state.vu_tn_m:.3f}*tan({phi:.3f})", f"{state.friction_resistance_tn_m:.3f} Tn/m"),
+            ("Resistencia por friccion Ff", f"{state.vu_tn_m:.3f}*tan({base_friction:.3f})", f"{state.friction_resistance_tn_m:.3f} Tn/m"),
             ("B' Meyerhof", f"{b:.3f} - 2*|{state.eccentricity_m:.3f}|", f"{state.effective_width_m:.3f} m"),
             ("q Meyerhof", f"{state.vu_tn_m:.3f}/{state.effective_width_m:.3f}/10", f"{state.geotechnical_pressure_kg_cm2:.3f} kg/cm2"),
             ("q limite suelo", _bearing_limit_formula(state, result), f"{state.q_allow_kg_cm2:.3f} kg/cm2"),
