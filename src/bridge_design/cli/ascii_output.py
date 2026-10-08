@@ -20,6 +20,7 @@ from bridge_design.domain.crack_control import (
 )
 from bridge_design.domain.diaphragm import (
     DiaphragmAnalysisResult,
+    DiaphragmBeamGeometry,
     DiaphragmCombinedMoment,
     DiaphragmFlexuralSteelDesign,
     combine_diaphragm_moments,
@@ -711,9 +712,11 @@ def _load_scheme_index(position: float, width: float) -> int:
 def format_diaphragm_design_result(
     result: DiaphragmAnalysisResult,
     project_inputs: ProjectInputs,
+    geometry: DiaphragmBeamGeometry | None = None,
+    title: str = "DISENO DE VIGA DIAFRAGMA",
 ) -> str:
     """Return an ASCII summary for transverse diaphragm beam design."""
-    geometry = project_inputs.diaphragm
+    geometry = geometry or project_inputs.diaphragm
     reinforcement = design_diaphragm_reinforcement(
         geometry=geometry,
         materials=project_inputs.materials,
@@ -721,7 +724,7 @@ def format_diaphragm_design_result(
     )
     lines = [
         "",
-        *audit_block_title("6", "DISENO DE VIGA DIAFRAGMA", 104),
+        *audit_block_title("6", title, 104),
         "Modelo: viga transversal continua apoyada en los ejes de vigas principales.",
         (
             f"Ancho total={geometry.total_width_m:.3f} m | S={geometry.girder_spacing_m:.3f} m | "

@@ -270,16 +270,16 @@ def _interior_collision_story(collision, styles) -> list:
     return story
 
 
-def diaphragm_story(data: DeckReportData, styles) -> list:
-    geometry = data.project_inputs.diaphragm
-    result = data.diaphragm_result
-    reinforcement = data.diaphragm_reinforcement
+def diaphragm_story(data: DeckReportData, styles, *, geometry=None, result=None, reinforcement=None, title: str = "7. Diafragmas") -> list:
+    geometry = data.project_inputs.diaphragm if geometry is None else geometry
+    result = data.diaphragm_result if result is None else result
+    reinforcement = data.diaphragm_reinforcement if reinforcement is None else reinforcement
     rows = combine_diaphragm_moments(result)
     strength = [row for row in rows if row.combination_name == "RESISTENCIA I"]
     positive = max((row for row in strength if row.direction == "M+"), key=lambda row: row.combined_moment_tn_m)
     negative = min((row for row in strength if row.direction == "M-"), key=lambda row: row.combined_moment_tn_m)
     story = [
-        p("7. Diafragmas", styles["h1"]),
+        p(title, styles["h1"]),
         p(
             "El diafragma se analiza transversalmente entre vigas con voladizos extremos. Las "
             "alturas adoptadas corresponden al concreto bajo la losa y el peralte resistente "

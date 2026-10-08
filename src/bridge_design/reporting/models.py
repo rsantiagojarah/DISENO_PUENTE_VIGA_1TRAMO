@@ -39,6 +39,9 @@ class DeckReportData:
     diaphragm_result: Any
     diaphragm_reinforcement: Any
     diaphragm_selected: tuple[tuple[str, Any], ...]
+    end_diaphragm_result: Any = None
+    end_diaphragm_reinforcement: Any = None
+    end_diaphragm_selected: tuple[tuple[str, Any], ...] = ()
     audit_sections: tuple[tuple[str, str], ...] = ()
 
 

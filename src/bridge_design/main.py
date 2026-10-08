@@ -434,6 +434,39 @@ def run_bridge_design(project_inputs=None) -> None:
         diaphragm_selected
     )
     print(diaphragm_selection_report)
+    end_diaphragm_result = None
+    end_diaphragm_reinforcement = None
+    end_diaphragm_selected: tuple = ()
+    end_diaphragm_report = ""
+    end_diaphragm_selection_report = ""
+    if project_inputs.end_diaphragm is not None:
+        end_diaphragm_result = solve_diaphragm_design(
+            geometry=project_inputs.end_diaphragm,
+            materials=project_inputs.materials,
+            live_loads=project_inputs.live_loads,
+            layout=project_inputs.transverse_slab.load_layout,
+        )
+        end_diaphragm_report = format_diaphragm_design_result(
+            end_diaphragm_result,
+            project_inputs,
+            geometry=project_inputs.end_diaphragm,
+            title="DISENO DE VIGA DIAFRAGMA DE EXTREMO",
+        )
+        print(end_diaphragm_report)
+        end_diaphragm_reinforcement = design_diaphragm_reinforcement(
+            geometry=project_inputs.end_diaphragm,
+            materials=project_inputs.materials,
+            analysis=end_diaphragm_result,
+        )
+        end_diaphragm_selected = collect_diaphragm_reinforcement_selection(
+            end_diaphragm_reinforcement,
+            element_name="diafragma de extremo",
+        )
+        end_diaphragm_selection_report = format_diaphragm_reinforcement_selection(
+            end_diaphragm_selected,
+            title="ACEROS SELECCIONADOS - DIAFRAGMA DE EXTREMO",
+        )
+        print(end_diaphragm_selection_report)
     reaction_report = format_abutment_reaction_summary(
         interior_result=girder_result,
         exterior_result=exterior_result,
@@ -473,6 +506,9 @@ def run_bridge_design(project_inputs=None) -> None:
         diaphragm_result=diaphragm_result,
         diaphragm_reinforcement=diaphragm_reinforcement,
         diaphragm_selected=diaphragm_selected,
+        end_diaphragm_result=end_diaphragm_result,
+        end_diaphragm_reinforcement=end_diaphragm_reinforcement,
+        end_diaphragm_selected=end_diaphragm_selected,
         audit_sections=(
             ("Datos generales", input_report),
             ("Ubicacion de cargas", load_scheme_report),
@@ -489,6 +525,10 @@ def run_bridge_design(project_inputs=None) -> None:
             ("Barrera", barrier_report),
             ("Losa en voladizo", cantilever_report + "\n" + cantilever_selection_report + "\n" + cantilever_review_report),
             ("Diafragma", diaphragm_report + "\n" + diaphragm_selection_report),
+            *(
+                (("Diafragma de extremo", end_diaphragm_report + "\n" + end_diaphragm_selection_report),)
+                if end_diaphragm_result is not None else ()
+            ),
             ("Reacciones para estribos", reaction_report),
         ),
     )
@@ -863,6 +903,7 @@ def format_interior_girder_selected_main_reviews(
 
 def collect_diaphragm_reinforcement_selection(
     reinforcement: DiaphragmReinforcementDesign,
+    element_name: str = "diafragma",
 ) -> tuple[
     tuple[
         str,
@@ -874,7 +915,7 @@ def collect_diaphragm_reinforcement_selection(
 ]:
     """Allow the user to keep or change recommended diaphragm reinforcement."""
     answer = input(
-        "\nDesea seleccionar o cambiar el acero de la viga diafragma? [s/N]: "
+        f"\nDesea seleccionar o cambiar el acero del {element_name}? [s/N]: "
     ).strip().lower()
     recommended_negative = (
         reinforcement.negative.placement_options.recommended
@@ -891,26 +932,26 @@ def collect_diaphragm_reinforcement_selection(
     if answer not in ("s", "si", "y", "yes"):
         recommended_shear = _recommended_shear_option_or_raise(reinforcement.shear)
         return (
-            ("A. Acero principal negativo diafragma", recommended_negative),
-            ("B. Acero principal positivo diafragma", recommended_positive),
-            ("C. Temperatura caras laterales diafragma", recommended_temperature),
-            ("D. Estribos por corte diafragma", recommended_shear),
+            (f"A. Acero principal negativo {element_name}", recommended_negative),
+            (f"B. Acero principal positivo {element_name}", recommended_positive),
+            (f"C. Temperatura caras laterales {element_name}", recommended_temperature),
+            (f"D. Estribos por corte {element_name}", recommended_shear),
         )
     return (
         (
-            "A. Acero principal negativo diafragma",
+            f"A. Acero principal negativo {element_name}",
             _prompt_main_placement_option(reinforcement.negative.placement_options),
         ),
         (
-            "B. Acero principal positivo diafragma",
+            f"B. Acero principal positivo {element_name}",
             _prompt_main_placement_option(reinforcement.positive.placement_options),
         ),
         (
-            "C. Temperatura caras laterales diafragma",
+            f"C. Temperatura caras laterales {element_name}",
             _prompt_spacing_option(reinforcement.temperature.spacing_options),
         ),
         (
-            "D. Estribos por corte diafragma",
+            f"D. Estribos por corte {element_name}",
             _prompt_shear_stirrup_option(reinforcement.shear),
         ),
     )
@@ -926,11 +967,12 @@ def format_diaphragm_reinforcement_selection(
         ],
         ...,
     ],
+    title: str = "ACEROS SELECCIONADOS - VIGA DIAFRAGMA",
 ) -> str:
     """Return an ASCII summary of selected diaphragm reinforcement."""
     return "\n".join(
         [""] + _selected_reinforcement_table(
-            "ACEROS SELECCIONADOS - VIGA DIAFRAGMA",
+            title,
             selected,
         )
     )

@@ -310,7 +310,7 @@ def _contents(document: Document) -> None:
             ("4", "Viga principal exterior: resistencia, servicio, fatiga y detalle"),
             ("5", "Barrera de concreto: línea de fluencia, interfaz y anclaje"),
             ("6", "Losa en voladizo: Resistencia I, colisión, acero y desarrollo"),
-            ("7", "Viga diafragma: envolventes, flexión y cortante"),
+            ("7", "Viga diafragma interior y, si se define, diafragma de extremo"),
             ("8", "Reacciones para apoyos y estribos"),
             ("9", "Resumen del diseño adoptado"),
             ("10", "Referencias normativas"),
@@ -734,23 +734,30 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         "Los elementos se asignan de acuerdo con su ancho tributario; los accesorios de borde sólo se incorporan en la viga exterior.",
         REF_DEAD_LOAD,
     )
-    diaphragm_loads = tuple(
-        materials.concrete.specific_weight_tn_m3
-        * diaphragm.thickness_m
-        * diaphragm.height_m
-        * diaphragm.tributary_width_m
-        for diaphragm in geometry.diaphragms
+    diaphragm_rows = tuple(
+        (
+            item,
+            materials.concrete.specific_weight_tn_m3
+            * item.thickness_m
+            * item.height_m
+            * item.tributary_width_m,
+        )
+        for item in geometry.diaphragms
     )
-    if diaphragm_loads:
-        diaphragm = geometry.diaphragms[0]
+    if diaphragm_rows:
+        gamma = materials.concrete.specific_weight_tn_m3
+        detail = "\n".join(
+            f"x = {item.position_m:.3f} m: Pd = {gamma:.3f}·{item.thickness_m:.3f}·{item.height_m:.3f}·{item.tributary_width_m:.3f} = {load:.3f} Tn"
+            for item, load in diaphragm_rows
+        )
         _calc(
             document,
             "Peso concentrado de los diafragmas",
             "Pd = γc·td·hd·bd",
-            "Pd: peso de un diafragma asignado a la viga; γc: peso específico del concreto; td: espesor; hd: altura; bd: ancho tributario longitudinal",
-            f"Pd = {materials.concrete.specific_weight_tn_m3:.3f}·{diaphragm.thickness_m:.3f}·{diaphragm.height_m:.3f}·{diaphragm.tributary_width_m:.3f} = {diaphragm_loads[0]:.3f} Tn",
-            f"se aplican {len(diaphragm_loads)} carga(s) concentrada(s) en las posiciones geométricas de los diafragmas; la suma asignada es {sum(diaphragm_loads):.3f} Tn.",
-            "Estas cargas intervienen en las reacciones, momentos y cortantes del caso DC sin redistribuirse como carga uniforme.",
+            "Pd: peso de un diafragma asignado a la viga; γc: peso específico del concreto; td: espesor; hd: altura bajo la losa; bd: ancho tributario de la viga. El diafragma interior y el de extremo usan su propia altura.",
+            detail,
+            f"se aplican {len(diaphragm_rows)} carga(s) concentrada(s); la suma asignada es {sum(load for _, load in diaphragm_rows):.3f} Tn.",
+            "Estas cargas intervienen en las reacciones, momentos y cortantes del caso DC sin redistribuirse como carga uniforme. La carga colocada en el apoyo entra a la reacción y no flexiona el tramo.",
             REF_DEAD_LOAD,
         )
     asphalt_width = (
@@ -1305,23 +1312,76 @@ def _interior_collision_docx(document: Document, collision) -> None:
 
 
 def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> None:
-    geometry = data.project_inputs.diaphragm
-    result = data.diaphragm_result
-    reinforcement = data.diaphragm_reinforcement
+    has_end = data.end_diaphragm_result is not None and data.project_inputs.end_diaphragm is not None
+    _write_diaphragm_section(
+        document,
+        chart_dir,
+        geometry=data.project_inputs.diaphragm,
+        result=data.diaphragm_result,
+        reinforcement=data.diaphragm_reinforcement,
+        selected=data.diaphragm_selected,
+        materials_concrete=data.project_inputs.materials.concrete,
+        materials_steel=data.project_inputs.materials.steel,
+        heading="7. Viga diafragma interior" if has_end else "7. Viga diafragma",
+        section="7",
+        chart_stem="diafragma",
+        introduction=(
+            "Este diseño corresponde a los diafragmas interiores, dentro de la luz. "
+            "Los diafragmas de extremo se diseñan a continuación, con su propio peralte. "
+            if has_end else ""
+        )
+        + "El diafragma se analiza transversalmente como viga continua entre vigas principales. "
+        "La altura adoptada corresponde al concreto bajo la losa; el peralte resistente total "
+        "incluye el espesor de la losa monolítica. "
+        "Las cargas permanentes y peatonales permanecen fijas; las líneas de ruedas se ubican "
+        "desde ambos accesos físicos al tablero y se combinan en una única envolvente superior e inferior.",
+    )
+    if not has_end:
+        return
+    _write_diaphragm_section(
+        document,
+        chart_dir,
+        geometry=data.project_inputs.end_diaphragm,
+        result=data.end_diaphragm_result,
+        reinforcement=data.end_diaphragm_reinforcement,
+        selected=data.end_diaphragm_selected,
+        materials_concrete=data.project_inputs.materials.concrete,
+        materials_steel=data.project_inputs.materials.steel,
+        heading="7B. Viga diafragma de extremo",
+        section="7B",
+        chart_stem="diafragma_extremo",
+        introduction=(
+            "Este diafragma corresponde a los extremos del puente, sobre los apoyos. "
+            "Se analiza con el mismo modelo transversal y con su propio espesor y peralte. "
+            "Su peso se asigna a cada viga en x = 0 y en x = L, con el ancho tributario de esa viga. "
+            "La altura adoptada corresponde al concreto bajo la losa; el peralte resistente total "
+            "incluye el espesor de la losa monolítica."
+        ),
+    )
+
+
+def _write_diaphragm_section(
+    document: Document,
+    chart_dir: Path,
+    *,
+    geometry,
+    result,
+    reinforcement,
+    selected,
+    materials_concrete,
+    materials_steel,
+    heading: str,
+    section: str,
+    chart_stem: str,
+    introduction: str,
+) -> None:
     rows = [row for row in combine_diaphragm_moments(result) if row.limit_state == "Resistencia"]
     positive = max(rows, key=lambda row: row.combined_moment_tn_m)
     negative = min(rows, key=lambda row: row.combined_moment_tn_m)
     shear = max(combine_diaphragm_shears(result), key=lambda row: row.combined_shear_tn)
-    document.add_heading("7. Viga diafragma", level=1)
-    _body(
-        document,
-        "El diafragma se analiza transversalmente como viga continua entre vigas principales. "
-        "La altura adoptada corresponde al concreto bajo la losa; el peralte resistente total "
-        "incluye el espesor de la losa monolítica. "
-        "Las cargas permanentes y peatonales permanecen fijas; las líneas de ruedas se ubican "
-        "desde ambos accesos físicos al tablero y se combinan en una única envolvente superior e inferior."
-    )
-    document.add_heading("7.1 Modelo y estaciones críticas", level=2)
+    document.add_heading(heading, level=1)
+    _body(document, introduction)
+    document.add_heading(f"{section}.1 Modelo y estaciones críticas", level=2)
     _table(
         document,
         ("Parámetro", "Valor"),
@@ -1351,11 +1411,11 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
     for row, title in ((positive, "Momento positivo crítico"), (negative, "Momento negativo crítico")):
         _moment_combination_calc(document, title, row, include_pl=True)
     _shear_combination_calc(document, "Cortante crítico", shear, include_pl=True)
-    document.add_heading("7.2 Flexión y cortante", level=2)
+    document.add_heading(f"{section}.2 Flexión y cortante", level=2)
     for design, prefix in ((reinforcement.positive, "B."), (reinforcement.negative, "A.")):
-        _flexural_calc(document, design.label, design, selected_option(data.diaphragm_selected, prefix), data.project_inputs.materials.concrete, data.project_inputs.materials.steel, strip=False)
-    temp = selected_option(data.diaphragm_selected, "C.")
-    stirrup = selected_option(data.diaphragm_selected, "D.")
+        _flexural_calc(document, design.label, design, selected_option(selected, prefix), materials_concrete, materials_steel, strip=False)
+    temp = selected_option(selected, "C.")
+    stirrup = selected_option(selected, "D.")
     _calc(
         document,
         "Acero lateral por temperatura",
@@ -1396,11 +1456,11 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
         *_sectional_shear_calc_fields(reinforcement.shear, stirrup),
         REF_SHEAR,
     )
-    document.add_heading("7.3 Diagramas de diseño", level=2)
-    moment_path = save_strength_chart(result, chart_dir / "diafragma_momentos.png", title="Diafragma · envolventes de momento Resistencia I", kind="moment", include_pl=True, transverse=True)
-    shear_path = save_strength_chart(result, chart_dir / "diafragma_cortantes.png", title="Diafragma · envolventes de cortante Resistencia I", kind="shear", include_pl=True, transverse=True)
-    _picture(document, moment_path, "Figura 7.1. Envolventes factorizadas de momento del diafragma.")
-    _picture(document, shear_path, "Figura 7.2. Envolventes factorizadas de cortante del diafragma.")
+    document.add_heading(f"{section}.3 Diagramas de diseño", level=2)
+    moment_path = save_strength_chart(result, chart_dir / f"{chart_stem}_momentos.png", title=f"{heading} · envolventes de momento Resistencia I", kind="moment", include_pl=True, transverse=True)
+    shear_path = save_strength_chart(result, chart_dir / f"{chart_stem}_cortantes.png", title=f"{heading} · envolventes de cortante Resistencia I", kind="shear", include_pl=True, transverse=True)
+    _picture(document, moment_path, f"Figura {section}.1. Envolventes factorizadas de momento del diafragma.")
+    _picture(document, shear_path, f"Figura {section}.2. Envolventes factorizadas de cortante del diafragma.")
 
 
 def _reactions(document: Document, data: DeckReportData) -> None:
@@ -1552,7 +1612,9 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
             "calculados para colision. Los estados corresponden a cada comprobacion por separado. "
             "La conexion barrera-losa se evalua por capacidad con las longitudes de desarrollo calculadas.")
     for label, option in data.diaphragm_selected:
-        rows.append(("Diafragma", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
+        rows.append(("Diafragma interior" if data.end_diaphragm_result is not None else "Diafragma", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
+    for label, option in data.end_diaphragm_selected:
+        rows.append(("Diafragma extremo", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
     _table(document, ("Elemento", "Función", "Refuerzo adoptado", "Estado"), tuple(rows), widths=(32, 62, 48, 25), font_size=7.6)
     _comment(
         document,

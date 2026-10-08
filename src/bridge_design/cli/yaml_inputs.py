@@ -505,7 +505,18 @@ def project_yaml_template() -> YamlMap:
                 "longitud_tributaria_cargas_m": 0.25,
                 "paso_vehicular_m": 0.10,
             },
+            "diafragma_borde": {
+                "espesor_longitudinal_m": 0.30,
+                "altura_resistente_m": geometry.girder_total_height_m,
+                "longitud_tributaria_cargas_m": 0.30,
+                "paso_vehicular_m": 0.10,
+            },
         }
+    )
+    data["nota"] = (
+        "Complete o modifique los valores. Las unidades estan indicadas en cada clave. "
+        "diafragma es el diafragma interior, dentro de la luz. "
+        "diafragma_borde es el de los apoyos; elimine esa seccion si el puente no lleva diafragmas de extremo."
     )
     return data
 
@@ -675,16 +686,25 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
     ).with_distribution_factors(live_loads.vehicular)
 
     diaphragm_data = _section(data, "diafragma")
-    diaphragm = DiaphragmBeamGeometry(
-        girder_spacing_m=geometry.girder_spacing_m,
-        girder_count=geometry.girder_count,
-        deck_overhang_m=geometry.overhang_m,
-        thickness_m=float(_value(diaphragm_data, "espesor_longitudinal_m", 0.25)),
-        height_m=float(_value(diaphragm_data, "altura_resistente_m", max(geometry.girder_total_height_m - 0.10, 0.10))),
-        slab_thickness_m=geometry.slab_thickness_m,
-        load_tributary_length_m=float(_value(diaphragm_data, "longitud_tributaria_cargas_m", 0.25)),
-        vehicle_step_m=float(_value(diaphragm_data, "paso_vehicular_m", 0.10)),
+    diaphragm = _diaphragm_beam_geometry(
+        diaphragm_data,
+        geometry,
+        thickness_m=0.25,
+        height_m=max(geometry.girder_total_height_m - 0.10, 0.10),
+        tributary_length_m=0.25,
     )
+    end_diaphragm = None
+    if data.get("diafragma_borde"):
+        end_data = _section(data, "diafragma_borde")
+        end_thickness = float(_value(end_data, "espesor_longitudinal_m", diaphragm.thickness_m))
+        end_diaphragm = _diaphragm_beam_geometry(
+            end_data,
+            geometry,
+            thickness_m=end_thickness,
+            height_m=float(_value(end_data, "altura_resistente_m", diaphragm.height_m)),
+            tributary_length_m=float(_value(end_data, "longitud_tributaria_cargas_m", end_thickness)),
+            vehicle_step_m=float(_value(end_data, "paso_vehicular_m", diaphragm.vehicle_step_m)),
+        )
     transverse_slab = TransverseSlabDesignInputs(geometry=geometry, load_layout=layout)
     return ProjectInputs(
         materials=material_inputs,
@@ -694,4 +714,26 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
         interior_girder=interior_girder,
         exterior_girder=exterior_girder,
         diaphragm=diaphragm,
+        end_diaphragm=end_diaphragm,
+    )
+
+
+def _diaphragm_beam_geometry(
+    section: YamlMap,
+    geometry,
+    *,
+    thickness_m: float,
+    height_m: float,
+    tributary_length_m: float,
+    vehicle_step_m: float = 0.10,
+) -> DiaphragmBeamGeometry:
+    return DiaphragmBeamGeometry(
+        girder_spacing_m=geometry.girder_spacing_m,
+        girder_count=geometry.girder_count,
+        deck_overhang_m=geometry.overhang_m,
+        thickness_m=float(_value(section, "espesor_longitudinal_m", thickness_m)),
+        height_m=float(_value(section, "altura_resistente_m", height_m)),
+        slab_thickness_m=geometry.slab_thickness_m,
+        load_tributary_length_m=float(_value(section, "longitud_tributaria_cargas_m", tributary_length_m)),
+        vehicle_step_m=float(_value(section, "paso_vehicular_m", vehicle_step_m)),
     )

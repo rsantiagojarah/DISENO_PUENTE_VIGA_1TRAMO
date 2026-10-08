@@ -46,7 +46,21 @@ def generate_deck_pdf(data: DeckReportData, output_path: str | Path) -> Path:
     story.extend(girder_story(data, styles, exterior=True))
     story.extend(barrier_story(data, styles))
     story.extend(cantilever_story(data, styles))
-    story.extend(diaphragm_story(data, styles))
+    has_end = data.end_diaphragm_result is not None and data.end_diaphragm_reinforcement is not None
+    story.extend(diaphragm_story(
+        data,
+        styles,
+        title="7. Diafragma interior" if has_end else "7. Diafragmas",
+    ))
+    if has_end:
+        story.extend(diaphragm_story(
+            data,
+            styles,
+            geometry=data.project_inputs.end_diaphragm,
+            result=data.end_diaphragm_result,
+            reinforcement=data.end_diaphragm_reinforcement,
+            title="7B. Diafragma de extremo",
+        ))
     story.extend(reactions_story(data, styles))
     if data.audit_sections:
         story.append(PageBreak())

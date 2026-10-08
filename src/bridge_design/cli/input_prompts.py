@@ -440,6 +440,49 @@ def collect_diaphragm_beam_geometry(
     return geometry
 
 
+def collect_end_diaphragm_beam_geometry(
+    transverse_geometry: TransverseSlabGeometry,
+    interior_diaphragm: DiaphragmBeamGeometry,
+) -> DiaphragmBeamGeometry | None:
+    """Ask for the support diaphragm when its depth differs from the interior one."""
+    print()
+    print("=" * 60)
+    print("VIGA DIAFRAGMA DE EXTREMO - APOYOS")
+    print("=" * 60)
+    answer = input(
+        "Diafragma de extremo, en los apoyos, con peralte distinto? [s/N]: "
+    ).strip().lower()
+    if answer not in ("s", "si", "y", "yes"):
+        print("No se agregan diafragmas de extremo.")
+        return None
+    thickness = prompt_float(
+        "Espesor longitudinal del diafragma de extremo",
+        "m",
+        interior_diaphragm.thickness_m,
+    )
+    height = prompt_float(
+        "Altura del diafragma de extremo bajo la losa",
+        "m",
+        interior_diaphragm.height_m,
+    )
+    tributary = prompt_float(
+        "Longitud tributaria longitudinal para cargas sobre diafragma de extremo",
+        "m",
+        thickness,
+    )
+    geometry = diaphragm_geometry_from_transverse(
+        transverse=transverse_geometry,
+        thickness_m=thickness,
+        height_m=height,
+        load_tributary_length_m=tributary,
+    )
+    print(
+        "Se colocan dos diafragmas de extremo, en x = 0 y en x = L. "
+        f"h bajo losa = {geometry.height_m:.3f} m."
+    )
+    return geometry
+
+
 def _default_diaphragm_positions(span_length_m: float, count: int) -> tuple[float, ...]:
     if count <= 0:
         return ()
@@ -489,6 +532,7 @@ def collect_project_inputs() -> ProjectInputs:
         interior_girder,
     )
     diaphragm = collect_diaphragm_beam_geometry(geometry, interior_girder)
+    end_diaphragm = collect_end_diaphragm_beam_geometry(geometry, diaphragm)
     transverse_slab = TransverseSlabDesignInputs(
         geometry=geometry,
         load_layout=load_layout,
@@ -501,4 +545,5 @@ def collect_project_inputs() -> ProjectInputs:
         interior_girder=interior_girder,
         exterior_girder=exterior_girder,
         diaphragm=diaphragm,
+        end_diaphragm=end_diaphragm,
     )
