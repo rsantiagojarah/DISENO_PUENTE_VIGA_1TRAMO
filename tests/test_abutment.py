@@ -1154,3 +1154,23 @@ def test_coulomb_angle_validation_reports_invalid_backface_angle() -> None:
 def test_mononobe_okabe_rejects_backfill_slope_too_steep_for_seismic() -> None:
     with pytest.raises(ValueError, match="beta pendiente del relleno debe ser menor que phi menos"):
         AbutmentSoilInputs(friction_angle_deg=30.0, backfill_slope_deg=25.0)
+
+
+def test_abutment_geometry_figure_follows_modeled_section(tmp_path) -> None:
+    from bridge_design.reporting.abutment_docx_charts import abutment_stem_outline, save_abutment_geometry
+
+    result = solve_abutment_design()
+    geometry = result.inputs.geometry
+    outline = abutment_stem_outline(result.inputs)
+    assert len(outline) > 4
+
+    def span_at(elevation: float) -> float:
+        xs = [x for x, y in outline if abs(y - elevation) <= 1e-4]
+        return max(xs) - min(xs)
+
+    assert span_at(geometry.footing_thickness_m) == pytest.approx(geometry.lower_stem_thickness_m)
+    assert span_at(geometry.retained_height_m) == pytest.approx(geometry.seat_wall_width_m)
+    seat_elevation = geometry.retained_height_m - geometry.seat_block_height_m
+    assert span_at(seat_elevation) == pytest.approx(geometry.bearing_seat_length_m + geometry.seat_wall_width_m)
+    path = save_abutment_geometry(result, tmp_path / "geometria_estribo.png")
+    assert path.stat().st_size > 1000

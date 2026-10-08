@@ -757,7 +757,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
             "Pd: peso de un diafragma asignado a la viga; γc: peso específico del concreto; td: espesor; hd: altura bajo la losa; bd: ancho tributario de la viga. El diafragma interior y el de extremo usan su propia altura.",
             detail,
             f"se aplican {len(diaphragm_rows)} carga(s) concentrada(s); la suma asignada es {sum(load for _, load in diaphragm_rows):.3f} Tn.",
-            "Estas cargas intervienen en las reacciones, momentos y cortantes del caso DC sin redistribuirse como carga uniforme. La carga colocada en el apoyo entra a la reacción y no flexiona el tramo.",
+            "Estas cargas intervienen en las reacciones, momentos y cortantes del caso DC sin redistribuirse como carga uniforme. El eje del diafragma de extremo está a la mitad de su espesor desde cada borde de la viga.",
             REF_DEAD_LOAD,
         )
     asphalt_width = (
@@ -1353,7 +1353,7 @@ def _diaphragm(document: Document, data: DeckReportData, chart_dir: Path) -> Non
         introduction=(
             "Este diafragma corresponde a los extremos del puente, sobre los apoyos. "
             "Se analiza con el mismo modelo transversal y con su propio espesor y peralte. "
-            "Su peso se asigna a cada viga en x = 0 y en x = L, con el ancho tributario de esa viga. "
+            "Su peso se asigna a cada viga en el eje del diafragma, a la mitad de su espesor desde cada borde, con el ancho tributario de esa viga. "
             "La altura adoptada corresponde al concreto bajo la losa; el peralte resistente total "
             "incluye el espesor de la losa monolítica."
         ),

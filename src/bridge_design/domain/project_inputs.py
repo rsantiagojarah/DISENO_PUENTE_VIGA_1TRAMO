@@ -60,23 +60,35 @@ class ProjectInputs:
         object.__setattr__(self, "exterior_girder", exterior)
 
 
-def _is_support_diaphragm(position_m: float, span_m: float) -> bool:
-    return position_m <= _SUPPORT_DIAPHRAGM_TOLERANCE_M or abs(position_m - span_m) <= _SUPPORT_DIAPHRAGM_TOLERANCE_M
+def _occupies_end_diaphragm(position_m: float, span_m: float, thickness_m: float) -> bool:
+    """Return whether a load lies inside the end diaphragm measured from either edge."""
+    return (
+        position_m <= thickness_m + _SUPPORT_DIAPHRAGM_TOLERANCE_M
+        or position_m >= span_m - thickness_m - _SUPPORT_DIAPHRAGM_TOLERANCE_M
+    )
 
 
 def _girder_with_end_diaphragms(girder, end_diaphragm: DiaphragmBeamGeometry, tributary_width_m: float):
-    """Keep span diaphragms and place the end section at both supports."""
+    """Keep span diaphragms and place each end diaphragm on its own centerline.
+
+    The diaphragm face is flush with the girder end, so its axis is half its
+    thickness in from that edge.
+    """
+    thickness_m = end_diaphragm.thickness_m
+    if thickness_m >= girder.span_length_m:
+        raise ValueError("El espesor del diafragma de extremo debe ser menor que la luz.")
     kept = tuple(
         item for item in girder.diaphragms
-        if not _is_support_diaphragm(item.position_m, girder.span_length_m)
+        if not _occupies_end_diaphragm(item.position_m, girder.span_length_m, thickness_m)
     )
+    axis_m = thickness_m / 2.0
     ends = tuple(
         DiaphragmGeometry(
             position_m=position_m,
-            thickness_m=end_diaphragm.thickness_m,
+            thickness_m=thickness_m,
             height_m=end_diaphragm.height_m,
             tributary_width_m=tributary_width_m,
         )
-        for position_m in (0.0, girder.span_length_m)
+        for position_m in (axis_m, girder.span_length_m - axis_m)
     )
     return replace(girder, diaphragms=tuple(sorted((*kept, *ends), key=lambda item: item.position_m)))

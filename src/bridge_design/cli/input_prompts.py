@@ -477,8 +477,8 @@ def collect_end_diaphragm_beam_geometry(
         load_tributary_length_m=tributary,
     )
     print(
-        "Se colocan dos diafragmas de extremo, en x = 0 y en x = L. "
-        f"h bajo losa = {geometry.height_m:.3f} m."
+        "Se colocan dos diafragmas de extremo, con el eje a la mitad de su espesor "
+        f"desde cada borde. h bajo losa = {geometry.height_m:.3f} m."
     )
     return geometry
 
