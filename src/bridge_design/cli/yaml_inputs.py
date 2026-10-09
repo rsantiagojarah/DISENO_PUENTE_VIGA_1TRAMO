@@ -428,7 +428,7 @@ def project_yaml_template() -> YamlMap:
                 "volado_losa_m": geometry.overhang_m,
                 "numero_vigas": geometry.girder_count,
                 "espesor_losa_m": geometry.slab_thickness_m,
-                "altura_total_viga_m": geometry.girder_total_height_m,
+                "altura_viga_bajo_losa_m": geometry.girder_total_height_m,
                 "ancho_viga_m": geometry.girder_width_m,
             },
             "materiales": {
@@ -490,7 +490,7 @@ def project_yaml_template() -> YamlMap:
                     {
                         "ubicacion_m": position,
                         "espesor_longitudinal_m": 0.25,
-                        "altura_m": max(geometry.girder_total_height_m - 0.10, 0.10),
+                        "altura_bajo_losa_m": max(geometry.girder_total_height_m - 0.10, 0.10),
                         "ancho_tributario_transversal_m": geometry.girder_spacing_m,
                     }
                     for position in diaphragm_positions
@@ -501,13 +501,13 @@ def project_yaml_template() -> YamlMap:
             "viga_exterior": {},
             "diafragma": {
                 "espesor_longitudinal_m": 0.25,
-                "altura_resistente_m": max(geometry.girder_total_height_m - 0.10, 0.10),
+                "altura_bajo_losa_m": max(geometry.girder_total_height_m - 0.10, 0.10),
                 "longitud_tributaria_cargas_m": 0.25,
                 "paso_vehicular_m": 0.10,
             },
             "diafragma_borde": {
                 "espesor_longitudinal_m": 0.30,
-                "altura_resistente_m": geometry.girder_total_height_m,
+                "altura_bajo_losa_m": geometry.girder_total_height_m,
                 "longitud_tributaria_cargas_m": 0.30,
                 "paso_vehicular_m": 0.10,
             },
@@ -515,6 +515,8 @@ def project_yaml_template() -> YamlMap:
     )
     data["nota"] = (
         "Complete o modifique los valores. Las unidades estan indicadas en cada clave. "
+        "altura_viga_bajo_losa_m excluye el espesor de losa; el peralte total es la suma de ambos. "
+        "altura_bajo_losa_m en todos los diafragmas tambien excluye el espesor de losa. "
         "El ancho de vereda es libre: se mide desde la cara exterior de barrera hacia el borde. "
         "Ejemplo: vereda 1.50 y barrera en 1.65 m ubican la vereda de 0.15 a 1.65 m. "
         "La ubicacion de la carga de baranda es independiente de la ubicacion de vereda. "
@@ -570,7 +572,9 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
         overhang_m=float(_value(slab_g, "volado_losa_m", 0.825)),
         girder_count=int(_value(slab_g, "numero_vigas", 4)),
         slab_thickness_m=float(_value(slab_g, "espesor_losa_m", 0.20)),
-        girder_total_height_m=float(_value(slab_g, "altura_total_viga_m", 1.20)),
+        girder_total_height_m=float(_value(
+            slab_g, "altura_viga_bajo_losa_m", _value(slab_g, "altura_total_viga_m", 1.20)
+        )),
         girder_width_m=float(_value(slab_g, "ancho_viga_m", 0.30)),
     )
     layout_data = (
@@ -636,7 +640,10 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
         DiaphragmGeometry(
             position_m=float(_value(item, "ubicacion_m", 0.0)),
             thickness_m=float(_value(item, "espesor_longitudinal_m", 0.25)),
-            height_m=float(_value(item, "altura_m", max(geometry.girder_total_height_m - 0.10, 0.10))),
+            height_m=float(_value(
+                item, "altura_bajo_losa_m",
+                _value(item, "altura_m", max(geometry.girder_total_height_m - 0.10, 0.10)),
+            )),
             tributary_width_m=float(_value(item, "ancho_tributario_transversal_m", geometry.girder_spacing_m)),
         )
         for item in diaphragms_raw
@@ -705,7 +712,7 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
             end_data,
             geometry,
             thickness_m=end_thickness,
-            height_m=float(_value(end_data, "altura_resistente_m", diaphragm.height_m)),
+            height_m=diaphragm.height_m,
             tributary_length_m=float(_value(end_data, "longitud_tributaria_cargas_m", end_thickness)),
             vehicle_step_m=float(_value(end_data, "paso_vehicular_m", diaphragm.vehicle_step_m)),
         )
@@ -736,7 +743,7 @@ def _diaphragm_beam_geometry(
         girder_count=geometry.girder_count,
         deck_overhang_m=geometry.overhang_m,
         thickness_m=float(_value(section, "espesor_longitudinal_m", thickness_m)),
-        height_m=float(_value(section, "altura_resistente_m", height_m)),
+        height_m=float(_value(section, "altura_bajo_losa_m", _value(section, "altura_resistente_m", height_m))),
         slab_thickness_m=geometry.slab_thickness_m,
         load_tributary_length_m=float(_value(section, "longitud_tributaria_cargas_m", tributary_length_m)),
         vehicle_step_m=float(_value(section, "paso_vehicular_m", vehicle_step_m)),

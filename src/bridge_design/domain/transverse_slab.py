@@ -38,7 +38,7 @@ class TransverseSlabGeometry:
         require_positive(self.girder_spacing_m, "S")
         require_non_negative(self.overhang_m, "a")
         require_positive(self.slab_thickness_m, "espesor de losa")
-        require_positive(self.girder_total_height_m, "altura total de viga")
+        require_positive(self.girder_total_height_m, "altura de viga por debajo de la losa")
         require_positive(self.girder_width_m, "ancho de viga")
         require_positive(self.strip_length_m, "ancho longitudinal de analisis")
         if not self._allow_nonunit_strip and abs(self.strip_length_m - 1.0) > 1e-9:

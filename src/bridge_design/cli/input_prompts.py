@@ -122,7 +122,7 @@ def collect_transverse_geometry() -> TransverseSlabGeometry:
         overhang_m=prompt_non_negative_float("a - Volado de losa", "m", 0.825),
         girder_count=prompt_int("Numero de vigas/apoyos articulados", 4, minimum=2),
         slab_thickness_m=prompt_float("Espesor de losa", "m", 0.20),
-        girder_total_height_m=prompt_float("Altura total de la viga", "m", 1.20),
+        girder_total_height_m=prompt_float("Altura de la viga por debajo de la losa (sin espesor de losa)", "m", 1.20),
         girder_width_m=prompt_float("Ancho de cada viga", "m", 0.30),
     )
     print()

@@ -2,6 +2,31 @@ import pytest
 import yaml
 
 
+@pytest.mark.parametrize("height_key", ["altura_viga_bajo_losa_m", "altura_total_viga_m"])
+def test_deck_yaml_height_excludes_slab_and_accepts_legacy_name(height_key):
+    from bridge_design.cli.yaml_inputs import project_inputs_from_yaml, project_yaml_template
+
+    data = project_yaml_template()
+    geometry = data["modelo_transversal_losa"]
+    assert "altura_total_viga_m" not in geometry
+    geometry.pop("altura_viga_bajo_losa_m")
+    geometry[height_key] = 1.35
+    geometry["espesor_losa_m"] = 0.22
+    project = project_inputs_from_yaml(data)
+    assert project.transverse_slab.geometry.girder_total_height_m == pytest.approx(1.35)
+    for girder in (project.interior_girder, project.exterior_girder):
+        assert girder.girder_total_height_m == pytest.approx(1.35)
+        assert girder.total_t_section_depth_m == pytest.approx(1.57)
+
+
+def test_deck_yaml_prefers_explicit_below_slab_height_over_legacy_name():
+    from bridge_design.cli.yaml_inputs import project_inputs_from_yaml, project_yaml_template
+
+    data = project_yaml_template()
+    data["modelo_transversal_losa"].update(altura_viga_bajo_losa_m=1.35, altura_total_viga_m=1.60)
+    assert project_inputs_from_yaml(data).interior_girder.girder_total_height_m == pytest.approx(1.35)
+
+
 def test_abutment_yaml_output_and_input_direct(tmp_path, monkeypatch) -> None:
     from bridge_design import abutment_main
     from bridge_design.domain.abutment import AbutmentInputs

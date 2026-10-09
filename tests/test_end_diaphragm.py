@@ -20,6 +20,47 @@ def _interior(girder, thickness_m: float):
     return tuple(item for item in girder.diaphragms if item.position_m not in ends)
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_diaphragm_yaml_heights_are_below_slab_with_legacy_compatibility(legacy):
+    data = project_yaml_template()
+    data["modelo_transversal_losa"]["espesor_losa_m"] = 0.22
+    sections = [
+        (item, "altura_m", 0.70) for item in data["viga_interior"]["diafragmas"]
+    ] + [
+        (data["diafragma"], "altura_resistente_m", 0.85),
+        (data["diafragma_borde"], "altura_resistente_m", 1.05),
+    ]
+    for section, old_key, height in sections:
+        assert old_key not in section
+        assert "altura_bajo_losa_m" in section
+        if legacy:
+            del section["altura_bajo_losa_m"]
+        section[old_key if legacy else "altura_bajo_losa_m"] = height
+    project = project_inputs_from_yaml(data)
+    assert project.diaphragm.height_m == pytest.approx(0.85)
+    assert project.diaphragm.total_depth_m == pytest.approx(1.07)
+    assert project.end_diaphragm.height_m == pytest.approx(1.05)
+    assert project.end_diaphragm.total_depth_m == pytest.approx(1.27)
+    for girder in (project.interior_girder, project.exterior_girder):
+        assert all(item.height_m == pytest.approx(0.70) for item in _interior(girder, 0.30))
+        assert all(item.height_m == pytest.approx(1.05) for item in _ends(girder, 0.30))
+    loads = dict(_dc_point_loads_tn(project.interior_girder, project.materials))
+    gamma = project.materials.concrete.specific_weight_tn_m3
+    assert loads[7.5] == pytest.approx(gamma * 0.25 * 0.70 * project.interior_girder.girder_spacing_m)
+
+
+def test_diaphragm_yaml_prefers_explicit_below_slab_names():
+    data = project_yaml_template()
+    for item in data["viga_interior"]["diafragmas"]:
+        item.update(altura_bajo_losa_m=0.70, altura_m=1.60)
+    for key in ("diafragma", "diafragma_borde"):
+        data[key].update(altura_bajo_losa_m=0.90, altura_resistente_m=1.60)
+    project = project_inputs_from_yaml(data)
+    assert project.diaphragm.height_m == pytest.approx(0.90)
+    assert project.end_diaphragm.height_m == pytest.approx(0.90)
+    assert all(item.height_m == pytest.approx(0.70) for item in _interior(project.interior_girder, 0.30))
+
+
 def test_missing_end_diaphragm_keeps_only_interior_loads() -> None:
     data = project_yaml_template()
     data.pop("diafragma_borde")
