@@ -181,8 +181,9 @@ def format_transverse_load_location_schemes(project_inputs: ProjectInputs) -> st
             )
         ),
         (
-            f"Veredas: 0.000 a {layout.sidewalk_width_m:.3f} m y "
-            f"{geometry.total_width_m - layout.sidewalk_width_m:.3f} a {geometry.total_width_m:.3f} m | "
+            "Veredas (desde cara exterior de barrera hacia el borde): "
+            + " y ".join(f"{start:.3f} a {end:.3f} m" for start, end in layout.sidewalk_intervals(geometry.total_width_m))
+            + " | "
             f"Calzada/asfalto DW: {layout.asphalt_start_m:.3f} a {layout.asphalt_end_m:.3f} m."
         ),
     ]

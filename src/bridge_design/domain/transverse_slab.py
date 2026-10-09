@@ -135,6 +135,26 @@ class TransverseLoadLayout:
         if self.vehicle_move_end_m <= self.vehicle_move_start_m:
             raise ValueError("El recorrido vehicular debe tener longitud positiva.")
         require_positive(self.vehicle_step_m, "paso de movimiento")
+        if self.barrier_left_m < self.sidewalk_width_m - NODE_TOLERANCE:
+            raise ValueError("La vereda sale del tablero: la cara exterior de barrera debe estar al menos a un ancho de vereda del borde.")
+
+    @property
+    def sidewalk_start_m(self) -> float:
+        """Left sidewalk starts outside the pedestrian-facing barrier face."""
+        return max(0.0, self.barrier_left_m - self.sidewalk_width_m)
+
+    @property
+    def sidewalk_end_m(self) -> float:
+        return self.barrier_left_m
+
+    def sidewalk_intervals(self, width: float) -> tuple[tuple[float, float], ...]:
+        """Mirror sidewalks measured outward from the pedestrian-facing barrier faces."""
+        if 2.0 * (self.barrier_left_m + self.barrier_width_m) > width + NODE_TOLERANCE:
+            raise ValueError("Las barreras y veredas de ambos lados no caben en el tablero.")
+        return (
+            (self.sidewalk_start_m, self.sidewalk_end_m),
+            (width - self.sidewalk_end_m, width - self.sidewalk_start_m),
+        )
 
 
 @dataclass(frozen=True)
@@ -214,6 +234,7 @@ def validate_layout_inside_geometry(
             raise ValueError(f"{field_name} debe estar dentro del tablero ({width:g} m).")
     if layout.sidewalk_width_m * 2.0 > width:
         raise ValueError("La suma de veredas izquierda y derecha excede el ancho del tablero.")
+    layout.sidewalk_intervals(width)
 
 
 def solve_transverse_slab_design(
@@ -551,7 +572,7 @@ def _dc_segments(
     sidewalk_q = materials.sidewalk.specific_weight_tn_m3 * materials.sidewalk.thickness_m
     return (
         LoadSegment(0.0, width, slab_q, "peso propio losa"),
-        *_sidewalk_segments(width, layout.sidewalk_width_m, sidewalk_q, "vereda"),
+        *sidewalk_segments(width, layout, sidewalk_q, "vereda"),
     )
 
 
@@ -593,9 +614,9 @@ def _pl_segments(
     layout: TransverseLoadLayout,
     width: float,
 ) -> tuple[LoadSegment, ...]:
-    return _sidewalk_segments(
+    return sidewalk_segments(
         width,
-        layout.sidewalk_width_m,
+        layout,
         live_loads.pedestrian.load_tn_m2,
         "peatonal",
     )
@@ -754,15 +775,16 @@ def _sampled_moment_at(
     )
 
 
-def _sidewalk_segments(
+def sidewalk_segments(
     width: float,
-    sidewalk_width: float,
+    layout: TransverseLoadLayout,
     q_tn_m: float,
     label: str,
 ) -> tuple[LoadSegment, ...]:
-    left = LoadSegment(0.0, sidewalk_width, q_tn_m, f"{label} izquierda")
-    right = LoadSegment(width - sidewalk_width, width, q_tn_m, f"{label} derecha")
-    return (left, right)
+    return tuple(
+        LoadSegment(start, end, q_tn_m, f"{label} {side}")
+        for (start, end), side in zip(layout.sidewalk_intervals(width), ("izquierda", "derecha"))
+    )
 
 
 def _mirror_positions(left_position: float, width: float) -> tuple[float, ...]:

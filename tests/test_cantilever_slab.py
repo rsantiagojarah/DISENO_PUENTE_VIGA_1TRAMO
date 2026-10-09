@@ -75,7 +75,7 @@ def test_mtc_deck_overhang_knife_load_converts_one_kip_per_ft() -> None:
 def test_collision_uses_complete_barrier_base(start, classification, applied):
     geometry = replace(_geometry(), overhang_m=1.0, girder_width_m=0.5)
     materials = _materials()
-    layout = replace(_layout(), barrier_left_m=start, barrier_width_m=0.375)
+    layout = replace(_layout(), barrier_left_m=start, barrier_width_m=0.375, sidewalk_width_m=min(0.825, start))
     live = LiveLoads(PedestrianLoad.mtc_sidewalk_default(), VehicleLoadModel.mtc_hl93_default())
     barrier = design_concrete_barrier(BarrierDesignInputs(), materials)
     result = design_cantilever_slab(geometry, materials, live, layout, barrier)
@@ -166,7 +166,7 @@ def test_vehicle_inside_exterior_girder_is_kept_in_transverse_analysis() -> None
 
 def test_knife_applicability_uses_traffic_face_to_girder_not_full_overhang() -> None:
     geometry = replace(_geometry(), overhang_m=2.0)
-    layout = replace(_layout(), barrier_left_m=0.25, barrier_width_m=0.25)
+    layout = replace(_layout(), barrier_left_m=0.25, barrier_width_m=0.25, sidewalk_width_m=0.25)
     result = design_cantilever_slab(
         geometry=geometry,
         materials=_materials(),
@@ -184,7 +184,7 @@ def test_knife_applicability_uses_traffic_face_to_girder_not_full_overhang() -> 
 
 def test_design_stops_when_traffic_face_to_girder_exceeds_knife_limit() -> None:
     geometry = replace(_geometry(), overhang_m=2.50)
-    layout = replace(_layout(), barrier_left_m=0.25, barrier_width_m=0.25)
+    layout = replace(_layout(), barrier_left_m=0.25, barrier_width_m=0.25, sidewalk_width_m=0.25)
 
     with pytest.raises(CantileverSlabApplicabilityError, match="D=2.000 m"):
         design_cantilever_slab(

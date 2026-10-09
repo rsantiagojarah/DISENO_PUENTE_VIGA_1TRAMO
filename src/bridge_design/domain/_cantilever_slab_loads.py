@@ -16,6 +16,7 @@ from bridge_design.domain.materials import MaterialProperties
 from bridge_design.domain.transverse_slab import (
     TransverseLoadLayout,
     TransverseSlabGeometry,
+    validate_layout_inside_geometry,
 )
 from bridge_design.validation.input_validators import require_non_negative, require_positive
 
@@ -36,6 +37,7 @@ def cantilever_load_effects(
 ]:
     """Return unfactored load effects at the exterior-girder overhang root."""
     root = geometry.overhang_m
+    validate_layout_inside_geometry(geometry, layout)
     effects: list[CantileverLoadEffect] = []
     notes: list[str] = []
 
@@ -55,8 +57,8 @@ def cantilever_load_effects(
         "DC - vereda sobre volado",
         "DC",
         materials.sidewalk.specific_weight_tn_m3 * materials.sidewalk.thickness_m,
-        0.0,
-        layout.sidewalk_width_m,
+        layout.sidewalk_start_m,
+        layout.sidewalk_end_m,
         root,
         "Carga muerta de vereda en la franja de 1.0 m.",
     )
@@ -75,8 +77,8 @@ def cantilever_load_effects(
         "PL - peatones sobre vereda",
         "PL",
         live_loads.pedestrian.load_tn_m2,
-        0.0,
-        layout.sidewalk_width_m,
+        layout.sidewalk_start_m,
+        layout.sidewalk_end_m,
         root,
         live_loads.pedestrian.reference,
     )

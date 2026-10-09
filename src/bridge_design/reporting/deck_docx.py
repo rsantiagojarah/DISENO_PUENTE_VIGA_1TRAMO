@@ -479,7 +479,9 @@ def _transverse_slab(document: Document, data: DeckReportData, chart_dir: Path) 
         "qDC,ver: carga lineal de vereda; γver: peso específico del material; tver: espesor; b: ancho longitudinal de la franja",
         f"qDC,ver = {materials.sidewalk.specific_weight_tn_m3:.3f}·{materials.sidewalk.thickness_m:.3f}·{geom.strip_length_m:.3f} = {sidewalk_q:.3f} Tn/m",
         f"en cada franja lateral de {layout.sidewalk_width_m:.3f} m se aplica qDC,ver = {sidewalk_q:.3f} Tn/m.",
-        "La ubicación lateral de las veredas se conserva; no se sustituye por una carga uniforme sobre todo el tablero.",
+        "Veredas medidas desde la cara exterior de barrera hacia el borde: "
+        + "; ".join(f"x = {start:.3f} a {end:.3f} m" for start, end in layout.sidewalk_intervals(geom.total_width_m))
+        + ". La carga de baranda conserva su ubicacion independiente.",
         REF_DEAD_LOAD,
     )
     _calc(
@@ -746,7 +748,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
     )
     if diaphragm_rows:
         gamma = materials.concrete.specific_weight_tn_m3
-        detail = "\n".join(
+        diaphragm_detail = "\n".join(
             f"x = {item.position_m:.3f} m: Pd = {gamma:.3f}·{item.thickness_m:.3f}·{item.height_m:.3f}·{item.tributary_width_m:.3f} = {load:.3f} Tn"
             for item, load in diaphragm_rows
         )
@@ -755,7 +757,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
             "Peso concentrado de los diafragmas",
             "Pd = γc·td·hd·bd",
             "Pd: peso de un diafragma asignado a la viga; γc: peso específico del concreto; td: espesor; hd: altura bajo la losa; bd: ancho tributario de la viga. El diafragma interior y el de extremo usan su propia altura.",
-            detail,
+            diaphragm_detail,
             f"se aplican {len(diaphragm_rows)} carga(s) concentrada(s); la suma asignada es {sum(load for _, load in diaphragm_rows):.3f} Tn.",
             "Estas cargas intervienen en las reacciones, momentos y cortantes del caso DC sin redistribuirse como carga uniforme. El eje del diafragma de extremo está a la mitad de su espesor desde cada borde de la viga.",
             REF_DEAD_LOAD,

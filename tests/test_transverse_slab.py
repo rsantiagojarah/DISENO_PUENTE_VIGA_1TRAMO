@@ -184,7 +184,7 @@ def test_transverse_slab_vehicle_path_is_measured_from_inner_barrier_faces() -> 
     layout = TransverseLoadLayout(
         asphalt_start_m=2.13,
         asphalt_end_m=9.73,
-        sidewalk_width_m=1.50,
+        sidewalk_width_m=1.33,  # 0.15 m pedestal + 1.33 m sidewalk = barrier at 1.48 m.
         railing_left_m=0.12,
         barrier_left_m=1.48,
         barrier_width_m=0.375,

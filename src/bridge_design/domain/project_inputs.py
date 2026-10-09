@@ -41,6 +41,8 @@ class ProjectInputs:
         object.__setattr__(self, "transverse_slab", replace(self.transverse_slab, load_layout=layout))
         exterior = replace(
             self.exterior_girder,
+            sidewalk_start_m=layout.sidewalk_start_m,
+            sidewalk_width_m=layout.sidewalk_width_m,
             exterior_web_to_traffic_barrier_m=self.transverse_slab.geometry.overhang_m - layout.barrier_left_m - layout.barrier_width_m,
             asphalt_tributary_width_m=max(0.0, self.exterior_girder.tributary_width_m - layout.asphalt_start_m),
         )

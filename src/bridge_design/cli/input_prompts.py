@@ -255,10 +255,10 @@ def collect_transverse_load_layout(geometry: TransverseSlabGeometry) -> Transver
     print(f"Ancho total de tablero: {width:.3f} m")
     print("La carga de peso propio de losa se aplica automaticamente en todo el tablero.")
 
-    sidewalk_width = prompt_float("Ancho de vereda en cada lado", "m", geometry.overhang_m)
+    sidewalk_width = prompt_float("Ancho de vereda en cada lado (desde cara exterior de barrera hacia el borde)", "m", geometry.overhang_m)
     barrier_width = prompt_float("Ancho de barrera New Jersey", "m", 0.25)
     barrier_left = prompt_non_negative_float(
-        "Ubicacion de cara cercana de barrera izquierda desde la izquierda",
+        "Cara exterior de barrera izquierda (hacia vereda), medida desde borde izquierdo",
         "m",
         sidewalk_width,
     )
@@ -269,7 +269,7 @@ def collect_transverse_load_layout(geometry: TransverseSlabGeometry) -> Transver
         width - barrier_left - barrier_width,
     )
     railing_left = prompt_non_negative_float(
-        "Ubicacion de baranda izquierda desde la izquierda (borde exterior de vereda)",
+        "Ubicacion de la carga de baranda izquierda desde el borde izquierdo",
         "m",
         0.13,
     )
@@ -385,6 +385,7 @@ def collect_exterior_girder_geometry(
         web_width_m=transverse_geometry.girder_width_m,
         exterior_web_to_traffic_barrier_m=de,
         sidewalk_width_m=layout.sidewalk_width_m,
+        sidewalk_start_m=layout.sidewalk_start_m,
         asphalt_tributary_width_m=exterior_asphalt_tributary_width_m(
             deck_overhang_m=transverse_geometry.overhang_m,
             girder_spacing_m=transverse_geometry.girder_spacing_m,

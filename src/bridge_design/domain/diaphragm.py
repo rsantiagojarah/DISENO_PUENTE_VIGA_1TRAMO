@@ -59,6 +59,7 @@ from bridge_design.domain.transverse_slab import (
     _moving_positions,
     _sampled_moment_at,
     solve_load_case,
+    sidewalk_segments,
 )
 from bridge_design.validation.input_validators import require_non_negative, require_positive
 
@@ -954,7 +955,7 @@ def _dc_segments(
     width = geometry.total_width_m
     return (
         LoadSegment(0.0, width, q_self + q_slab, "peso propio diafragma y losa"),
-        *_sidewalk_segments(width, layout.sidewalk_width_m, sidewalk_q, "vereda"),
+        *sidewalk_segments(width, layout, sidewalk_q, "vereda"),
     )
 
 
@@ -1000,9 +1001,9 @@ def _pl_segments(
     live_loads: LiveLoads,
     layout: TransverseLoadLayout,
 ) -> tuple[LoadSegment, ...]:
-    return _sidewalk_segments(
+    return sidewalk_segments(
         geometry.total_width_m,
-        layout.sidewalk_width_m,
+        layout,
         live_loads.pedestrian.load_tn_m2 * float(geometry.load_tributary_length_m),
         "peatonal",
     )
@@ -1149,18 +1150,6 @@ def _shear_at_case(
         else case.min_shear_samples_tn
     )
     return _sample_at(samples or case.shear_samples_tn, position)
-
-
-def _sidewalk_segments(
-    width: float,
-    sidewalk_width: float,
-    q_tn_m: float,
-    label: str,
-) -> tuple[LoadSegment, ...]:
-    return (
-        LoadSegment(0.0, sidewalk_width, q_tn_m, f"{label} izquierda"),
-        LoadSegment(width - sidewalk_width, width, q_tn_m, f"{label} derecha"),
-    )
 
 
 def _mirror_positions(left_position: float, width: float) -> tuple[float, ...]:

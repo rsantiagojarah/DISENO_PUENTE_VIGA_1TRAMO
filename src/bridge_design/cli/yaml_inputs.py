@@ -515,6 +515,9 @@ def project_yaml_template() -> YamlMap:
     )
     data["nota"] = (
         "Complete o modifique los valores. Las unidades estan indicadas en cada clave. "
+        "El ancho de vereda es libre: se mide desde la cara exterior de barrera hacia el borde. "
+        "Ejemplo: vereda 1.50 y barrera en 1.65 m ubican la vereda de 0.15 a 1.65 m. "
+        "La ubicacion de la carga de baranda es independiente de la ubicacion de vereda. "
         "diafragma es el diafragma interior, dentro de la luz. "
         "diafragma_borde es el de los apoyos; elimine esa seccion si el puente no lleva diafragmas de extremo."
     )
@@ -673,6 +676,7 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
             geometry.overhang_m - (layout.barrier_left_m + layout.barrier_width_m)
         ),
         sidewalk_width_m=layout.sidewalk_width_m,
+        sidewalk_start_m=layout.sidewalk_start_m,
         asphalt_tributary_width_m=exterior_asphalt_tributary_width_m(
             deck_overhang_m=geometry.overhang_m,
             girder_spacing_m=geometry.girder_spacing_m,
