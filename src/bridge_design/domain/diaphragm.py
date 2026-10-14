@@ -271,12 +271,15 @@ def solve_diaphragm_design(
         segments=_dc_segments(geometry, materials, layout),
         point_loads=_dc_points(geometry, materials, layout),
     )
+    from bridge_design.domain.pipe_load import pipe_points
+    if layout.pipe is not None:
+        layout.pipe.validate_width(geometry.total_width_m)
     dw = _solve_diaphragm_case(
         geometry=geometry,
         materials=materials,
-        name="DW - superficie de rodadura sobre diafragma",
+        name="DW - asfalto y tuberia sobre diafragma" if pipe_points(layout) else "DW - superficie de rodadura sobre diafragma",
         segments=_dw_segments(geometry, materials, layout),
-        point_loads=(),
+        point_loads=pipe_points(layout, geometry.load_tributary_length_m),
     )
     pl = _solve_diaphragm_case(
         geometry=geometry,

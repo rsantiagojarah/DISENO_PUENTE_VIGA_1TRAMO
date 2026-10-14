@@ -150,6 +150,8 @@ def format_input_summary(project_inputs: ProjectInputs) -> str:
         f"g corte exterior                     : {project_inputs.exterior_girder.live_load_shear_distribution_factor_g:10.3f}",
         "=" * 60,
     ]
+    from bridge_design.reporting.pipe_load_report import pipe_input_lines
+    lines.extend(pipe_input_lines(project_inputs))
     return "\n".join(lines)
 
 
@@ -2020,7 +2022,9 @@ def format_exterior_girder_analysis_result(
         ),
         (
             f"Cargas DC exteriores: losa tributaria, alma, vereda={geometry.sidewalk_tributary_width_m:.3f} m, "
-            "baranda, barrera y diafragmas. DW usa solo el ancho tributario de asfalto."
+            "baranda, barrera y diafragmas. "
+            + ("DW incluye asfalto y tuberia sin reduccion favorable." if geometry.pipe_load_tn_m
+               else "DW usa solo el ancho tributario de asfalto.")
         ),
         (
             f"Seccion T: bf={geometry.tributary_width_m:.3f} m, hf={geometry.slab_thickness_m:.3f} m, "
@@ -2115,7 +2119,7 @@ def format_abutment_reaction_summary(
     rows = tuple((symbol, label, f"{totals[key][0]:.3f}", f"{totals[key][1]:.3f}",
                   f"{totals[key][0]/abutment_length_m:.3f}", f"{totals[key][1]/abutment_length_m:.3f}")
                  for key, symbol, label in (("DC", "PDC", "Carga muerta DC"),
-                                           ("DW", "PDW", "Carga de asfalto DW"),
+                                           ("DW", "PDW", "Asfalto y tuberia DW" if project_inputs.transverse_slab.load_layout.pipe else "Carga de asfalto DW"),
                                            ("PL", "PPL", "Carga peatonal PL"))) + (project_live_reaction_row(project_inputs),)
     service_fixed_total = sum(float(row[2]) for row in rows)
     service_movable_total = sum(float(row[3]) for row in rows)
@@ -2153,7 +2157,9 @@ def format_abutment_reaction_summary(
         [
             "Unidades: R en Tn; q en Ton/m.",
             "PDC incluye losa, vigas, veredas, barandas, barreras y diafragmas modelados como DC.",
-            "PDW incluye solo la superficie de rodadura de asfalto tributaria.",
+            ("PDW incluye asfalto y tuberia con reacciones fisicas con signo."
+             if project_inputs.transverse_slab.load_layout.pipe
+             else "PDW incluye solo la superficie de rodadura de asfalto tributaria."),
             "PLL+IM: maximos por apoyo de casos distintos. Para acciones favorables incluir el caso sin vehiculos.",
             (
                 "La carga peatonal se reporta como PPL: usarla aparte de PLL+IM, sin IM, "

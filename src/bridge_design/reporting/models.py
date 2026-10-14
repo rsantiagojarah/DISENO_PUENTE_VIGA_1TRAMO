@@ -44,11 +44,16 @@ class DeckReportData:
     end_diaphragm_selected: tuple[tuple[str, Any], ...] = ()
     audit_sections: tuple[tuple[str, str], ...] = ()
     girder_groups: tuple = ()
+    cantilever_groups: tuple = ()
+    girder_families: tuple = ()
+    cantilever_family: Any = None
+    active_girder_family: Any = None
+    active_cantilever_family: Any = None
 
 
 @dataclass(frozen=True)
 class GirderReportGroup:
-    """One complete design shared only by girders with identical load widths."""
+    """Independent checks for equal-load girders, using their family's shared steel."""
     indices: tuple[int, ...]
     exterior: bool
     project_inputs: Any
@@ -71,6 +76,23 @@ class GirderReportGroup:
         values = {prefix + "_" + name: getattr(self, name) for name in
                   ("result", "reinforcement", "shear", "selected", "detail", "crack", "fatigue", "service")}
         return replace(data, project_inputs=self.project_inputs, **values)
+
+
+@dataclass(frozen=True)
+class CantileverReportGroup:
+    """Independent overhang design; right-side coordinates use the right edge."""
+    side: str
+    project_inputs: Any
+    result: Any
+    selected: tuple
+    crack: Any
+    development: Any
+    audit_sections: tuple = ()
+
+    def report_context(self, data):
+        return replace(data, project_inputs=self.project_inputs, cantilever_result=self.result,
+                       cantilever_selected=self.selected, cantilever_crack=self.crack,
+                       cantilever_development=self.development)
 
 
 def selected_option(items: tuple[tuple[str, Any], ...], prefix: str) -> Any | None:

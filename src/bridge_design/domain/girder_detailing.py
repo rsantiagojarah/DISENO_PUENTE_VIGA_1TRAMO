@@ -206,6 +206,7 @@ def _girder_envelope(
     reinforcement: InteriorGirderReinforcementDesign,
     main_bar: LongitudinalBarPlacementOption,
     include_pedestrian_load: bool,
+    positions=None,
 ) -> tuple[GirderEnvelopeStation, ...]:
     stations = []
     minimum_area = _minimum_flexural_area_cm2(
@@ -214,7 +215,7 @@ def _girder_envelope(
         web_width_cm=reinforcement.main.web_width_cm,
         effective_depth_cm=reinforcement.main.effective_depth_cm,
     )
-    for x_m in _analysis_positions(analysis):
+    for x_m in (_analysis_positions(analysis) if positions is None else positions):
         dc_m = _moment_at(analysis.dc.moment_samples_tn_m, x_m)
         dw_m = _moment_at(analysis.dw.moment_samples_tn_m, x_m)
         ll_m = _moment_at(analysis.ll_im_envelope.moment_samples_tn_m, x_m)

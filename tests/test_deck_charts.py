@@ -30,6 +30,32 @@ def _case(
 
 
 class DeckChartTests(unittest.TestCase):
+    def test_pedestrian_moment_extrema_use_their_own_patterns_and_stations(self) -> None:
+        zero = ((0.0, 0.0), (1.0, 0.0))
+        pl = _case(
+            zero,
+            upper=((0.0, 0.0), (0.4, 2.0), (1.0, 0.0)),
+            lower=((0.0, 0.0), (0.6, -3.0), (1.0, 0.0)),
+        )
+        result = SimpleNamespace(dc=_case(zero), dw=_case(zero), pl=pl,
+                                 ll_im_envelope=_case(zero))
+        diagrams = strength_diagram_envelopes(result, include_pl=True, transverse=True)
+        self.assertAlmostEqual(dict(diagrams.moment_upper)[0.4], 1.75 * 2.0)
+        self.assertAlmostEqual(dict(diagrams.moment_lower)[0.6], -1.75 * 3.0)
+        self.assertEqual(max(diagrams.moment_upper, key=lambda p: p[1]), (0.4, 3.5))
+        self.assertEqual(min(diagrams.moment_lower, key=lambda p: p[1]), (0.6, -5.25))
+
+    def test_pedestrian_shear_extrema_preserve_sign_and_their_own_stations(self) -> None:
+        zero = ((0.0, 0.0), (1.0, 0.0))
+        pl = _case(zero, shear=zero,
+                   shear_upper=((0.0, 0.0), (0.3, 2.0), (1.0, 0.0)),
+                   shear_lower=((0.0, 0.0), (0.7, -4.0), (1.0, 0.0)))
+        result = SimpleNamespace(dc=_case(zero, shear=zero), dw=_case(zero, shear=zero),
+                                 pl=pl, ll_im_envelope=_case(zero, shear=zero))
+        diagrams = strength_diagram_envelopes(result, include_pl=True)
+        self.assertEqual(dict(diagrams.shear_upper)[0.3], 3.5)
+        self.assertEqual(dict(diagrams.shear_lower)[0.7], -7.0)
+
     def test_transverse_strength_moment_envelopes_remain_separate(self) -> None:
         dc = _case(((0.0, -10.0), (1.0, 5.0)))
         dw = _case(((0.0, -2.0), (1.0, 1.0)))

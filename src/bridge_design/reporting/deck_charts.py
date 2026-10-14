@@ -105,10 +105,10 @@ def _build_strength_diagram_envelopes(
     lower_ll = _moment_samples_for_target(ll_case, "min")
     positions = sorted(
         {x for case in cases for x, _ in case.moment_samples_tn_m}
-        | {x for x, _ in upper_ll}
-        | {x for x, _ in lower_ll}
+        | {x for case in cases for target in ("max", "min")
+           for x, _ in _moment_samples_for_target(case, target)}
     )
-    has_lower_moment = _has_lower_moment_envelope(ll_case)
+    has_lower_moment = any(_has_lower_moment_envelope(case) for case in cases)
     moment_upper: list[Sample] = []
     moment_lower: list[Sample] = []
     for x in positions:
@@ -127,14 +127,14 @@ def _build_strength_diagram_envelopes(
         for case in cases
         if getattr(case, "shear_samples_tn", ())
     ]
-    has_lower_shear = bool(shear_cases) and _has_lower_shear_envelope(ll_case)
+    has_lower_shear = any(_has_lower_shear_envelope(case) for case in shear_cases)
     if shear_cases:
         upper_ll_shear = _shear_samples_for_target(ll_case, "max")
         lower_ll_shear = _shear_samples_for_target(ll_case, "min")
         shear_positions = sorted(
             {x for case in shear_cases for x, _ in case.shear_samples_tn}
-            | {x for x, _ in upper_ll_shear}
-            | {x for x, _ in lower_ll_shear}
+            | {x for case in shear_cases for target in ("max", "min")
+               for x, _ in _shear_samples_for_target(case, target)}
         )
         for x in shear_positions:
             shear_upper.append(
@@ -193,7 +193,16 @@ def _strength_effect_at(
     """Combine effects at one station with sign-sensitive Strength I factors."""
     dc = _sample_at(getattr(result.dc, sample_attribute), position)
     dw = _sample_at(getattr(result.dw, sample_attribute), position)
-    pl = _sample_at(getattr(result.pl, sample_attribute), position) if include_pl else 0.0
+    pl = 0.0
+    if include_pl:
+        # Pedestrian loading has independent upper/lower patterns, just as LL.
+        # Its representative series alone can omit adverse overhang moments.
+        pl_samples = (
+            _moment_samples_for_target(result.pl, target)
+            if sample_attribute == "moment_samples_tn_m"
+            else _shear_samples_for_target(result.pl, target)
+        )
+        pl = _sample_at(pl_samples, position)
     ll_im = _sample_at(live_samples, position)
     return (
         STRENGTH_DC.for_effect(dc, target) * dc
@@ -281,9 +290,22 @@ def _add_extreme_label(drawing: Drawing, value: Sample, sx, sy, font: str) -> No
     drawing.add(String(sx(x) + 2, label_y, f"{y:.2f}", fontName=font, fontSize=6.5, fillColor=INK))
 
 
-def moment_shear_pair(result, *, title: str, include_pl: bool, transverse: bool = False) -> list:
+def family_strength_diagrams(members):
+    """Envelope final factored member curves, preserving load correlations."""
+    diagrams = [strength_diagram_envelopes(m.result, include_pl=getattr(m.result, 'pl', None) is not None)
+                for m in members]
+    values = {}
+    for name in ('moment_upper', 'moment_lower', 'shear_upper', 'shear_lower'):
+        series = [getattr(d, name) for d in diagrams if getattr(d, name) is not None]
+        positions = sorted({x for samples in series for x, _ in samples})
+        extreme = min if name.endswith('lower') else max
+        values[name] = tuple((x, extreme(_sample_at(s, x) for s in series)) for x in positions) if series else None
+    return StrengthEnvelopeDiagrams(**values)
+
+
+def moment_shear_pair(result, *, title: str, include_pl: bool, transverse: bool = False, diagrams=None) -> list:
     """Return the moment and shear Strength I diagrams for one component."""
-    diagrams = strength_diagram_envelopes(
+    diagrams = diagrams or strength_diagram_envelopes(
         result,
         include_pl=include_pl,
         transverse=transverse,

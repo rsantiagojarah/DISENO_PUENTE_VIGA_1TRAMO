@@ -42,7 +42,11 @@ def generate_deck_pdf(data: DeckReportData, output_path: str | Path) -> Path:
     story.extend(input_story(data, styles))
     story.extend(slab_story(data, styles))
     story.append(PageBreak())
-    if data.girder_groups:
+    if data.girder_families:
+        for family in data.girder_families:
+            story.extend(girder_story(family.report_context(data), styles, exterior=family.exterior,
+                                      group_label=family.label))
+    elif data.girder_groups:
         for group in sorted(data.girder_groups, key=lambda item: (item.exterior, item.indices)):
             story.extend(girder_story(group.report_context(data), styles, exterior=group.exterior,
                                       group_label=group.label))
@@ -50,7 +54,19 @@ def generate_deck_pdf(data: DeckReportData, output_path: str | Path) -> Path:
         story.extend(girder_story(data, styles, exterior=False))
         story.extend(girder_story(data, styles, exterior=True))
     story.extend(barrier_story(data, styles))
-    story.extend(cantilever_story(data, styles))
+    if data.cantilever_family is not None:
+        from bridge_design.reporting.common_design_tables import pdf_family_summary
+        from bridge_design.reporting.pdf_style import p
+        story.append(p('Armado comun para ambos volados', styles['h1']))
+        story.extend(pdf_family_summary(data.cantilever_family, styles, cantilever=True))
+        story.extend(cantilever_story(data.cantilever_family.report_context(data), styles))
+    elif data.cantilever_groups:
+        from bridge_design.reporting.pdf_style import p
+        for group in data.cantilever_groups:
+            story.append(p("Volado " + group.side, styles["h1"]))
+            story.extend(cantilever_story(group.report_context(data), styles))
+    else:
+        story.extend(cantilever_story(data, styles))
     has_end = data.end_diaphragm_result is not None and data.end_diaphragm_reinforcement is not None
     story.extend(diaphragm_story(
         data,

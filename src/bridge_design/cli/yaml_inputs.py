@@ -50,6 +50,7 @@ from bridge_design.domain.materials import (
     SurfaceLayerProperties,
 )
 from bridge_design.domain.project_inputs import ProjectInputs
+from bridge_design.domain.pipe_load import PipeLoad
 from bridge_design.domain.transverse_slab import (
     TransverseLoadLayout,
     TransverseSlabDesignInputs,
@@ -521,8 +522,11 @@ def project_yaml_template() -> YamlMap:
         "Ejemplo: vereda 1.50 y barrera en 1.65 m ubican la vereda de 0.15 a 1.65 m. "
         "La ubicacion de la carga de baranda es independiente de la ubicacion de vereda. "
         "diafragma es el diafragma interior, dentro de la luz. "
-        "diafragma_borde es el de los apoyos; elimine esa seccion si el puente no lleva diafragmas de extremo."
+        "diafragma_borde es el de los apoyos; elimine esa seccion si el puente no lleva diafragmas de extremo. "
+        "tuberia: carga vertical uniforme en toda la luz; peso total en operacion (tubo, agua y accesorios). "
+        "x se mide desde el borde exterior izquierdo de la losa. No se suma agua automaticamente."
     )
+    data["tuberia"] = {"incluir": False, "peso_lineal_kg_m": 0.0, "x_desde_borde_izquierdo_m": 0.0}
     return data
 
 
@@ -597,6 +601,17 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
         vehicle_move_end_m=float(_value(layout_data, "recorrido_vehicular_fin_m", asphalt_end)),
         vehicle_step_m=float(_value(layout_data, "paso_movimiento_vehicular_m", 0.10)),
     )
+    pipe_data = _section(data, "tuberia")
+    if _bool(pipe_data, "incluir", False):
+        for key in ("peso_lineal_kg_m", "x_desde_borde_izquierdo_m"):
+            if key not in pipe_data or isinstance(pipe_data[key], bool):
+                raise ValueError(f"La tuberia activa requiere el campo numerico '{key}'.")
+        try:
+            pipe = PipeLoad(float(pipe_data["peso_lineal_kg_m"]), float(pipe_data["x_desde_borde_izquierdo_m"]))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Datos de tuberia no validos: {exc}") from exc
+        pipe.validate_width(geometry.total_width_m)
+        layout = replace(layout, pipe=pipe if pipe.q_tn_m else None)
     validate_layout_inside_geometry(geometry, layout)
 
     barrier_data = _section(data, "barrera_concreto")

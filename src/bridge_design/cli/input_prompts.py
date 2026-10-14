@@ -518,6 +518,28 @@ def _default_exterior_de_m(
     return exterior_web_x_m - traffic_face_x_m
 
 
+def collect_pipe_load(geometry):
+    """Ask only for inclusion, total operating weight and transverse position."""
+    from bridge_design.domain.pipe_load import PipeLoad
+    while True:
+        answer = input("Incluir tuberia longitudinal bajo la losa? [s/N]: ").strip().lower()
+        if answer in ("", "n", "no"):
+            return None
+        if answer in ("s", "si", "sí"):
+            break
+        print("Ingrese si o no.")
+    print("Carga uniforme en toda la luz. Peso total: tubo lleno y accesorios; no se suma agua automaticamente.")
+    while True:
+        try:
+            weight = float(input("Peso lineal total en operacion (kg/m): ").strip())
+            x = float(input("Distancia desde borde exterior izquierdo de la losa (m): ").strip())
+            pipe = PipeLoad(weight, x)
+            pipe.validate_width(geometry.total_width_m)
+            return pipe if pipe.q_tn_m else None
+        except ValueError as exc:
+            print(f"Dato de tuberia no valido: {exc}")
+
+
 def collect_project_inputs() -> ProjectInputs:
     """Collect all project inputs from terminal."""
     geometry = collect_transverse_geometry()
@@ -525,6 +547,7 @@ def collect_project_inputs() -> ProjectInputs:
     barrier = collect_concrete_barrier_design_inputs()
     live_loads = collect_live_loads()
     load_layout = collect_transverse_load_layout(geometry)
+    load_layout = replace(load_layout, pipe=collect_pipe_load(geometry))
     interior_girder = collect_interior_girder_geometry(geometry)
     exterior_girder = collect_exterior_girder_geometry(
         geometry,

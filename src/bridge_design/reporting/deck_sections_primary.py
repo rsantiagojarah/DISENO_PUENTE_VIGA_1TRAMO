@@ -87,6 +87,12 @@ def input_story(data: DeckReportData, styles) -> list:
             styles,
         ),
     ]
+    from bridge_design.reporting.pipe_load_report import pipe_input_lines, pipe_comparison_rows
+    lines = pipe_input_lines(inputs)
+    if lines:
+        story.extend(p(line, styles["body"]) for line in lines)
+        story.append(data_table(("Elemento", "Mu sin tuberia", "Mu con tuberia", "Unidad"),
+                                pipe_comparison_rows(data), [50*mm, 40*mm, 40*mm, 40*mm], styles))
     return story
 
 
@@ -240,7 +246,13 @@ def girder_story(data: DeckReportData, styles, *, exterior: bool, group_label: s
             styles,
         ),
     ]
-    story.extend(moment_shear_pair(result, title=name, include_pl=include_pl))
+    diagrams = None
+    if data.active_girder_family is not None:
+        from bridge_design.reporting.common_design_tables import pdf_family_summary
+        from bridge_design.reporting.deck_charts import family_strength_diagrams
+        story[1:1] = pdf_family_summary(data.active_girder_family, styles)
+        diagrams = family_strength_diagrams(data.active_girder_family.members)
+    story.extend(moment_shear_pair(result, title=name, include_pl=include_pl, diagrams=diagrams))
     story.append(p(f"Figura. Envolventes Resistencia I empleadas en flexion y cortante de {name.lower()}.", styles["caption"]))
     adopted_text = (
         f"{adopted.bar_count} barras {adopted.bar_label}, {adopted.layers} capa(s), As prov={adopted.provided_area_cm2:.3f} cm2"

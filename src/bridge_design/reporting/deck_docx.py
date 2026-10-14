@@ -108,8 +108,19 @@ def generate_deck_docx(data: DeckReportData, output_path: str | Path) -> Path:
         _cover(document, data)
         _contents(document)
         _general_basis(document, data)
+        from bridge_design.reporting.pipe_load_report import pipe_input_lines, pipe_comparison_rows
+        pipe_lines = pipe_input_lines(data.project_inputs)
+        if pipe_lines:
+            document.add_heading("Carga adicional de tuberia", level=2)
+            for line in pipe_lines:
+                document.add_paragraph(line)
+            _table(document, ("Elemento", "Mu sin tuberia", "Mu con tuberia", "Unidad"),
+                   pipe_comparison_rows(data), widths=(50, 40, 40, 35))
         _transverse_slab(document, data, Path(chart_dir))
-        if data.girder_groups:
+        if data.girder_families:
+            for family in data.girder_families:
+                _girder(document, family.report_context(data), exterior=family.exterior, chart_dir=Path(chart_dir))
+        elif data.girder_groups:
             for group in sorted(data.girder_groups, key=lambda item: (item.exterior, item.indices)):
                 same_type = sum(item.exterior == group.exterior for item in data.girder_groups)
                 if same_type > 1:
@@ -119,7 +130,14 @@ def generate_deck_docx(data: DeckReportData, output_path: str | Path) -> Path:
             _girder(document, data, exterior=False, chart_dir=Path(chart_dir))
             _girder(document, data, exterior=True, chart_dir=Path(chart_dir))
         _barrier(document, data)
-        _cantilever(document, data)
+        if data.cantilever_family is not None:
+            _cantilever(document, data.cantilever_family.report_context(data))
+        elif data.cantilever_groups:
+            for group in data.cantilever_groups:
+                document.add_heading("Volado " + group.side, level=1)
+                _cantilever(document, group.report_context(data))
+        else:
+            _cantilever(document, data)
         _diaphragm(document, data, Path(chart_dir))
         _reactions(document, data)
         _conclusions(document, data)
@@ -616,6 +634,9 @@ def _transverse_slab(document: Document, data: DeckReportData, chart_dir: Path) 
 def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_dir: Path) -> None:
     number = 4 if exterior else 3
     label = "Viga principal exterior" if exterior else "Viga principal interior"
+    family = data.active_girder_family
+    if family is not None:
+        label += " — armado comun " + family.label
     inputs = data.project_inputs
     geometry = inputs.exterior_girder if exterior else inputs.interior_girder
     analysis = data.exterior_result if exterior else data.interior_result
@@ -640,7 +661,12 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         if exterior else combine_interior_girder_shears(geometry, analysis, reinforcement.parameters)
     )
     critical_shear = max(shear_rows, key=lambda row: row.combined_shear_tn)
+    if family is not None:
+        critical_shear = shear.controlling_shear
     document.add_heading(f"{number}. {label}", level=1)
+    if family is not None:
+        from bridge_design.reporting.common_design_tables import word_family_summary
+        word_family_summary(document, family, _table)
     _body(
         document,
         "La viga se modela como un elemento simplemente apoyado. Las cargas permanentes "
@@ -787,7 +813,10 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         "qDW = γasf·tasf·basf",
         "qDW: carga lineal de superficie de rodadura; γasf: peso específico; tasf: espesor; basf: ancho tributario de asfalto",
         f"qDW = {materials.asphalt.specific_weight_tn_m3:.3f}·{materials.asphalt.thickness_m:.3f}·{asphalt_width:.3f} = {q_dw:.3f} Tn/m",
-        f"la carga uniforme del caso DW para la {label.lower()} es qDW = {q_dw:.3f} Tn/m.",
+        (f"la carga uniforme de asfalto es {q_dw:.3f} Tn/m; se agrega "
+         f"{max(geometry.pipe_load_tn_m, 0.0):.6f} Tn/m por tuberia al caso DW de diseno."
+         if geometry.pipe_load_tn_m else
+         f"la carga uniforme del caso DW para la {label.lower()} es qDW = {q_dw:.3f} Tn/m."),
         (
             "El ancho tributario de la viga exterior se limita a la porción efectiva de carpeta que intersecta su franja tributaria."
             if exterior
@@ -852,7 +881,8 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
     )
     document.add_heading(f"{number}.2 Efectos de Resistencia I", level=2)
     _moment_combination_calc(document, "Momento positivo crítico", strength_moment, include_pl=include_pl)
-    _shear_combination_calc(document, "Cortante crítico", critical_shear, include_pl=include_pl)
+    _shear_combination_calc(document, "Cortante crítico", critical_shear,
+                            include_pl=include_pl or (family is not None and family.shear_member.result.pl is not None))
     document.add_heading(f"{number}.3 Flexión y acero adoptado", level=2)
     main = selected_option(selected, "A.")
     _flexural_calc(
@@ -899,6 +929,10 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         *_sectional_shear_calc_fields(shear, stirrup),
         REF_SHEAR,
     )
+    if family is not None:
+        from bridge_design.reporting.common_design_tables import stirrup_zones_text
+        _body(document, "El espaciamiento anterior verifica la seccion critica. Para la ejecucion se adopta "
+              + stirrup_zones_text(family) + ". Las zonas extremas incluyen la demanda junto a los apoyos.")
     document.add_heading(f"{number}.5 Servicio, fisuración y fatiga", level=2)
     _crack_calc(document, crack)
     svc_formula, svc_legend, svc_sub, svc_result, svc_comment = detail.service_stress_trace(
@@ -931,6 +965,10 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         REF_FATIGUE,
     )
     document.add_heading(f"{number}.6 Desarrollo y detalle constructivo", level=2)
+    if family is not None and len(family.service_members) > 1:
+        other = family.service_members[1]
+        _calc(document, "Servicio I — caso adicional gobernante " + other.label,
+              *detail.service_stress_trace(other.service, inputs.materials.concrete, inputs.materials.steel), REF_COMB)
     _calc(
         document,
         "Longitud de desarrollo del acero principal",
@@ -945,19 +983,26 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
     )
     document.add_heading(f"{number}.7 Diagramas de diseño", level=2)
     slug = "exterior" if exterior else "interior"
+    chart_label = ("Vigas exteriores" if exterior else "Vigas interiores") if family is not None else label
+    diagrams = None
+    if family is not None:
+        from bridge_design.reporting.deck_charts import family_strength_diagrams
+        diagrams = family_strength_diagrams(family.members)
     moment_path = save_strength_chart(
         analysis,
         chart_dir / f"{slug}_momentos.png",
-        title=f"{label} · envolventes de momento Resistencia I",
+        title=f"{chart_label} · envolventes de momento Resistencia I",
         kind="moment",
         include_pl=include_pl,
+        diagrams=diagrams,
     )
     shear_path = save_strength_chart(
         analysis,
         chart_dir / f"{slug}_cortantes.png",
-        title=f"{label} · envolventes de cortante Resistencia I",
+        title=f"{chart_label} · envolventes de cortante Resistencia I",
         kind="shear",
         include_pl=include_pl,
+        diagrams=diagrams,
     )
     _picture(document, moment_path, f"Figura {number}.1. Envolventes factorizadas de momento para {label.lower()}.")
     _picture(document, shear_path, f"Figura {number}.2. Envolventes factorizadas de cortante para {label.lower()}.")
@@ -1085,7 +1130,11 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
     flex = result.flexural_steel
     option = selected_option(data.cantilever_selected, "A.")
     temperature = selected_option(data.cantilever_selected, "B.")
-    document.add_heading("6. Losa en voladizo", level=1)
+    family = data.active_cantilever_family
+    document.add_heading("6. Losa en voladizo" + (" — armado comun para ambos lados" if family else ""), level=1)
+    if family is not None:
+        from bridge_design.reporting.common_design_tables import word_family_summary
+        word_family_summary(document, family, _table, cantilever=True)
     _body(
         document,
         "El voladizo se verifica en la raíz de la losa exterior. Se incluyen peso propio, "
@@ -1586,12 +1635,20 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
             status = data.slab_crack.positive_main.status
         rows.append(("Losa transversal", label.split(".", 1)[-1].strip(), _option_text(option), status))
     selections = [("Viga interior", data.interior_selected), ("Viga exterior", data.exterior_selected)]
-    if data.girder_groups:
+    if data.girder_families:
+        selections = [(family.title, family.selected) for family in data.girder_families]
+    elif data.girder_groups:
         selections = [(('Viga exterior ' if group.exterior else 'Viga interior ') + group.label, group.selected)
                       for group in data.girder_groups]
     for element, selected in selections:
         for label, option in selected:
-            rows.append((element, label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
+            family = next((f for f in data.girder_families if f.title == element), None)
+            option_text = _option_text(option)
+            if family is not None and label.startswith("D."):
+                from bridge_design.reporting.common_design_tables import stirrup_zones_text
+                option_text = stirrup_zones_text(family)
+            rows.append((element, label.split(".", 1)[-1].strip(), option_text,
+                         family.status if family is not None else _option_status(option)))
     barrier_inputs = data.project_inputs.barrier.section_model
     rows.append(
         (
@@ -1601,8 +1658,15 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
             data.barrier_result.development.status,
         )
     )
-    for label, option in data.cantilever_selected:
-        rows.append(("Voladizo", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
+    overhang_selections = [("Voladizo", data.cantilever_selected)]
+    if data.cantilever_family is not None:
+        overhang_selections = [("Ambos volados", data.cantilever_family.selected)]
+    elif data.cantilever_groups:
+        overhang_selections = [("Volado " + group.side, group.selected) for group in data.cantilever_groups]
+    for element, selected in overhang_selections:
+        for label, option in selected:
+            rows.append((element, label.split(".", 1)[-1].strip(), _option_text(option),
+                         data.cantilever_family.status if data.cantilever_family is not None else _option_status(option)))
     collision = data.cantilever_result.barrier_collision
     interior_collision = data.cantilever_result.interior_collision
     if collision is not None:
@@ -1618,6 +1682,20 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
             "Se presentan por cara el refuerzo adoptado para las acciones de la losa y los minimos "
             "calculados para colision. Los estados corresponden a cada comprobacion por separado. "
             "La conexion barrera-losa se evalua por capacidad con las longitudes de desarrollo calculadas.")
+    for group in data.cantilever_groups:
+        if group.side != "derecho":
+            continue
+        collision_right = group.result.barrier_collision
+        interior_right = group.result.interior_collision
+        if collision_right is not None:
+            rows.append(("Volado derecho", "Conexion y casos de colision",
+                         "Casos 1/2/3 + conexion", collision_right.status))
+        if interior_right is not None:
+            rows.append(("Losa interior, lado derecho", "Transferencia local de colision",
+                         "Horizontal + vertical; conexion por capacidad", interior_right.status))
+            for face in interior_right.faces:
+                rows.append(("Losa interior, lado derecho", f"Minimo por colision, cara {face.face}",
+                             _option_text(face.option), face.status))
     for label, option in data.diaphragm_selected:
         rows.append(("Diafragma interior" if data.end_diaphragm_result is not None else "Diafragma", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
     for label, option in data.end_diaphragm_selected:

@@ -3,6 +3,31 @@
 from types import SimpleNamespace
 
 
+def cantilever_notes_for_side(result, geometry, layout, side: str) -> tuple[str, ...]:
+    """Identify the physical pipe position and the overhang's local origin."""
+    notes = [f"Volado {side}: coordenadas locales desde el borde exterior {side}."]
+    pipe = layout.pipe
+    for note in result.applicability_notes:
+        if pipe is not None and note.startswith("DW - tuberia llena no genera momento de voladizo:"):
+            global_x = (geometry.total_width_m - pipe.x_from_left_m
+                        if side == "derecho" else pipe.x_from_left_m)
+            if global_x <= geometry.overhang_m:
+                location = "en el volado izquierdo"
+            elif global_x >= geometry.total_width_m - geometry.overhang_m:
+                location = "en el volado derecho"
+            else:
+                location = "entre los ejes de las vigas exteriores"
+            note = (
+                f"La tuberia se ubica {location}, a {global_x:.3f} m del borde exterior izquierdo. "
+                f"Para comprobar el volado {side}, su coordenada local es "
+                f"{pipe.x_from_left_m:.3f} m desde el borde exterior {side}; "
+                f"el eje de la viga exterior esta a {geometry.overhang_m:.3f} m de ese borde. "
+                f"Por ello, la tuberia no carga directamente el volado {side}."
+            )
+        notes.append(note)
+    return tuple(notes)
+
+
 def formal_audit_line(line: str) -> str:
     """Retain numerical traces while giving operational notes a technical wording."""
     text = line.strip()

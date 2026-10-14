@@ -32,6 +32,14 @@ def girder_reaction_cases(project, interior_result, exterior_result):
             pl = _solve_static_longitudinal_case(geometry, 'PL - vereda tributaria',
                 (project.live_loads.pedestrian.load_tn_m2*row.sidewalk_m,), ()) if ext or row.sidewalk_m else None
             analysis = replace(source, dc=dc, dw=dw, pl=pl)
+        if project.transverse_slab.load_layout.pipe is not None:
+            # Signed physical load for equilibrium, distinct from the conservative design case.
+            m = project.materials
+            geometry = project.exterior_girder if ext else project.interior_girder
+            dw = _solve_static_longitudinal_case(geometry, 'DW - asfalto y tuberia, caso fisico',
+                (m.asphalt.specific_weight_tn_m3*m.asphalt.thickness_m*row.asphalt_m
+                 + project.girder_pipe_loads[row.index],), ())
+            analysis = replace(analysis, dw=dw)
         label = 'Exterior' if ext else 'Interior'
         if sum(g[0].exterior == ext for g in groups) > 1:
             label += ' ' + ', '.join(r.label for r in group)

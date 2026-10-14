@@ -206,36 +206,12 @@ def run_bridge_design(project_inputs=None) -> None:
     slab_crack_report = format_crack_control_review(crack_review)
     print(slab_crack_report)
 
-    (girder_result, girder_reinforcement, girder_shear, girder_selected, interior_detail, girder_crack_review, girder_fatigue_review, girder_service_review, interior_analysis_report, interior_selection_report, interior_crack_report, interior_service_report, interior_detail_report) = _run_interior_girder(project_inputs)
-    (exterior_result, exterior_reinforcement, exterior_shear, exterior_selected, exterior_detail, exterior_crack_review, exterior_fatigue_review, exterior_service_stresses, exterior_analysis_report, exterior_selection_report, exterior_service_report, exterior_detail_report) = _run_exterior_girder(project_inputs)
-
-    from dataclasses import replace
-    from bridge_design.domain.girder_tributaries import girder_load_groups
-    from bridge_design.reporting.models import GirderReportGroup
-    girder_groups = []
-    for group in girder_load_groups(project_inputs):
-        exterior = group[0].exterior
-        index = group[0].index
-        primary_index = project_inputs.exterior_girder_index if exterior else project_inputs.interior_girder_index
-        group_project = replace(project_inputs, **{
-            'exterior_girder_index' if exterior else 'interior_girder_index': index})
-        if index == primary_index:
-            if exterior:
-                values = (exterior_result, exterior_reinforcement, exterior_shear, exterior_selected,
-                          exterior_detail, exterior_crack_review, exterior_fatigue_review, exterior_service_stresses)
-                audit = ()
-            else:
-                values = (girder_result, girder_reinforcement, girder_shear, girder_selected,
-                          interior_detail, girder_crack_review, girder_fatigue_review, girder_service_review)
-                audit = ()
-        else:
-            label = ', '.join(row.label for row in group)
-            print(f'\nDISENO INDEPENDIENTE DEL GRUPO {label}: cargas tributarias diferentes')
-            computed = (_run_exterior_girder if exterior else _run_interior_girder)(group_project)
-            values = computed[:8]
-            audit = ((f'Grupo {label}', '\n'.join(computed[8:])),)
-        girder_groups.append(GirderReportGroup(tuple(row.index for row in group), exterior,
-                                               group_project, *values, audit_sections=audit))
+    import sys
+    from bridge_design.cli.common_design import run_girder_families, run_cantilever_family
+    girder_groups, girder_families, interior_values, exterior_values = run_girder_families(
+        sys.modules[__name__], project_inputs)
+    (girder_result, girder_reinforcement, girder_shear, girder_selected, interior_detail, girder_crack_review, girder_fatigue_review, girder_service_review, interior_analysis_report, interior_selection_report, interior_crack_report, interior_service_report, interior_detail_report) = interior_values
+    (exterior_result, exterior_reinforcement, exterior_shear, exterior_selected, exterior_detail, exterior_crack_review, exterior_fatigue_review, exterior_service_stresses, exterior_analysis_report, exterior_selection_report, exterior_service_report, exterior_detail_report) = exterior_values
 
     barrier_result = design_concrete_barrier(
         inputs=project_inputs.barrier,
@@ -245,51 +221,13 @@ def run_bridge_design(project_inputs=None) -> None:
     print(barrier_report)
 
     try:
-        cantilever_result = design_cantilever_slab(
-            geometry=project_inputs.transverse_slab.geometry,
-            materials=project_inputs.materials,
-            live_loads=project_inputs.live_loads,
-            layout=project_inputs.transverse_slab.load_layout,
-            barrier_result=barrier_result,
-        )
+        cantilever_groups, cantilever_family, cantilever_values = run_cantilever_family(
+            sys.modules[__name__], project_inputs, barrier_result)
+        (cantilever_result, cantilever_selected, cantilever_crack, cantilever_development,
+         cantilever_report, cantilever_selection_report, cantilever_review_report) = cantilever_values
     except CantileverSlabApplicabilityError as exc:
         print(f"DISENO DE LOSA EN VOLADIZO NO COMPLETADO: {exc}")
         return
-    cantilever_report = format_cantilever_slab_design_result(cantilever_result)
-    print(cantilever_report)
-    cantilever_selected = collect_cantilever_reinforcement_selection(cantilever_result)
-    cantilever_selection_report = format_cantilever_reinforcement_selection(
-        cantilever_selected
-    )
-    print(cantilever_selection_report)
-    from bridge_design.domain._cantilever_slab_calculations import design_development
-    from bridge_design.domain._cantilever_slab_checks import review_crack_control
-
-    selected_cantilever_flexural = _selected_spacing(cantilever_selected, "A.")
-    cantilever_development = design_development(
-        geometry=project_inputs.transverse_slab.geometry,
-        materials=project_inputs.materials,
-        params=cantilever_result.parameters,
-        flexural=cantilever_result.flexural_steel,
-        selected_spacing=selected_cantilever_flexural,
-    )
-    cantilever_crack = review_crack_control(
-        geometry=project_inputs.transverse_slab.geometry,
-        materials=project_inputs.materials,
-        params=cantilever_result.parameters,
-        combinations=cantilever_result.combinations,
-        flexural=cantilever_result.flexural_steel,
-        selected_spacing=selected_cantilever_flexural,
-    )
-    cantilever_review_report = format_cantilever_selected_reviews(
-        geometry=project_inputs.transverse_slab.geometry,
-        materials=project_inputs.materials,
-        cantilever=cantilever_result,
-        selected=cantilever_selected,
-        development_review=cantilever_development,
-        crack_review=cantilever_crack,
-    )
-    print(cantilever_review_report)
 
     diaphragm_result = solve_diaphragm_design(
         geometry=project_inputs.diaphragm,
@@ -355,9 +293,13 @@ def run_bridge_design(project_inputs=None) -> None:
     print(reaction_report)
 
     from bridge_design.reporting import DeckReportData, generate_deck_docx_with_dialog
+    from bridge_design.reporting.common_design_tables import family_audit
 
     report_data = DeckReportData(
         girder_groups=tuple(girder_groups),
+        girder_families=girder_families,
+        cantilever_family=cantilever_family,
+        cantilever_groups=tuple(cantilever_groups),
         project_inputs=project_inputs,
         transverse_result=result,
         slab_reinforcement=reinforcement,
@@ -396,57 +338,100 @@ def run_bridge_design(project_inputs=None) -> None:
             ("Losa transversal", transverse_report),
             ("Acero seleccionado de losa", slab_selection_report),
             ("Fisuracion de losa", slab_crack_report),
-            ("Viga interior", interior_analysis_report),
-            ("Acero seleccionado de viga interior", interior_selection_report),
-            ("Servicio y fisuracion de viga interior", interior_crack_report + "\n" + interior_service_report),
-            ("Detalle constructivo de viga interior", interior_detail_report),
-            ("Viga exterior", exterior_analysis_report),
-            ("Acero y servicio de viga exterior", exterior_selection_report + "\n" + exterior_service_report),
-            ("Detalle constructivo de viga exterior", exterior_detail_report),
+            *((family.title, family_audit(family)) for family in girder_families),
             ("Barrera", barrier_report),
-            ("Losa en voladizo", cantilever_report + "\n" + cantilever_selection_report + "\n" + cantilever_review_report),
+            ("Armado comun de ambos volados", family_audit(cantilever_family, cantilever=True)),
             ("Diafragma", diaphragm_report + "\n" + diaphragm_selection_report),
             *(
                 (("Diafragma de extremo", end_diaphragm_report + "\n" + end_diaphragm_selection_report),)
                 if end_diaphragm_result is not None else ()
             ),
             *(section for group in girder_groups for section in group.audit_sections),
+            *(section for group in cantilever_groups for section in group.audit_sections),
             ("Reacciones para estribos", reaction_report),
         ),
     )
     try:
+        from bridge_design.reporting.pipe_load_report import pipe_comparison_rows
+        comparison = pipe_comparison_rows(report_data)
+        if comparison:
+            from bridge_design.cli.ascii_tables import boxed_table
+            print("\n".join(boxed_table(("Elemento", "Mu sin tuberia", "Mu con tuberia", "Unidad"),
+                                       comparison, title="Comparacion Resistencia I")))
         generate_deck_docx_with_dialog(report_data)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"No se pudo generar la memoria Word: {exc}")
 
 
 
-def _run_interior_girder(project_inputs):
-    girder_result = solve_interior_girder_design(
-        geometry=project_inputs.interior_girder,
+def _run_cantilever(project_inputs, barrier_result, side="", *, prepared=None, selected=None):
+    try:
+        cantilever_result = prepared if prepared is not None else design_cantilever_slab(
+            geometry=project_inputs.transverse_slab.geometry,
+            materials=project_inputs.materials,
+            live_loads=project_inputs.live_loads,
+            layout=project_inputs.transverse_slab.load_layout,
+            barrier_result=barrier_result,
+        )
+    except CantileverSlabApplicabilityError as exc:
+        print(f"DISENO DE LOSA EN VOLADIZO NO COMPLETADO: {exc}")
+        raise
+    if side:
+        from dataclasses import replace
+        from bridge_design.reporting.deck_report_notes import cantilever_notes_for_side
+        cantilever_result = replace(cantilever_result, applicability_notes=cantilever_notes_for_side(
+            cantilever_result, project_inputs.transverse_slab.geometry,
+            project_inputs.transverse_slab.load_layout, side,
+        ))
+        print(f"\nDISENO DE VOLADO {side.upper()}")
+    cantilever_report = format_cantilever_slab_design_result(cantilever_result)
+    print(cantilever_report)
+    cantilever_selected = selected if selected is not None else collect_cantilever_reinforcement_selection(cantilever_result)
+    cantilever_selection_report = format_cantilever_reinforcement_selection(
+        cantilever_selected
+    )
+    print(cantilever_selection_report)
+    from bridge_design.domain._cantilever_slab_calculations import design_development
+    from bridge_design.domain._cantilever_slab_checks import review_crack_control
+
+    selected_cantilever_flexural = _selected_spacing(cantilever_selected, "A.")
+    cantilever_development = design_development(
+        geometry=project_inputs.transverse_slab.geometry,
         materials=project_inputs.materials,
-        live_loads=project_inputs.live_loads,
+        params=cantilever_result.parameters,
+        flexural=cantilever_result.flexural_steel,
+        selected_spacing=selected_cantilever_flexural,
     )
-    interior_analysis_report = format_interior_girder_analysis_result(
-        girder_result,
-        project_inputs,
+    cantilever_crack = review_crack_control(
+        geometry=project_inputs.transverse_slab.geometry,
+        materials=project_inputs.materials,
+        params=cantilever_result.parameters,
+        combinations=cantilever_result.combinations,
+        flexural=cantilever_result.flexural_steel,
+        selected_spacing=selected_cantilever_flexural,
     )
+    cantilever_review_report = format_cantilever_selected_reviews(
+        geometry=project_inputs.transverse_slab.geometry,
+        materials=project_inputs.materials,
+        cantilever=cantilever_result,
+        selected=cantilever_selected,
+        development_review=cantilever_development,
+        crack_review=cantilever_crack,
+    )
+    print(cantilever_review_report)
+
+    return (cantilever_result, cantilever_selected, cantilever_crack, cantilever_development, cantilever_report, cantilever_selection_report, cantilever_review_report)
+
+
+def _run_interior_girder(project_inputs, *, prepared=None, selected=None):
+    from bridge_design.cli.common_design import prepare_girder
+    import sys
+    girder_result, girder_reinforcement, girder_shear = prepared or prepare_girder(
+        sys.modules[__name__], project_inputs, False)
+    interior_analysis_report = format_interior_girder_analysis_result(girder_result, project_inputs)
     print(interior_analysis_report)
-    girder_reinforcement = design_interior_girder_reinforcement(
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        analysis=girder_result,
-    )
-    girder_shear = design_interior_girder_shear(
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        analysis=girder_result,
-        reinforcement=girder_reinforcement,
-    )
-    girder_selected = collect_interior_girder_reinforcement_selection(
-        girder_reinforcement,
-        girder_shear,
-    )
+    girder_selected = selected if selected is not None else collect_interior_girder_reinforcement_selection(
+        girder_reinforcement, girder_shear)
     interior_selection_report = format_interior_girder_reinforcement_selection(
         girder_selected
     )
@@ -501,32 +486,15 @@ def _run_interior_girder(project_inputs):
     return (girder_result, girder_reinforcement, girder_shear, girder_selected, interior_detail, girder_crack_review, girder_fatigue_review, girder_service_review, interior_analysis_report, interior_selection_report, interior_crack_report, interior_service_report, interior_detail_report)
 
 
-def _run_exterior_girder(project_inputs):
-    exterior_result = solve_exterior_girder_design(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        live_loads=project_inputs.live_loads,
-    )
-    exterior_analysis_report = format_exterior_girder_analysis_result(
-        exterior_result,
-        project_inputs,
-    )
+def _run_exterior_girder(project_inputs, *, prepared=None, selected=None):
+    from bridge_design.cli.common_design import prepare_girder
+    import sys
+    exterior_result, exterior_reinforcement, exterior_shear = prepared or prepare_girder(
+        sys.modules[__name__], project_inputs, True)
+    exterior_analysis_report = format_exterior_girder_analysis_result(exterior_result, project_inputs)
     print(exterior_analysis_report)
-    exterior_reinforcement = design_exterior_girder_reinforcement(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        analysis=exterior_result,
-    )
-    exterior_shear = design_exterior_girder_shear(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        analysis=exterior_result,
-        reinforcement=exterior_reinforcement,
-    )
-    exterior_selected = collect_exterior_girder_reinforcement_selection(
-        exterior_reinforcement,
-        exterior_shear,
-    )
+    exterior_selected = selected if selected is not None else collect_exterior_girder_reinforcement_selection(
+        exterior_reinforcement, exterior_shear)
     exterior_selection_report = format_exterior_girder_reinforcement_selection(
         exterior_selected
     )

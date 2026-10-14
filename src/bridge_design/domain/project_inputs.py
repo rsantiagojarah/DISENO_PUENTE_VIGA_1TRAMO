@@ -1,6 +1,7 @@
 """Project input aggregate models."""
 
 from dataclasses import dataclass, replace
+from functools import cached_property
 
 from bridge_design.domain.barrier import BarrierDesignInputs
 from bridge_design.domain.diaphragm import DiaphragmBeamGeometry
@@ -42,6 +43,8 @@ class ProjectInputs:
                          asphalt_start_m=max(old_layout.asphalt_start_m, traffic_face),
                          asphalt_end_m=min(old_layout.asphalt_end_m, other_face))
         object.__setattr__(self, "transverse_slab", replace(self.transverse_slab, load_layout=layout))
+        if layout.pipe is not None:
+            layout.pipe.validate_width(self.transverse_slab.geometry.total_width_m)
         tributaries = self.girder_tributaries
         exterior_load = tributaries[self.exterior_girder_index]
         interior_load = tributaries[self.interior_girder_index]
@@ -52,10 +55,12 @@ class ProjectInputs:
             exterior_web_to_traffic_barrier_m=self.transverse_slab.geometry.overhang_m - layout.barrier_left_m - layout.barrier_width_m,
             asphalt_tributary_width_m=exterior_load.asphalt_m,
             assigned_sidewalk_width_m=exterior_load.sidewalk_m,
+            pipe_load_tn_m=self.girder_pipe_loads[self.exterior_girder_index],
         )
         interior = replace(self.interior_girder,
                            asphalt_tributary_width_m=interior_load.asphalt_m,
-                           sidewalk_tributary_width_m=interior_load.sidewalk_m)
+                           sidewalk_tributary_width_m=interior_load.sidewalk_m,
+                           pipe_load_tn_m=self.girder_pipe_loads[self.interior_girder_index])
         if self.end_diaphragm is not None:
             interior = _girder_with_end_diaphragms(
                 interior,
@@ -73,6 +78,12 @@ class ProjectInputs:
     @property
     def girder_tributaries(self):
         return girder_tributaries(self.transverse_slab.geometry, self.transverse_slab.load_layout)
+
+    @cached_property
+    def girder_pipe_loads(self):
+        from bridge_design.domain.pipe_load import pipe_girder_loads
+        return pipe_girder_loads(self.transverse_slab.geometry, self.materials,
+                                 self.transverse_slab.load_layout)
 
 
 def _occupies_end_diaphragm(position_m: float, span_m: float, thickness_m: float) -> bool:

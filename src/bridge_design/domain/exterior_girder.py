@@ -98,9 +98,12 @@ class ExteriorGirderGeometry:
     live_load_shear_distribution_factor_g: float | None = None
     sidewalk_start_m: float = 0.0
     assigned_sidewalk_width_m: float | None = None
+    pipe_load_tn_m: float = 0.0
 
     def __post_init__(self) -> None:
         require_positive(self.span_length_m, "luz del puente")
+        from bridge_design.validation.input_validators import require_finite
+        require_finite(self.pipe_load_tn_m, "reaccion lineal de tuberia")
         require_positive(self.girder_spacing_m, "separacion entre vigas")
         require_non_negative(self.deck_overhang_m, "volado de losa")
         require_positive(self.slab_thickness_m, "espesor de losa")
@@ -237,11 +240,11 @@ def solve_exterior_girder_design(
     )
     dw = _solve_static_longitudinal_case(
         geometry=analysis_geometry,
-        name="DW - superficie de rodadura tributaria",
+        name="DW - asfalto y tuberia (sin reduccion favorable)" if geometry.pipe_load_tn_m else "DW - superficie de rodadura tributaria",
         uniform_loads_tn_m=(
             materials.asphalt.specific_weight_tn_m3
             * materials.asphalt.thickness_m
-            * analysis_geometry.asphalt_tributary_width_m,
+            * analysis_geometry.asphalt_tributary_width_m + max(analysis_geometry.pipe_load_tn_m, 0.0),
         ),
         point_loads_tn=(),
     )

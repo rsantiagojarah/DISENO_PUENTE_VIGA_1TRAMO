@@ -53,7 +53,9 @@ def girder_load_groups(project):
             first = group[0]
             if (row.exterior == first.exterior and
                     isclose(row.sidewalk_m, first.sidewalk_m, abs_tol=1e-10, rel_tol=0) and
-                    isclose(row.asphalt_m, first.asphalt_m, abs_tol=1e-10, rel_tol=0)):
+                    isclose(row.asphalt_m, first.asphalt_m, abs_tol=1e-10, rel_tol=0) and
+                    isclose(project.girder_pipe_loads[row.index], project.girder_pipe_loads[first.index],
+                            abs_tol=1e-10, rel_tol=0)):
                 group.append(row)
                 break
         else:

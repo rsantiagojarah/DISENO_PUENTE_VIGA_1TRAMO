@@ -24,11 +24,12 @@ def save_strength_chart(
     kind: str,
     include_pl: bool,
     transverse: bool = False,
+    diagrams=None,
 ) -> Path:
     """Write a sharp moment or shear envelope chart and return its path."""
     if kind not in {"moment", "shear"}:
         raise ValueError("El tipo de diagrama debe ser 'moment' o 'shear'.")
-    diagrams = strength_diagram_envelopes(
+    diagrams = diagrams or strength_diagram_envelopes(
         result,
         include_pl=include_pl,
         transverse=transverse,

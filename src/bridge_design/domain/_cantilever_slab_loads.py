@@ -93,6 +93,12 @@ def cantilever_load_effects(
         notes,
     )
     barrier_centroid = layout.barrier_left_m + layout.barrier_width_m / 2.0
+    if layout.pipe is not None and layout.pipe.q_tn_m > 0:
+        _append_point_if_inside(
+            effects, "DW - tuberia llena", "DW", layout.pipe.q_tn_m,
+            layout.pipe.x_from_left_m, root,
+            "Carga vertical uniforme durante toda la luz, transmitida a la losa.", notes,
+        )
     _append_point_if_inside(
         effects,
         "DC - barrera",

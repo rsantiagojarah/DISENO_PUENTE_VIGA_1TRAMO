@@ -12,6 +12,7 @@ from bridge_design.codes.mtc_2018 import (
     mtc_design_lanes,
 )
 from bridge_design.domain.loads import LiveLoads, VehicleLoadModel
+from bridge_design.domain.pipe_load import PipeLoad, pipe_points
 from bridge_design.domain.materials import MaterialProperties
 from bridge_design.domain.sampling import interpolate_sorted_samples, envelope_sorted_samples
 from bridge_design.validation.input_validators import require_non_negative, require_positive
@@ -120,6 +121,7 @@ class TransverseLoadLayout:
     vehicle_move_start_m: float
     vehicle_move_end_m: float
     vehicle_step_m: float = 0.10
+    pipe: PipeLoad | None = None
 
     def __post_init__(self) -> None:
         require_non_negative(self.asphalt_start_m, "inicio asfalto")
@@ -220,6 +222,8 @@ def validate_layout_inside_geometry(
 ) -> None:
     """Validate that all load positions fit inside the deck width."""
     width = geometry.total_width_m
+    if layout.pipe is not None:
+        layout.pipe.validate_width(width)
     for value, field_name in (
         (layout.asphalt_start_m, "inicio asfalto"),
         (layout.asphalt_end_m, "fin asfalto"),
@@ -255,9 +259,9 @@ def solve_transverse_slab_design(
     dw = solve_load_case(
         geometry,
         materials,
-        "DW - superficie de rodadura",
+        "DW - superficie de rodadura y tuberia" if pipe_points(layout) else "DW - superficie de rodadura",
         _dw_segments(materials, layout),
-        (),
+        pipe_points(layout, geometry.strip_length_m),
     )
     pl = solve_load_case(
         geometry,
@@ -323,9 +327,9 @@ def transverse_load_placement_cases(
             _dc_points(geometry, materials, layout),
         ),
         TransverseLoadPlacementCase(
-            "DW - superficie de rodadura",
+            "DW - superficie de rodadura y tuberia" if pipe_points(layout) else "DW - superficie de rodadura",
             _dw_segments(materials, layout),
-            (),
+            pipe_points(layout, geometry.strip_length_m),
         ),
         TransverseLoadPlacementCase(
             "PL - carga peatonal",
