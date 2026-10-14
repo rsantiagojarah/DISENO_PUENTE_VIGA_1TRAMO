@@ -95,6 +95,7 @@ def _build_strength_diagram_envelopes(
     include_pl: bool,
     transverse: bool,
 ) -> StrengthEnvelopeDiagrams:
+    include_pl = include_pl or getattr(result, "pl", None) is not None
     cases = [result.dc, result.dw]
     if include_pl:
         cases.append(result.pl)

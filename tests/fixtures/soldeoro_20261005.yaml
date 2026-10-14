@@ -1,0 +1,47 @@
+version_esquema: 1
+comando: diseno-tablero
+nota: >
+  Entradas reconstruidas de MEMORIA_CALCULO_TABLERO_20261005_1518.docx.
+  Secciones 1, 2, 3, 4, 6 y 7. Sin diafragmas de extremo.
+modelo_transversal_losa:
+  separacion_vigas_m: 2.56
+  volado_losa_m: 1.0
+  numero_vigas: 5
+  espesor_losa_m: 0.20
+  altura_viga_bajo_losa_m: 0.90
+  ancho_viga_m: 0.50
+materiales:
+  concreto: {peso_especifico_tn_m3: 2.4, fc_kg_cm2: 280.0}
+  acero: {fy_kg_cm2: 4200.0, modulo_elasticidad_kg_cm2: 2000000.0}
+  asfalto: {peso_especifico_tn_m3: 2.2, espesor_m: 0.05}
+  vereda: {peso_especifico_tn_m3: 2.4, espesor_m: 0.15}
+  baranda: {peso_lineal_kg_m: 300.0}
+  barrera: {peso_lineal_kg_m: 486.9}
+barrera_concreto:
+  geometria:
+    altura_total_m: 0.85
+    ancho_base_m: 0.375
+    area_seccion_m2: 0.202875
+    longitud_disponible_anclaje_cm: 20.0
+  seccion: {separacion_dowel_m: 0.17}
+ubicacion_cargas_modelo_transversal:
+  ancho_vereda_cada_lado_m: 1.7
+  ancho_barrera_m: 0.375
+  ubicacion_barrera_izquierda_m: 1.7
+  asfalto_inicio_m: 2.075
+  asfalto_fin_m: 10.165
+  ubicacion_baranda_izquierda_m: 0.1
+  recorrido_vehicular_inicio_m: 2.075
+  recorrido_vehicular_fin_m: 10.165
+  paso_movimiento_vehicular_m: 0.1
+viga_interior:
+  luz_puente_m: 15.0
+  diafragmas:
+    - {ubicacion_m: 7.5, espesor_longitudinal_m: 0.35, altura_bajo_losa_m: 0.7, ancho_tributario_transversal_m: 2.56}
+  paso_carga_movil_m: 0.1
+  paso_muestreo_momentos_m: 0.1
+diafragma:
+  espesor_longitudinal_m: 0.35
+  altura_bajo_losa_m: 0.7
+  longitud_tributaria_cargas_m: 0.35
+  paso_vehicular_m: 0.1

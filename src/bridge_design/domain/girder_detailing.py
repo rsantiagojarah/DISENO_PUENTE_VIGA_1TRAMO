@@ -117,7 +117,7 @@ def detail_interior_girder(
         reinforcement=reinforcement,
         selected_main_bar=selected_main_bar,
         selected_stirrup=selected_stirrup,
-        include_pedestrian_load=False,
+        include_pedestrian_load=analysis.pl is not None,
     )
 
 
@@ -495,7 +495,7 @@ def _analysis_positions(analysis) -> tuple[float, ...]:
         for case in (analysis.dc, analysis.dw, analysis.ll_im_envelope)
         for x_m, _ in case.moment_samples_tn_m
     }
-    if hasattr(analysis, "pl"):
+    if getattr(analysis, "pl", None) is not None:
         positions.update(x_m for x_m, _ in analysis.pl.moment_samples_tn_m)
     return tuple(sorted(positions))
 
@@ -575,8 +575,9 @@ def _default_stirrup(
     include_pedestrian_load: bool,
 ) -> ShearStirrupOption:
     # Import locally to keep this module independent from exterior_girder imports.
-    if include_pedestrian_load:
-        from bridge_design.domain.exterior_girder import design_exterior_girder_shear
+    from bridge_design.domain.exterior_girder import ExteriorGirderGeometry, design_exterior_girder_shear
+
+    if isinstance(geometry, ExteriorGirderGeometry):
 
         shear = design_exterior_girder_shear(geometry, materials, analysis, reinforcement)
     else:

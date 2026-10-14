@@ -206,156 +206,36 @@ def run_bridge_design(project_inputs=None) -> None:
     slab_crack_report = format_crack_control_review(crack_review)
     print(slab_crack_report)
 
-    girder_result = solve_interior_girder_design(
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        live_loads=project_inputs.live_loads,
-    )
-    interior_analysis_report = format_interior_girder_analysis_result(
-        girder_result,
-        project_inputs,
-    )
-    print(interior_analysis_report)
-    girder_reinforcement = design_interior_girder_reinforcement(
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        analysis=girder_result,
-    )
-    girder_shear = design_interior_girder_shear(
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        analysis=girder_result,
-        reinforcement=girder_reinforcement,
-    )
-    girder_selected = collect_interior_girder_reinforcement_selection(
-        girder_reinforcement,
-        girder_shear,
-    )
-    interior_selection_report = format_interior_girder_reinforcement_selection(
-        girder_selected
-    )
-    print(interior_selection_report)
-    girder_crack_review = review_interior_girder_crack_control(
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        analysis=girder_result,
-        reinforcement=girder_reinforcement,
-        main_placement=_selected_main_placement(girder_selected),
-    )
-    interior_crack_report = format_interior_girder_crack_control_review(
-        girder_crack_review
-    )
-    print(interior_crack_report)
-    selected_girder_main = _selected_main_placement(girder_selected)
-    girder_fatigue_review = review_interior_girder_fatigue(
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        analysis=girder_result,
-        reinforcement=girder_reinforcement,
-        main_placement=selected_girder_main,
-    )
-    girder_service_review = verify_interior_girder_service_stresses(
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        analysis=girder_result,
-        reinforcement=girder_reinforcement,
-        main_placement=selected_girder_main,
-    )
-    interior_service_report = format_interior_girder_selected_main_reviews(
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        analysis=girder_result,
-        reinforcement=girder_reinforcement,
-        main_placement=selected_girder_main,
-        fatigue_review=girder_fatigue_review,
-        service_review=girder_service_review,
-    )
-    print(interior_service_report)
-    interior_detail = detail_interior_girder(
-        label="Viga interior",
-        geometry=project_inputs.interior_girder,
-        materials=project_inputs.materials,
-        analysis=girder_result,
-        reinforcement=girder_reinforcement,
-        selected_main_bar=selected_girder_main,
-        selected_stirrup=_selected_shear_stirrup(girder_selected),
-    )
-    interior_detail_report = format_girder_detailing_result(interior_detail, "2.F")
-    print(interior_detail_report)
+    (girder_result, girder_reinforcement, girder_shear, girder_selected, interior_detail, girder_crack_review, girder_fatigue_review, girder_service_review, interior_analysis_report, interior_selection_report, interior_crack_report, interior_service_report, interior_detail_report) = _run_interior_girder(project_inputs)
+    (exterior_result, exterior_reinforcement, exterior_shear, exterior_selected, exterior_detail, exterior_crack_review, exterior_fatigue_review, exterior_service_stresses, exterior_analysis_report, exterior_selection_report, exterior_service_report, exterior_detail_report) = _run_exterior_girder(project_inputs)
 
-    exterior_result = solve_exterior_girder_design(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        live_loads=project_inputs.live_loads,
-    )
-    exterior_analysis_report = format_exterior_girder_analysis_result(
-        exterior_result,
-        project_inputs,
-    )
-    print(exterior_analysis_report)
-    exterior_reinforcement = design_exterior_girder_reinforcement(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        analysis=exterior_result,
-    )
-    exterior_shear = design_exterior_girder_shear(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        analysis=exterior_result,
-        reinforcement=exterior_reinforcement,
-    )
-    exterior_selected = collect_exterior_girder_reinforcement_selection(
-        exterior_reinforcement,
-        exterior_shear,
-    )
-    exterior_selection_report = format_exterior_girder_reinforcement_selection(
-        exterior_selected
-    )
-    print(exterior_selection_report)
-    selected_main = _selected_main_placement(exterior_selected)
-    exterior_crack_review = review_exterior_girder_crack_control(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        analysis=exterior_result,
-        reinforcement=exterior_reinforcement,
-        main_placement=selected_main,
-    )
-    exterior_fatigue_review = review_exterior_girder_fatigue(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        analysis=exterior_result,
-        reinforcement=exterior_reinforcement,
-        main_placement=selected_main,
-    )
-    exterior_service_stresses = verify_exterior_girder_service_stresses(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        analysis=exterior_result,
-        reinforcement=exterior_reinforcement,
-        main_placement=selected_main,
-    )
-    exterior_service_report = format_exterior_girder_selected_main_reviews(
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        analysis=exterior_result,
-        reinforcement=exterior_reinforcement,
-        main_placement=selected_main,
-        crack_review=exterior_crack_review,
-        fatigue_review=exterior_fatigue_review,
-        service_review=exterior_service_stresses,
-    )
-    print(exterior_service_report)
-    exterior_detail = detail_exterior_girder(
-        label="Viga exterior",
-        geometry=project_inputs.exterior_girder,
-        materials=project_inputs.materials,
-        analysis=exterior_result,
-        reinforcement=exterior_reinforcement,
-        selected_main_bar=selected_main,
-        selected_stirrup=_selected_shear_stirrup(exterior_selected),
-    )
-    exterior_detail_report = format_girder_detailing_result(exterior_detail, "3.F")
-    print(exterior_detail_report)
+    from dataclasses import replace
+    from bridge_design.domain.girder_tributaries import girder_load_groups
+    from bridge_design.reporting.models import GirderReportGroup
+    girder_groups = []
+    for group in girder_load_groups(project_inputs):
+        exterior = group[0].exterior
+        index = group[0].index
+        primary_index = project_inputs.exterior_girder_index if exterior else project_inputs.interior_girder_index
+        group_project = replace(project_inputs, **{
+            'exterior_girder_index' if exterior else 'interior_girder_index': index})
+        if index == primary_index:
+            if exterior:
+                values = (exterior_result, exterior_reinforcement, exterior_shear, exterior_selected,
+                          exterior_detail, exterior_crack_review, exterior_fatigue_review, exterior_service_stresses)
+                audit = ()
+            else:
+                values = (girder_result, girder_reinforcement, girder_shear, girder_selected,
+                          interior_detail, girder_crack_review, girder_fatigue_review, girder_service_review)
+                audit = ()
+        else:
+            label = ', '.join(row.label for row in group)
+            print(f'\nDISENO INDEPENDIENTE DEL GRUPO {label}: cargas tributarias diferentes')
+            computed = (_run_exterior_girder if exterior else _run_interior_girder)(group_project)
+            values = computed[:8]
+            audit = ((f'Grupo {label}', '\n'.join(computed[8:])),)
+        girder_groups.append(GirderReportGroup(tuple(row.index for row in group), exterior,
+                                               group_project, *values, audit_sections=audit))
 
     barrier_result = design_concrete_barrier(
         inputs=project_inputs.barrier,
@@ -477,6 +357,7 @@ def run_bridge_design(project_inputs=None) -> None:
     from bridge_design.reporting import DeckReportData, generate_deck_docx_with_dialog
 
     report_data = DeckReportData(
+        girder_groups=tuple(girder_groups),
         project_inputs=project_inputs,
         transverse_result=result,
         slab_reinforcement=reinforcement,
@@ -529,6 +410,7 @@ def run_bridge_design(project_inputs=None) -> None:
                 (("Diafragma de extremo", end_diaphragm_report + "\n" + end_diaphragm_selection_report),)
                 if end_diaphragm_result is not None else ()
             ),
+            *(section for group in girder_groups for section in group.audit_sections),
             ("Reacciones para estribos", reaction_report),
         ),
     )
@@ -536,6 +418,164 @@ def run_bridge_design(project_inputs=None) -> None:
         generate_deck_docx_with_dialog(report_data)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"No se pudo generar la memoria Word: {exc}")
+
+
+
+def _run_interior_girder(project_inputs):
+    girder_result = solve_interior_girder_design(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        live_loads=project_inputs.live_loads,
+    )
+    interior_analysis_report = format_interior_girder_analysis_result(
+        girder_result,
+        project_inputs,
+    )
+    print(interior_analysis_report)
+    girder_reinforcement = design_interior_girder_reinforcement(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+    )
+    girder_shear = design_interior_girder_shear(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+    )
+    girder_selected = collect_interior_girder_reinforcement_selection(
+        girder_reinforcement,
+        girder_shear,
+    )
+    interior_selection_report = format_interior_girder_reinforcement_selection(
+        girder_selected
+    )
+    print(interior_selection_report)
+    girder_crack_review = review_interior_girder_crack_control(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+        main_placement=_selected_main_placement(girder_selected),
+    )
+    interior_crack_report = format_interior_girder_crack_control_review(
+        girder_crack_review
+    )
+    print(interior_crack_report)
+    selected_girder_main = _selected_main_placement(girder_selected)
+    girder_fatigue_review = review_interior_girder_fatigue(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+        main_placement=selected_girder_main,
+    )
+    girder_service_review = verify_interior_girder_service_stresses(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+        main_placement=selected_girder_main,
+    )
+    interior_service_report = format_interior_girder_selected_main_reviews(
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+        main_placement=selected_girder_main,
+        fatigue_review=girder_fatigue_review,
+        service_review=girder_service_review,
+    )
+    print(interior_service_report)
+    interior_detail = detail_interior_girder(
+        label="Viga interior",
+        geometry=project_inputs.interior_girder,
+        materials=project_inputs.materials,
+        analysis=girder_result,
+        reinforcement=girder_reinforcement,
+        selected_main_bar=selected_girder_main,
+        selected_stirrup=_selected_shear_stirrup(girder_selected),
+    )
+    interior_detail_report = format_girder_detailing_result(interior_detail, "2.F")
+    print(interior_detail_report)
+    return (girder_result, girder_reinforcement, girder_shear, girder_selected, interior_detail, girder_crack_review, girder_fatigue_review, girder_service_review, interior_analysis_report, interior_selection_report, interior_crack_report, interior_service_report, interior_detail_report)
+
+
+def _run_exterior_girder(project_inputs):
+    exterior_result = solve_exterior_girder_design(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        live_loads=project_inputs.live_loads,
+    )
+    exterior_analysis_report = format_exterior_girder_analysis_result(
+        exterior_result,
+        project_inputs,
+    )
+    print(exterior_analysis_report)
+    exterior_reinforcement = design_exterior_girder_reinforcement(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+    )
+    exterior_shear = design_exterior_girder_shear(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+    )
+    exterior_selected = collect_exterior_girder_reinforcement_selection(
+        exterior_reinforcement,
+        exterior_shear,
+    )
+    exterior_selection_report = format_exterior_girder_reinforcement_selection(
+        exterior_selected
+    )
+    print(exterior_selection_report)
+    selected_main = _selected_main_placement(exterior_selected)
+    exterior_crack_review = review_exterior_girder_crack_control(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        main_placement=selected_main,
+    )
+    exterior_fatigue_review = review_exterior_girder_fatigue(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        main_placement=selected_main,
+    )
+    exterior_service_stresses = verify_exterior_girder_service_stresses(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        main_placement=selected_main,
+    )
+    exterior_service_report = format_exterior_girder_selected_main_reviews(
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        main_placement=selected_main,
+        crack_review=exterior_crack_review,
+        fatigue_review=exterior_fatigue_review,
+        service_review=exterior_service_stresses,
+    )
+    print(exterior_service_report)
+    exterior_detail = detail_exterior_girder(
+        label="Viga exterior",
+        geometry=project_inputs.exterior_girder,
+        materials=project_inputs.materials,
+        analysis=exterior_result,
+        reinforcement=exterior_reinforcement,
+        selected_main_bar=selected_main,
+        selected_stirrup=_selected_shear_stirrup(exterior_selected),
+    )
+    exterior_detail_report = format_girder_detailing_result(exterior_detail, "3.F")
+    print(exterior_detail_report)
+    return (exterior_result, exterior_reinforcement, exterior_shear, exterior_selected, exterior_detail, exterior_crack_review, exterior_fatigue_review, exterior_service_stresses, exterior_analysis_report, exterior_selection_report, exterior_service_report, exterior_detail_report)
 
 
 def collect_reinforcement_spacing_selection(reinforcement) -> tuple[

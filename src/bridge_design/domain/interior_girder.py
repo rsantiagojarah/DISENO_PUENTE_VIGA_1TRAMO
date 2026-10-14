@@ -106,6 +106,8 @@ class InteriorGirderGeometry:
     diaphragms: tuple[DiaphragmGeometry, ...] = ()
     moving_load_step_m: float = 0.10
     moment_sample_step_m: float = 0.10
+    asphalt_tributary_width_m: float | None = None
+    sidewalk_tributary_width_m: float = 0.0
 
     def __post_init__(self) -> None:
         require_positive(self.span_length_m, "luz del puente")
@@ -113,6 +115,9 @@ class InteriorGirderGeometry:
         require_positive(self.slab_thickness_m, "espesor de losa")
         require_positive(self.girder_total_height_m, "altura de viga")
         require_positive(self.web_width_m, "ancho de alma")
+        if self.asphalt_tributary_width_m is not None:
+            require_non_negative(self.asphalt_tributary_width_m, "asfalto tributario")
+        require_non_negative(self.sidewalk_tributary_width_m, "vereda tributaria")
         if self.girder_count < 1:
             raise ValueError("El numero de vigas debe ser al menos 1.")
         if self.live_load_distribution_factor_g is None:
@@ -151,6 +156,10 @@ class InteriorGirderGeometry:
     def tributary_width_m(self) -> float:
         """Return the tributary deck width of an interior girder."""
         return self.girder_spacing_m
+
+    @property
+    def effective_asphalt_width_m(self) -> float:
+        return self.tributary_width_m if self.asphalt_tributary_width_m is None else self.asphalt_tributary_width_m
 
     @property
     def total_t_section_depth_m(self) -> float:
@@ -195,6 +204,7 @@ class InteriorGirderAnalysisResult:
     dynamic_load_allowance: float
     distribution_factor_g: float
     shear_distribution_factor_g: float
+    pl: LongitudinalLoadCaseAnalysis | None = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +221,8 @@ class InteriorGirderCombinedMoment:
     ll_im_moment_tn_m: float
     ll_im_factor: float
     combined_moment_tn_m: float
+    pl_moment_tn_m: float = 0.0
+    pl_factor: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -227,6 +239,8 @@ class InteriorGirderCombinedShear:
     ll_im_shear_tn: float
     ll_im_factor: float
     combined_shear_tn: float
+    pl_shear_tn: float = 0.0
+    pl_factor: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -494,9 +508,13 @@ def solve_interior_girder_design(
     dw = _solve_static_longitudinal_case(
         geometry=geometry,
         name="DW - superficie de rodadura",
-        uniform_loads_tn_m=(materials.asphalt.specific_weight_tn_m3 * materials.asphalt.thickness_m * geometry.tributary_width_m,),
+        uniform_loads_tn_m=(materials.asphalt.specific_weight_tn_m3 * materials.asphalt.thickness_m * geometry.effective_asphalt_width_m,),
         point_loads_tn=(),
     )
+    pl = (_solve_static_longitudinal_case(
+        geometry, "PL - vereda tributaria interior",
+        (live_loads.pedestrian.load_tn_m2 * geometry.sidewalk_tributary_width_m,), (),
+    ) if geometry.sidewalk_tributary_width_m > 0 else None)
     truck = _solve_moving_vehicle_case(
         geometry=geometry,
         vehicle=live_loads.vehicular,
@@ -554,6 +572,7 @@ def solve_interior_girder_design(
         dynamic_load_allowance=mtc_dynamic_load_allowance_for_slab(),
         distribution_factor_g=geometry.live_load_distribution_factor_g,
         shear_distribution_factor_g=geometry.live_load_shear_distribution_factor_g,
+        pl=pl,
     )
 
 
@@ -575,10 +594,12 @@ def combine_interior_girder_moments(
             dc = _moment_at(result.dc.moment_samples_tn_m, position)
             dw = _moment_at(result.dw.moment_samples_tn_m, position)
             ll = _moment_at(result.ll_im_envelope.moment_samples_tn_m, position)
+            pl = _moment_at(result.pl.moment_samples_tn_m, position) if result.pl is not None else 0.0
             g_dc = dc_factor.for_effect(dc, "max")
             g_dw = dw_factor.for_effect(dw, "max")
             g_ll = ll_factor.for_effect(ll, "max")
-            combined = g_dc * dc + g_dw * dw + g_ll * ll
+            g_pl = ll_factor.for_effect(pl, "max") if result.pl is not None else 0.0
+            combined = g_dc * dc + g_dw * dw + g_pl * pl + g_ll * ll
             candidates.append(
                 InteriorGirderCombinedMoment(
                     combination_name=name,
@@ -591,6 +612,8 @@ def combine_interior_girder_moments(
                     ll_im_moment_tn_m=ll,
                     ll_im_factor=g_ll,
                     combined_moment_tn_m=combined,
+                    pl_moment_tn_m=pl,
+                    pl_factor=g_pl,
                 )
             )
         rows.append(max(candidates, key=lambda item: item.combined_moment_tn_m))
@@ -616,6 +639,7 @@ def combine_interior_girder_shears(
         dc = abs(_sample_at(result.dc.shear_samples_tn, position))
         dw = abs(_sample_at(result.dw.shear_samples_tn, position))
         ll = abs(_sample_at(result.ll_im_envelope.shear_samples_tn, position))
+        pl = abs(_sample_at(result.pl.shear_samples_tn, position)) if result.pl is not None else 0.0
         rows.append(
             InteriorGirderCombinedShear(
                 combination_name="RESISTENCIA I",
@@ -627,7 +651,9 @@ def combine_interior_girder_shears(
                 dw_factor=1.50,
                 ll_im_shear_tn=ll,
                 ll_im_factor=1.75,
-                combined_shear_tn=1.25 * dc + 1.50 * dw + 1.75 * ll,
+                combined_shear_tn=1.25 * dc + 1.50 * dw + 1.75 * pl + 1.75 * ll,
+                pl_shear_tn=pl,
+                pl_factor=1.75 if result.pl is not None else 0.0,
             )
         )
     return tuple(rows)
@@ -1341,7 +1367,8 @@ def _dc_uniform_loads_tn_m(
 ) -> tuple[float, ...]:
     slab = materials.concrete.specific_weight_tn_m3 * geometry.slab_thickness_m * geometry.tributary_width_m
     web = materials.concrete.specific_weight_tn_m3 * geometry.web_width_m * geometry.girder_total_height_m
-    return (slab, web)
+    sidewalk = materials.sidewalk.specific_weight_tn_m3 * materials.sidewalk.thickness_m * geometry.sidewalk_tributary_width_m
+    return (slab, web, sidewalk) if sidewalk else (slab, web)
 
 
 def _dc_point_loads_tn(

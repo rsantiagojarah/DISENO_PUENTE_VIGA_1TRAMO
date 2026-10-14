@@ -179,7 +179,7 @@ def _crack_cards(review, styles) -> list:
     return cards
 
 
-def girder_story(data: DeckReportData, styles, *, exterior: bool) -> list:
+def girder_story(data: DeckReportData, styles, *, exterior: bool, group_label: str = "") -> list:
     result = data.exterior_result if exterior else data.interior_result
     reinforcement = data.exterior_reinforcement if exterior else data.interior_reinforcement
     shear = data.exterior_shear if exterior else data.interior_shear
@@ -190,9 +190,12 @@ def girder_story(data: DeckReportData, styles, *, exterior: bool) -> list:
     main = reinforcement.main
     adopted = selected_option(selected, "A.")
     name = "Viga exterior" if exterior else "Viga interior"
+    if group_label:
+        name += " " + group_label
+    include_pl = getattr(result, "pl", None) is not None
     components = (
         f"1.25({strength.dc_moment_tn_m:.3f}) + 1.50({strength.dw_moment_tn_m:.3f}) + "
-        + (f"1.75({strength.pl_moment_tn_m:.3f}) + " if exterior else "")
+        + (f"1.75({strength.pl_moment_tn_m:.3f}) + " if include_pl else "")
         + f"1.75({strength.ll_im_moment_tn_m:.3f})"
     )
     initial_effective_depth_cm = (
@@ -237,7 +240,7 @@ def girder_story(data: DeckReportData, styles, *, exterior: bool) -> list:
             styles,
         ),
     ]
-    story.extend(moment_shear_pair(result, title=name, include_pl=exterior))
+    story.extend(moment_shear_pair(result, title=name, include_pl=include_pl))
     story.append(p(f"Figura. Envolventes Resistencia I empleadas en flexion y cortante de {name.lower()}.", styles["caption"]))
     adopted_text = (
         f"{adopted.bar_count} barras {adopted.bar_label}, {adopted.layers} capa(s), As prov={adopted.provided_area_cm2:.3f} cm2"

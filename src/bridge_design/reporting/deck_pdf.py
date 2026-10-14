@@ -42,8 +42,13 @@ def generate_deck_pdf(data: DeckReportData, output_path: str | Path) -> Path:
     story.extend(input_story(data, styles))
     story.extend(slab_story(data, styles))
     story.append(PageBreak())
-    story.extend(girder_story(data, styles, exterior=False))
-    story.extend(girder_story(data, styles, exterior=True))
+    if data.girder_groups:
+        for group in sorted(data.girder_groups, key=lambda item: (item.exterior, item.indices)):
+            story.extend(girder_story(group.report_context(data), styles, exterior=group.exterior,
+                                      group_label=group.label))
+    else:
+        story.extend(girder_story(data, styles, exterior=False))
+        story.extend(girder_story(data, styles, exterior=True))
     story.extend(barrier_story(data, styles))
     story.extend(cantilever_story(data, styles))
     has_end = data.end_diaphragm_result is not None and data.end_diaphragm_reinforcement is not None

@@ -1,0 +1,46 @@
+VERIFICACION DEL CALCULO SOLDEORO - 14/10/2026
+
+Referencia: MEMORIA_CALCULO_TABLERO_20261005_1518.docx.
+El documento original no fue modificado.
+El programa no importa Word: se reconstruyeron sus entradas y las selecciones de acero.
+Se ejecuto el mismo caso con el codigo base y con las correcciones.
+
+CORRECCIONES
+- Reparto de vereda y asfalto por interseccion con la franja real de cada viga.
+- DC y PL de veredas asignados tambien a las vigas interiores que corresponda.
+- Diseno, verificaciones, detallado y reportes separados para grupos con cargas distintas.
+- Reacciones globales calculadas con la cantidad real de vigas de cada grupo.
+- Rechazo de entradas no finitas (NaN/Inf).
+- Correccion de la suma de Servicio I en el generador PDF; el generador Word ya sumaba correctamente.
+
+COMPARACION NUMERICA
+Valores numericos preexistentes comparados: 404339.
+Diferencia absoluta maxima observada: 0.0.
+Diferencias encontradas: 0.
+Incluye analisis, combinaciones, armados, verificaciones y detallado; excluye texto de auditoria
+y campos nuevos sin equivalente en el codigo anterior. No compara la maquetacion del Word.
+
+RESULTADOS CONSERVADOS
+Mu viga interior: 281.907474145 Tn.m.
+Mu viga exterior: 288.673088688 Tn.m.
+Mu positivo losa: 4.083558454 Tn.m/m.
+Magnitud Mu negativo losa: 5.426160499 Tn.m/m.
+Armadura principal adoptada de cada viga: 20 barras de 1 pulgada, 4 capas, As=100 cm2.
+Reacciones por estribo: DC=109.146 Tn; DW=6.674 Tn; PL=9.338 Tn.
+
+POR QUE SE CONSERVAN
+Soldeoro: franja exterior = 1.00 + 2.56/2 = 2.28 m; vereda = 1.70 m.
+La vereda cabe completa en la franja exterior. Asfalto exterior = 2.28 - 2.075 = 0.205 m.
+Cada franja interior tiene 2.56 m de asfalto. El reparto corregido coincide con el anterior.
+En otros tableros con veredas mas anchas o asfalto parcial, los resultados SI pueden cambiar.
+
+PRUEBAS
+Suite completa: 754 aprobadas, 16 fallidas, 0 errores.
+Los 16 fallos de referencia se reprodujeron usando el codigo anterior.
+Fallos nuevos: 0.
+El detalle de fallos y la trazabilidad estan en comparacion.json.
+
+REPRODUCCION DESDE LA CARPETA DEL PROYECTO
+python scripts/verify_soldeoro.py tmp/soldeoro_repetido.json
+python scripts/compare_calculation_snapshots.py tmp/soldeoro_before_selected.json tmp/soldeoro_repetido.json
+Entradas: tests/fixtures/soldeoro_20261005.yaml. Las selecciones de acero se fijan en el script.

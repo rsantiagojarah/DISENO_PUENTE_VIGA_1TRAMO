@@ -97,6 +97,7 @@ class ExteriorGirderGeometry:
     live_load_distribution_factor_g: float | None = None
     live_load_shear_distribution_factor_g: float | None = None
     sidewalk_start_m: float = 0.0
+    assigned_sidewalk_width_m: float | None = None
 
     def __post_init__(self) -> None:
         require_positive(self.span_length_m, "luz del puente")
@@ -107,6 +108,8 @@ class ExteriorGirderGeometry:
         require_positive(self.web_width_m, "ancho de alma")
         require_non_negative(self.sidewalk_width_m, "ancho de vereda")
         require_non_negative(self.sidewalk_start_m, "inicio de vereda")
+        if self.assigned_sidewalk_width_m is not None:
+            require_non_negative(self.assigned_sidewalk_width_m, "vereda tributaria")
         require_non_negative(self.asphalt_tributary_width_m, "ancho tributario de asfalto")
         require_positive(self.moving_load_step_m, "paso de carga movil")
         require_positive(self.moment_sample_step_m, "paso de muestreo de momento")
@@ -128,6 +131,8 @@ class ExteriorGirderGeometry:
     @property
     def sidewalk_tributary_width_m(self) -> float:
         """Return sidewalk width assigned to the exterior girder."""
+        if self.assigned_sidewalk_width_m is not None:
+            return min(self.assigned_sidewalk_width_m, max(0.0, self.tributary_width_m-self.sidewalk_start_m))
         return max(0.0, min(self.sidewalk_start_m + self.sidewalk_width_m, self.tributary_width_m) - self.sidewalk_start_m)
 
     @property

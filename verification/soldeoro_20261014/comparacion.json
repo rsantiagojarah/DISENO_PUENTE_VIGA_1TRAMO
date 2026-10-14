@@ -1,0 +1,62 @@
+{
+  "source_document": "revision_tablero_20261005_1518.docx",
+  "source_sha256": "da67cdc8fe8e6c50646b717ac30a1ed85ee4e497fcc43a9a43cf1e52a01a0d49",
+  "baseline_commit": "a2993c27287efdf1f86d00831962a52ad907c1eb",
+  "method": "Same reconstructed inputs and adopted bars from the Word, run through baseline and corrected code. DOCX is an output, not a direct input format.",
+  "comparison": {
+    "numeric_values_compared": 404339,
+    "maximum_absolute_difference": 0.0,
+    "differences": [],
+    "absolute_tolerance": 1e-09,
+    "relative_tolerance": 1e-10,
+    "scope": "All pre-existing fields; newly added tributary metadata and duplicate group contexts excluded."
+  },
+  "nonfinite_result_fields": [],
+  "full_suite": {
+    "total": 770,
+    "passed": 754,
+    "errors": 0,
+    "failures": {
+      "tests.test_abutment_minimum_flexure::test_toe_keeps_conditional_minimum_with_legacy_inputs[100-64.6148752047468]": "assert 62.970132926807786 == 64.6148752047468 ± 6.5e-05\n  \n  comparison failed\n  Obtained: 62.970132926807786\n  Expected: 64.6148752047468 ± 6.5e-05",
+      "tests.test_abutment_minimum_flexure::test_toe_keeps_conditional_minimum_with_legacy_inputs[55-64.6148752047468]": "assert 62.970132926807786 == 64.6148752047468 ± 6.5e-05\n  \n  comparison failed\n  Obtained: 62.970132926807786\n  Expected: 64.6148752047468 ± 6.5e-05",
+      "tests.test_audit_h18_onwards::test_h18_collision_uses_capacity_and_adds_axial_steel": "ValueError: La vereda sale del tablero: la cara exterior de barrera debe estar al menos a un ancho de vereda del borde.",
+      "tests.test_connected_audit::test_terminal_contains_shared_formulas_substitutions_and_governing_sources": "AssertionError: assert 'Se compara la longitud recta disponible con ld' in '+==============================================================================================================+ 1. D...DURAS +==============================================================================================================+'\n +  where '+==============================================================================================================+ 1. D...DURAS +==============================================================================================================+' = <built-in method join of str object at 0x00007FF9FE3F3210>(['+==============================================================================================================+', '...+==============================================================================================================+', ...])\n +    where <built-in method join of str object at 0x00007FF9FE3F3210> = ' '.join\n +    and   ['+==============================================================================================================+', '...+==============================================================================================================+', ...] = <built-in method split of str object at 0x0000011ECB70B010>()\n +      where <built-in method split of str object at 0x0000011ECB70B010> = '+==============================================================================================================+\\n   ...    \\n+==============================================================================================================+'.split\n +        where '+==============================================================================================================+\\n   ...    \\n+==============================================================================================================+' = <built-in method replace of str object at 0x0000011ECA41B010>('|', ' ')\n +          where <built-in method replace of str object at 0x0000011ECA41B010> = '+==============================================================================================================+\\n|  ...   |\\n+==============================================================================================================+'.replace",
+      "tests.test_cover_defaults::test_templates_do_not_require_cover_inputs[raw0]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_templates_do_not_require_cover_inputs[raw1]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[5.0-estribo_izquierdo-recubrimiento_pantalla_cm]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[5.0-estribo_izquierdo-recubrimiento_zapata_cm]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[5.0-estribo_derecho-recubrimiento_pantalla_cm]": "KeyError: 'estribo_derecho'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[5.0-estribo_derecho-recubrimiento_zapata_cm]": "KeyError: 'estribo_derecho'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[10.0-estribo_izquierdo-recubrimiento_pantalla_cm]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[10.0-estribo_izquierdo-recubrimiento_zapata_cm]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[10.0-estribo_derecho-recubrimiento_pantalla_cm]": "KeyError: 'estribo_derecho'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[10.0-estribo_derecho-recubrimiento_zapata_cm]": "KeyError: 'estribo_derecho'",
+      "tests.test_deck_pdf_report::test_deck_command_generates_detailed_word_memory_automatically": "assert 'E₊ = 0.660 + 0.55·S' in [\"Ec = 120 000 · K₁ · wc² · (f'c)0.33\", 'Ec = 120 000 · 1.000 · 0.14983² · 3.98250.33 = 4,250.3 ksi', 'U = 1.25 · DC + 1.50 · DW + 1.75 · PL + 1.75 · (LL + IM)', 'E⁺(x) = max[Eᵢ(x)]', 'E⁻(x) = min[Eᵢ(x)]', 'I = b · h³12', ...]",
+      "tests.test_serquen_bearings::test_command_exports_resolved_graph_points_to_json_and_word": "assert 'digitalización referencial' in '<?xml version=\\'1.0\\' encoding=\\'UTF-8\\' standalone=\\'yes\\'?>\\n<w:document xmlns:wpc=\"http://schemas.microsoft.com/of...\"720\" w:gutter=\"0\"/><w:cols w:space=\"720\"/><w:titlePg/><w:docGrid w:linePitch=\"360\"/></w:sectPr></w:body></w:document>'"
+    }
+  },
+  "baseline_recheck": {
+    "total": 24,
+    "passed": 8,
+    "errors": 0,
+    "failures": {
+      "tests.test_abutment_minimum_flexure::test_toe_keeps_conditional_minimum_with_legacy_inputs[100-64.6148752047468]": "assert 62.970132926807786 == 64.6148752047468 ± 6.5e-05\n  \n  comparison failed\n  Obtained: 62.970132926807786\n  Expected: 64.6148752047468 ± 6.5e-05",
+      "tests.test_abutment_minimum_flexure::test_toe_keeps_conditional_minimum_with_legacy_inputs[55-64.6148752047468]": "assert 62.970132926807786 == 64.6148752047468 ± 6.5e-05\n  \n  comparison failed\n  Obtained: 62.970132926807786\n  Expected: 64.6148752047468 ± 6.5e-05",
+      "tests.test_audit_h18_onwards::test_h18_collision_uses_capacity_and_adds_axial_steel": "ValueError: La vereda sale del tablero: la cara exterior de barrera debe estar al menos a un ancho de vereda del borde.",
+      "tests.test_connected_audit::test_terminal_contains_shared_formulas_substitutions_and_governing_sources": "AssertionError: assert 'Se compara la longitud recta disponible con ld' in '+==============================================================================================================+ 1. D...DURAS +==============================================================================================================+'\n +  where '+==============================================================================================================+ 1. D...DURAS +==============================================================================================================+' = <built-in method join of str object at 0x00007FF9FE3F3210>(['+==============================================================================================================+', '...+==============================================================================================================+', ...])\n +    where <built-in method join of str object at 0x00007FF9FE3F3210> = ' '.join\n +    and   ['+==============================================================================================================+', '...+==============================================================================================================+', ...] = <built-in method split of str object at 0x000002438A676F90>()\n +      where <built-in method split of str object at 0x000002438A676F90> = '+==============================================================================================================+\\n   ...    \\n+==============================================================================================================+'.split\n +        where '+==============================================================================================================+\\n   ...    \\n+==============================================================================================================+' = <built-in method replace of str object at 0x000002438A5D7140>('|', ' ')\n +          where <built-in method replace of str object at 0x000002438A5D7140> = '+==============================================================================================================+\\n|  ...   |\\n+==============================================================================================================+'.replace",
+      "tests.test_cover_defaults::test_templates_do_not_require_cover_inputs[raw0]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_templates_do_not_require_cover_inputs[raw1]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[5.0-estribo_izquierdo-recubrimiento_pantalla_cm]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[5.0-estribo_izquierdo-recubrimiento_zapata_cm]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[5.0-estribo_derecho-recubrimiento_pantalla_cm]": "KeyError: 'estribo_derecho'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[5.0-estribo_derecho-recubrimiento_zapata_cm]": "KeyError: 'estribo_derecho'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[10.0-estribo_izquierdo-recubrimiento_pantalla_cm]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[10.0-estribo_izquierdo-recubrimiento_zapata_cm]": "KeyError: 'estribo_izquierdo'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[10.0-estribo_derecho-recubrimiento_pantalla_cm]": "KeyError: 'estribo_derecho'",
+      "tests.test_cover_defaults::test_yaml_cannot_override_internal_covers[10.0-estribo_derecho-recubrimiento_zapata_cm]": "KeyError: 'estribo_derecho'",
+      "tests.test_deck_pdf_report::test_deck_command_generates_detailed_word_memory_automatically": "assert 'E₊ = 0.660 + 0.55·S' in [\"Ec = 120 000 · K₁ · wc² · (f'c)0.33\", 'Ec = 120 000 · 1.000 · 0.14983² · 3.98250.33 = 4,250.3 ksi', 'U = 1.25 · DC + 1.50 · DW + 1.75 · PL + 1.75 · (LL + IM)', 'E⁺(x) = max[Eᵢ(x)]', 'E⁻(x) = min[Eᵢ(x)]', 'I = b · h³12', ...]",
+      "tests.test_serquen_bearings::test_command_exports_resolved_graph_points_to_json_and_word": "assert 'digitalización referencial' in '<?xml version=\\'1.0\\' encoding=\\'UTF-8\\' standalone=\\'yes\\'?>\\n<w:document xmlns:wpc=\"http://schemas.microsoft.com/of...\"720\" w:gutter=\"0\"/><w:cols w:space=\"720\"/><w:titlePg/><w:docGrid w:linePitch=\"360\"/></w:sectPr></w:body></w:document>'"
+    }
+  },
+  "new_failure_ids": []
+}

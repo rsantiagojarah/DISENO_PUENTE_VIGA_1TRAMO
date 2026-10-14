@@ -109,8 +109,15 @@ def generate_deck_docx(data: DeckReportData, output_path: str | Path) -> Path:
         _contents(document)
         _general_basis(document, data)
         _transverse_slab(document, data, Path(chart_dir))
-        _girder(document, data, exterior=False, chart_dir=Path(chart_dir))
-        _girder(document, data, exterior=True, chart_dir=Path(chart_dir))
+        if data.girder_groups:
+            for group in sorted(data.girder_groups, key=lambda item: (item.exterior, item.indices)):
+                same_type = sum(item.exterior == group.exterior for item in data.girder_groups)
+                if same_type > 1:
+                    document.add_heading("Grupo de vigas " + group.label, level=1)
+                _girder(document, group.report_context(data), exterior=group.exterior, chart_dir=Path(chart_dir))
+        else:
+            _girder(document, data, exterior=False, chart_dir=Path(chart_dir))
+            _girder(document, data, exterior=True, chart_dir=Path(chart_dir))
         _barrier(document, data)
         _cantilever(document, data)
         _diaphragm(document, data, Path(chart_dir))
@@ -619,7 +626,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
     crack = data.exterior_crack.main if exterior else data.interior_crack.main
     fatigue = data.exterior_fatigue if exterior else data.interior_fatigue
     service = data.exterior_service if exterior else data.interior_service
-    include_pl = exterior
+    include_pl = getattr(analysis, "pl", None) is not None
     moment_rows = (
         combine_exterior_girder_moments(analysis)
         if exterior else combine_interior_girder_moments(analysis)
@@ -722,6 +729,10 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
             f"\nqbaranda = {materials.railing.weight_kg_m:.3f}/1000 = {q_railing:.3f} Tn/m"
             f"\nqbarrera = {materials.barrier.weight_kg_m:.3f}/1000 = {q_barrier:.3f} Tn/m"
         )
+    if not exterior and geometry.sidewalk_tributary_width_m > 0:
+        q_sidewalk = materials.sidewalk.specific_weight_tn_m3 * materials.sidewalk.thickness_m * geometry.sidewalk_tributary_width_m
+        extra_components = q_sidewalk
+        extra_substitution = f"\nqver = {materials.sidewalk.specific_weight_tn_m3:.3f}·{materials.sidewalk.thickness_m:.3f}·{geometry.sidewalk_tributary_width_m:.3f} = {q_sidewalk:.3f} Tn/m"
     q_dc = q_slab + q_web + extra_components
     _calc(
         document,
@@ -763,7 +774,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
             REF_DEAD_LOAD,
         )
     asphalt_width = (
-        geometry.asphalt_tributary_width_m if exterior else geometry.tributary_width_m
+        geometry.asphalt_tributary_width_m if exterior else geometry.effective_asphalt_width_m
     )
     q_dw = (
         materials.asphalt.specific_weight_tn_m3
@@ -780,19 +791,19 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         (
             "El ancho tributario de la viga exterior se limita a la porción efectiva de carpeta que intersecta su franja tributaria."
             if exterior
-            else "La viga interior recibe la superficie de rodadura correspondiente a todo su ancho tributario."
+            else "La viga interior recibe solo la carpeta que intersecta su franja tributaria."
         ),
         REF_DEAD_LOAD,
     )
-    if exterior:
+    if include_pl:
         q_pl = inputs.live_loads.pedestrian.load_tn_m2 * geometry.sidewalk_tributary_width_m
         _calc(
             document,
-            "Carga peatonal tributaria de la viga exterior",
+            "Carga peatonal tributaria de la viga",
             "qPL = pPL·bver",
             "qPL: carga lineal peatonal; pPL: carga superficial sobre la vereda; bver: ancho tributario de vereda",
             f"qPL = {inputs.live_loads.pedestrian.load_tn_m2:.4f}·{geometry.sidewalk_tributary_width_m:.3f} = {q_pl:.3f} Tn/m",
-            f"la viga exterior recibe qPL = {q_pl:.3f} Tn/m en toda la luz.",
+            f"la viga recibe qPL = {q_pl:.3f} Tn/m en toda la luz.",
             "La carga peatonal se mantiene como acción PL independiente para aplicar el factor que corresponde en cada estado límite.",
             REF_PEDESTRIAN,
         )
@@ -1488,10 +1499,9 @@ def _reactions(document: Document, data: DeckReportData) -> None:
         "Las acciones se expresan sin factores de carga para su combinación en el diseño de la subestructura."
     )
     rows = []
-    for label, result, include_pl in (
-        ("Interior", data.interior_result, False),
-        ("Exterior", data.exterior_result, True),
-    ):
+    from bridge_design.domain.longitudinal_loads import girder_reaction_cases
+    for label, count, result in girder_reaction_cases(data.project_inputs, data.interior_result, data.exterior_result):
+        include_pl = getattr(result, "pl", None) is not None
         cases = [("DC", result.dc), ("DW", result.dw)]
         if include_pl:
             cases.append(("PL", result.pl))
@@ -1553,17 +1563,9 @@ def _reactions(document: Document, data: DeckReportData) -> None:
 def _global_abutment_load_rows(data: DeckReportData, live_cases) -> tuple[list[tuple[str, ...]], tuple[str, ...]]:
     """Return global unfactored support loads and the Strength I envelope for abutments."""
     width = data.project_inputs.transverse_slab.geometry.total_width_m
-    interior_count = max(data.project_inputs.interior_girder.girder_count - 2, 0)
-
-    def total(interior_case, exterior_case):
-        int_left, int_right = _two_reactions(interior_case.support_reactions_tn)
-        ext_left, ext_right = _two_reactions(exterior_case.support_reactions_tn)
-        return interior_count * int_left + 2 * ext_left, interior_count * int_right + 2 * ext_right
-
-    dc = total(data.interior_result.dc, data.exterior_result.dc)
-    dw = total(data.interior_result.dw, data.exterior_result.dw)
-    ext_pl = _two_reactions(data.exterior_result.pl.support_reactions_tn)
-    pl = (2 * ext_pl[0], 2 * ext_pl[1])
+    from bridge_design.domain.longitudinal_loads import global_permanent_reactions
+    totals = global_permanent_reactions(data.project_inputs, data.interior_result, data.exterior_result)
+    dc, dw, pl = (totals[key] for key in ("DC", "DW", "PL"))
     ll = (max(row.left_tn for row in live_cases), max(row.right_tn for row in live_cases))
     service = tuple(sum(values) for values in zip(dc, dw, pl, ll))
     strength = tuple(1.25 * dc[i] + 1.50 * dw[i] + 1.75 * pl[i] + 1.75 * ll[i] for i in (0, 1))
@@ -1583,10 +1585,13 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
         elif label.startswith("B."):
             status = data.slab_crack.positive_main.status
         rows.append(("Losa transversal", label.split(".", 1)[-1].strip(), _option_text(option), status))
-    for label, option in data.interior_selected:
-        rows.append(("Viga interior", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
-    for label, option in data.exterior_selected:
-        rows.append(("Viga exterior", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
+    selections = [("Viga interior", data.interior_selected), ("Viga exterior", data.exterior_selected)]
+    if data.girder_groups:
+        selections = [(('Viga exterior ' if group.exterior else 'Viga interior ') + group.label, group.selected)
+                      for group in data.girder_groups]
+    for element, selected in selections:
+        for label, option in selected:
+            rows.append((element, label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
     barrier_inputs = data.project_inputs.barrier.section_model
     rows.append(
         (

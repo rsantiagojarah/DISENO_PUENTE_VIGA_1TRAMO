@@ -369,40 +369,28 @@ def diaphragm_story(data: DeckReportData, styles, *, geometry=None, result=None,
 
 def reactions_story(data: DeckReportData, styles) -> list:
     from bridge_design.domain.global_reactions import project_live_reaction_cases
+    from bridge_design.domain.longitudinal_loads import global_permanent_reactions, girder_reaction_cases
     gcount = data.project_inputs.interior_girder.girder_count
     width = data.project_inputs.transverse_slab.geometry.total_width_m
     interior_count = max(gcount - 2, 0)
-    cases = (
-        ("PDC", data.interior_result.dc, data.exterior_result.dc),
-        ("PDW", data.interior_result.dw, data.exterior_result.dw),
-        ("PPL", None, data.exterior_result.pl),
-    )
+    totals = global_permanent_reactions(data.project_inputs, data.interior_result, data.exterior_result)
     rows = []
-    for label, interior, exterior in cases:
-        ri = _maximum_reaction(interior) if interior is not None else 0.0
-        re = _maximum_reaction(exterior)
-        total = interior_count * ri + 2 * re
-        rows.append((label, f"{ri:.3f}", f"{re:.3f}", f"{total:.3f}", f"{total / width:.3f}"))
+    for label, count, result in girder_reaction_cases(data.project_inputs, data.interior_result, data.exterior_result):
+        for action in ("DC", "DW", "PL"):
+            case = getattr(result, action.lower(), None)
+            if case is not None:
+                reaction = _maximum_reaction(case)
+                rows.append((f"{label} / {action}", str(count), f"{reaction:.3f}",
+                             f"{count * reaction:.3f}", f"{count * reaction / width:.3f}"))
     live_cases = project_live_reaction_cases(data.project_inputs)
     live_left = max(row.left_tn for row in live_cases)
     live_right = max(row.right_tn for row in live_cases)
-    local_live_interior = _maximum_reaction(data.interior_result.ll_im_envelope)
-    local_live_exterior = _maximum_reaction(data.exterior_result.ll_im_envelope)
-    rows.append(
-        (
-            "PLL+IM local máx.",
-            f"{local_live_interior:.3f}",
-            f"{local_live_exterior:.3f}",
-            "No sumar",
-            "—",
-        )
-    )
+    for label, count, result in girder_reaction_cases(data.project_inputs, data.interior_result, data.exterior_result):
+        reaction = _maximum_reaction(result.ll_im_envelope)
+        rows.append((f"{label} / LL+IM local", str(count), f"{reaction:.3f}", "No sumar", "—"))
     rows.append(("PLL+IM global", "—", "—", f"{live_left:.3f}", f"{live_left / width:.3f}"))
-    dc_pair = _global_pair(data.interior_result.dc, data.exterior_result.dc, interior_count)
-    dw_pair = _global_pair(data.interior_result.dw, data.exterior_result.dw, interior_count)
-    pl_ext = _support_pair(data.exterior_result.pl)
-    pl_pair = (2 * pl_ext[0], 2 * pl_ext[1])
-    service_pair = tuple(sum(values) for values in (dc_pair, dw_pair, pl_pair, (live_left, live_right)))
+    dc_pair, dw_pair, pl_pair = (totals[key] for key in ("DC", "DW", "PL"))
+    service_pair = tuple(sum(values) for values in zip(dc_pair, dw_pair, pl_pair, (live_left, live_right)))
     strength_pair = tuple(1.25 * dc_pair[i] + 1.50 * dw_pair[i] + 1.75 * pl_pair[i] + 1.75 * (live_left, live_right)[i] for i in (0, 1))
     return [
         p("8. Reacciones por viga para apoyos y cargas globales para estribos", styles["h1"]),
@@ -415,8 +403,8 @@ def reactions_story(data: DeckReportData, styles) -> list:
         ),
         formula_card(
             "Carga lineal transferida al estribo",
-            "P_lineal = [n_i R_i + 2 R_e]/B",
-            "n_i: numero de vigas interiores; Ri y Re: reacciones por viga; B: ancho total del tablero.",
+            "P_lineal = sum(n_grupo R_grupo)/B",
+            "n_grupo: vigas con iguales cargas; R_grupo: reaccion por viga; B: ancho total del tablero.",
             f"n_i={interior_count}; B={width:.3f} m; numero total de vigas={gcount}",
             "Valores por caso en la tabla siguiente, expresados en Tn/m.",
             "PL se conserva separado de LL+IM; no se aplica impacto a la carga peatonal.",
@@ -424,7 +412,7 @@ def reactions_story(data: DeckReportData, styles) -> list:
             styles,
         ),
         data_table(
-            ("Caso", "R interior", "R exterior", "Total", "Tn/m"),
+            ("Grupo / Caso", "Cantidad", "R por viga", "Total", "Tn/m"),
             rows,
             [25 * mm, 33 * mm, 33 * mm, 35 * mm, 30 * mm],
             styles,

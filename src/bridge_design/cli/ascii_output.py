@@ -1774,6 +1774,7 @@ def format_interior_girder_analysis_result(
             (
                 result.dc,
                 result.dw,
+                *((result.pl,) if result.pl is not None else ()),
                 result.truck_ll_im,
                 result.tandem_ll_im,
                 result.ll_im_envelope,
@@ -2109,36 +2110,13 @@ def format_abutment_reaction_summary(
     exterior_count = 2
     interior_count = max(girder_count - exterior_count, 0)
     abutment_length_m = project_inputs.transverse_slab.geometry.total_width_m
-    rows = (
-        _abutment_reaction_row(
-            "PDC",
-            "Carga muerta DC",
-            interior_result.dc,
-            exterior_result.dc,
-            interior_count,
-            exterior_count,
-            abutment_length_m,
-        ),
-        _abutment_reaction_row(
-            "PDW",
-            "Carga de asfalto DW",
-            interior_result.dw,
-            exterior_result.dw,
-            interior_count,
-            exterior_count,
-            abutment_length_m,
-        ),
-        _abutment_reaction_row(
-            "PPL",
-            "Carga peatonal PL",
-            None,
-            exterior_result.pl,
-            interior_count,
-            exterior_count,
-            abutment_length_m,
-        ),
-        project_live_reaction_row(project_inputs),
-    )
+    from bridge_design.domain.longitudinal_loads import global_permanent_reactions
+    totals = global_permanent_reactions(project_inputs, interior_result, exterior_result)
+    rows = tuple((symbol, label, f"{totals[key][0]:.3f}", f"{totals[key][1]:.3f}",
+                  f"{totals[key][0]/abutment_length_m:.3f}", f"{totals[key][1]/abutment_length_m:.3f}")
+                 for key, symbol, label in (("DC", "PDC", "Carga muerta DC"),
+                                           ("DW", "PDW", "Carga de asfalto DW"),
+                                           ("PL", "PPL", "Carga peatonal PL"))) + (project_live_reaction_row(project_inputs),)
     service_fixed_total = sum(float(row[2]) for row in rows)
     service_movable_total = sum(float(row[3]) for row in rows)
     service_fixed_line = sum(float(row[4]) for row in rows)
@@ -2307,6 +2285,8 @@ def _format_interior_combined_cells(row: InteriorGirderCombinedMoment) -> tuple[
         f"{row.dc_factor:.2f}",
         f"{row.dw_moment_tn_m:.3f}",
         f"{row.dw_factor:.2f}",
+        f"{row.pl_moment_tn_m:.3f}",
+        f"{row.pl_factor:.2f}",
         f"{row.ll_im_moment_tn_m:.3f}",
         f"{row.ll_im_factor:.2f}",
         f"{row.combined_moment_tn_m:.3f}",
@@ -2315,9 +2295,9 @@ def _format_interior_combined_cells(row: InteriorGirderCombinedMoment) -> tuple[
 
 def _format_interior_combined_table(rows: tuple[InteriorGirderCombinedMoment, ...]) -> list[str]:
     return boxed_table(
-        ("Combinacion", "x (m)", "DC", "gDC", "DW", "gDW", "LL+IM", "gLL", "Mu/Ms"),
+        ("Combinacion", "x (m)", "DC", "gDC", "DW", "gDW", "PL", "gPL", "LL+IM", "gLL", "Mu/Ms"),
         (_format_interior_combined_cells(row) for row in rows),
-        aligns=("left", "right", "right", "right", "right", "right", "right", "right", "right"),
+        aligns=("left", "right", "right", "right", "right", "right", "right", "right", "right", "right", "right"),
         title="Momentos combinados LRFD",
     )
 
@@ -2564,13 +2544,14 @@ def _format_shear_design_lines(shear: InteriorGirderShearDesign) -> list[str]:
     ]
     lines.extend(
         boxed_table(
-            ("x", "Vu", "DC", "DW", "LL+IM", "dv", "Vc", "Vs req", "Av/s req", "s max"),
+            ("x", "Vu", "DC", "DW", "PL", "LL+IM", "dv", "Vc", "Vs req", "Av/s req", "s max"),
             (
                 (
                     f"{row.position_m:.3f}",
                     f"{row.combined_shear_tn:.3f}",
                     f"{row.dc_shear_tn:.3f}",
                     f"{row.dw_shear_tn:.3f}",
+                    f"{row.pl_shear_tn:.3f}",
                     f"{row.ll_im_shear_tn:.3f}",
                     f"{shear.effective_shear_depth_cm:.2f}",
                     f"{shear.vc_tn:.3f}",
@@ -2579,7 +2560,7 @@ def _format_shear_design_lines(shear: InteriorGirderShearDesign) -> list[str]:
                     f"{shear.maximum_spacing_m:.3f}",
                 ),
             ),
-            aligns=("right",) * 10,
+            aligns=("right",) * 11,
             title="Demanda y resistencia por corte",
         )
     )

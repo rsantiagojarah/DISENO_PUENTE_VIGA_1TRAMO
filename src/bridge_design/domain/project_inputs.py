@@ -9,6 +9,7 @@ from bridge_design.domain.materials import MaterialProperties
 from bridge_design.domain.exterior_girder import ExteriorGirderGeometry
 from bridge_design.domain.interior_girder import DiaphragmGeometry, InteriorGirderGeometry
 from bridge_design.domain.transverse_slab import TransverseSlabDesignInputs
+from bridge_design.domain.girder_tributaries import girder_tributaries
 
 _SUPPORT_DIAPHRAGM_TOLERANCE_M = 1e-3
 
@@ -25,6 +26,8 @@ class ProjectInputs:
     exterior_girder: ExteriorGirderGeometry
     diaphragm: DiaphragmBeamGeometry
     end_diaphragm: DiaphragmBeamGeometry | None = None
+    interior_girder_index: int = 1
+    exterior_girder_index: int = 0
 
     def __post_init__(self) -> None:
         """Derive the barrier dead load from its resisting profile."""
@@ -39,14 +42,20 @@ class ProjectInputs:
                          asphalt_start_m=max(old_layout.asphalt_start_m, traffic_face),
                          asphalt_end_m=min(old_layout.asphalt_end_m, other_face))
         object.__setattr__(self, "transverse_slab", replace(self.transverse_slab, load_layout=layout))
+        tributaries = self.girder_tributaries
+        exterior_load = tributaries[self.exterior_girder_index]
+        interior_load = tributaries[self.interior_girder_index]
         exterior = replace(
             self.exterior_girder,
             sidewalk_start_m=layout.sidewalk_start_m,
             sidewalk_width_m=layout.sidewalk_width_m,
             exterior_web_to_traffic_barrier_m=self.transverse_slab.geometry.overhang_m - layout.barrier_left_m - layout.barrier_width_m,
-            asphalt_tributary_width_m=max(0.0, self.exterior_girder.tributary_width_m - layout.asphalt_start_m),
+            asphalt_tributary_width_m=exterior_load.asphalt_m,
+            assigned_sidewalk_width_m=exterior_load.sidewalk_m,
         )
-        interior = self.interior_girder
+        interior = replace(self.interior_girder,
+                           asphalt_tributary_width_m=interior_load.asphalt_m,
+                           sidewalk_tributary_width_m=interior_load.sidewalk_m)
         if self.end_diaphragm is not None:
             interior = _girder_with_end_diaphragms(
                 interior,
@@ -60,6 +69,10 @@ class ProjectInputs:
             )
         object.__setattr__(self, "interior_girder", interior)
         object.__setattr__(self, "exterior_girder", exterior)
+
+    @property
+    def girder_tributaries(self):
+        return girder_tributaries(self.transverse_slab.geometry, self.transverse_slab.load_layout)
 
 
 def _occupies_end_diaphragm(position_m: float, span_m: float, thickness_m: float) -> bool:

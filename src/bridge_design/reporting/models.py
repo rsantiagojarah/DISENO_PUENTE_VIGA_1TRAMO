@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 
@@ -43,6 +43,34 @@ class DeckReportData:
     end_diaphragm_reinforcement: Any = None
     end_diaphragm_selected: tuple[tuple[str, Any], ...] = ()
     audit_sections: tuple[tuple[str, str], ...] = ()
+    girder_groups: tuple = ()
+
+
+@dataclass(frozen=True)
+class GirderReportGroup:
+    """One complete design shared only by girders with identical load widths."""
+    indices: tuple[int, ...]
+    exterior: bool
+    project_inputs: Any
+    result: Any
+    reinforcement: Any
+    shear: Any
+    selected: tuple
+    detail: Any
+    crack: Any
+    fatigue: Any
+    service: Any
+    audit_sections: tuple = ()
+
+    @property
+    def label(self):
+        return ", ".join(f"V{index+1}" for index in self.indices)
+
+    def report_context(self, data):
+        prefix = "exterior" if self.exterior else "interior"
+        values = {prefix + "_" + name: getattr(self, name) for name in
+                  ("result", "reinforcement", "shear", "selected", "detail", "crack", "fatigue", "service")}
+        return replace(data, project_inputs=self.project_inputs, **values)
 
 
 def selected_option(items: tuple[tuple[str, Any], ...], prefix: str) -> Any | None:
