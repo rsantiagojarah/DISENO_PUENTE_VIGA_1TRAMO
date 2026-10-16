@@ -305,6 +305,9 @@ def design_cantilever_slab(
     layout: TransverseLoadLayout,
     barrier_result: BarrierDesignResult | None = None,
     parameters: CantileverSlabParameters | None = None,
+    *,
+    slab_selected=(),
+    slab_cover_cm: float | None = None,
 ) -> CantileverSlabDesignResult:
     """Return load effects, LRFD combinations, steel and bar lengths for the overhang."""
     require_positive(geometry.overhang_m, "volado de losa")
@@ -364,7 +367,8 @@ def design_cantilever_slab(
             and base_end <= geometry.support_positions_m[1] - geometry.girder_width_m / 2.0):
         from bridge_design.domain.interior_collision import design_interior_collision
         interior_collision = design_interior_collision(
-            geometry, materials, live_loads, layout, barrier_result, params)
+            geometry, materials, live_loads, layout, barrier_result, params,
+            slab_selected=slab_selected, slab_cover_cm=slab_cover_cm)
         notes = (*notes,
             "Colision local sobre voladizo: NO APLICABLE. La transferencia a la losa interior "
             "se calcula en el bloque siguiente; su armadura es independiente del voladizo.")

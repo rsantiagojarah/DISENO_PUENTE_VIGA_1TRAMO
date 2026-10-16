@@ -17,10 +17,14 @@ def report(request):
     from contextlib import redirect_stdout
     from io import StringIO
     captured = []
+    output = StringIO()
     with patch('builtins.input', return_value=''), patch(
-            'bridge_design.reporting.generate_deck_docx_with_dialog', captured.append), redirect_stdout(StringIO()):
+            'bridge_design.reporting.generate_deck_docx_with_dialog', captured.append), redirect_stdout(output):
         run_bridge_design(project(q=request.param, x=.40))
     assert len(captured) == 1
+    assert "COLISION CON ARMADO DE LOSA ADOPTADO - LADO IZQUIERDO" in output.getvalue()
+    assert "COLISION CON ARMADO DE LOSA ADOPTADO - LADO DERECHO" in output.getvalue()
+    assert "COLISION: VERIFICACION DEL ARMADO DE LOSA" in output.getvalue()
     return captured[0]
 
 
@@ -73,6 +77,30 @@ def test_common_cuts_and_stirrups_cover_all_members(report):
     for m in family.members:
         assert family.development.interior_anchor_length_m >= m.development.interior_anchor_length_m
         assert family.development.exterior_projection_length_m >= m.development.exterior_projection_length_m
+
+
+def test_collision_detail_and_summary_use_the_selected_slab_on_both_sides(report):
+    from docx import Document
+    from bridge_design.reporting.deck_docx import _configure_document, _conclusions
+    chosen = {label[:2]: option for label, option in report.slab_selected}
+    for member in report.cantilever_groups:
+        collision = member.result.interior_collision
+        assert collision is not None
+        for face in collision.faces:
+            option = chosen["A." if face.face == "superior" else "B."]
+            assert (face.option.bar, face.option.spacing_m, face.option.provided_area_cm2_m) == (
+                option.bar, option.spacing_m, option.provided_area_cm2_m)
+    document = Document()
+    _configure_document(document)
+    _conclusions(document, report)
+    rows = [[cell.text for cell in row.cells] for table in document.tables for row in table.rows]
+    local_rows = [row for row in rows if row[0].startswith("Losa interior") and "cara" in row[1]]
+    assert len(local_rows) == 4
+    for row, face in zip(local_rows, [face for member in report.cantilever_groups
+                                    for face in member.result.interior_collision.faces]):
+        assert "Armado de losa verificado por colision" in row[1]
+        assert f'{face.option.bar.label} @ {face.option.spacing_m:.3f} m' in row[2]
+        assert row[3] == face.status
 
 
 def test_family_plots_envelope_complete_combinations(report):

@@ -1327,37 +1327,50 @@ def _interior_collision_docx(document: Document, collision) -> None:
     )
     _table(
         document,
-        ("Cara", "As requerido", "Acero adoptado", "As provisto", "ld requerido", "ld disponible", "Estado"),
+        ("Cara", "As requerido", "Acero de losa adoptado", "As provisto", "Área"),
         tuple(
             (
                 face.face,
                 f"{face.option.required_area_cm2_m:.3f}" if face.option else "—",
-                f"{face.option.bar.label} @ {face.option.spacing_m:.3f} m" if face.option else "Sin opción",
+                f"{face.option.bar.label} @ {face.option.spacing_m:.3f} m" if face.option else "Sin seleccionar",
                 f"{face.option.provided_area_cm2_m:.3f}" if face.option else "—",
-                f"{face.development_length_m:.3f} m",
-                f"{face.development_available_m:.3f} m",
-                face.status,
+                face.steel_status,
             )
             for face in collision.faces
         ),
-        widths=(22, 26, 40, 27, 28, 29, 24),
+        widths=(22, 30, 58, 30, 30),
         font_size=7.4,
     )
-    document.add_heading("6.2.3 Cortante y conexión barrera–losa", level=3)
-    _calc(
+    _table(
         document,
-        "Cortante de la franja interior",
-        "φVc = φ·0.265·β·√f'c·b·dv",
-        "β: factor del procedimiento general con tracción; b=100 cm; dv: peralte efectivo de corte.",
-        f"Vu={collision.shear_demand_tn_m:.3f} Tn/m; β={collision.shear_beta:.3f}; "
-        f"φVc={collision.shear_capacity_tn_m:.3f} Tn/m.",
-        f"Vu={collision.shear_demand_tn_m:.3f} Tn/m "
-        f"{detail.upper_limit_symbol(collision.shear_demand_tn_m, collision.shear_capacity_tn_m)} "
-        f"φVc={collision.shear_capacity_tn_m:.3f} Tn/m: "
-        f"{collision.shear_status}.",
-        _status_comment(collision.shear_status, "La franja interior satisface el control de cortante sin estribos."),
-        "Manual de Puentes MTC 2018, Art. 2.9.1.5.6.",
+        ("Cara", "ld requerido", "ld disponible", "Anclaje", "Resultado de cara"),
+        tuple((face.face, f"{face.development_length_m:.3f} m" if face.option else "—",
+               f"{face.development_available_m:.3f} m", face.development_status, face.status)
+              for face in collision.faces),
+        widths=(22, 40, 40, 34, 34), font_size=7.4,
     )
+    for face in collision.faces:
+        if face.reason:
+            _comment(document, f"{face.face}: {face.reason}")
+    document.add_heading("6.2.3 Cortante y conexión barrera–losa", level=3)
+    if collision.shear_status == "PENDIENTE":
+        _comment(document, f"Cortante: Vu={collision.shear_demand_tn_m:.3f} Tn/m. PENDIENTE: "
+                 "seleccionar el acero de losa de ambas caras para calcular la resistencia.")
+    else:
+        _calc(
+            document,
+            "Cortante de la franja interior",
+            "φVc = φ·0.265·β·√f'c·b·dv",
+            "β: factor del procedimiento general con tracción; b=100 cm; dv: peralte efectivo de corte.",
+            f"Vu={collision.shear_demand_tn_m:.3f} Tn/m; β={collision.shear_beta:.3f}; "
+            f"φVc={collision.shear_capacity_tn_m:.3f} Tn/m.",
+            f"Vu={collision.shear_demand_tn_m:.3f} Tn/m "
+            f"{detail.upper_limit_symbol(collision.shear_demand_tn_m, collision.shear_capacity_tn_m)} "
+            f"φVc={collision.shear_capacity_tn_m:.3f} Tn/m: "
+            f"{collision.shear_status}.",
+            _status_comment(collision.shear_status, "La franja interior satisface el control de cortante sin estribos."),
+            "Manual de Puentes MTC 2018, Art. 2.9.1.5.6.",
+        )
     _table(
         document,
         ("Control", "Demanda", "Capacidad disponible", "Estado"),
@@ -1685,14 +1698,15 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
                      "Casos 1/2/3 + yield-line/dowel/desarrollo", collision.status))
     if interior_collision is not None:
         rows.append(("Losa interior", "Transferencia local de colision",
-                     "Horizontal + vertical; conexion por capacidad", interior_collision.status))
+                     "Área, anclaje, cortante y conexión", interior_collision.status))
         for face in interior_collision.faces:
-            rows.append(("Losa interior", f"Minimo por colision, cara {face.face}",
+            rows.append(("Losa interior", f"Armado de losa verificado por colision, cara {face.face}",
                          _option_text(face.option), face.status))
         _comment(document,
-            "Se presentan por cara el refuerzo adoptado para las acciones de la losa y los minimos "
-            "calculados para colision. Los estados corresponden a cada comprobacion por separado. "
-            "La conexion barrera-losa se evalua por capacidad con las longitudes de desarrollo calculadas.")
+            "Se verifica para colision el mismo acero transversal superior e inferior seleccionado para la losa. "
+            "No se agregan ni se sustituyen barras automaticamente. Los estados de area y anclaje se detallan "
+            "por separado; la longitud disponible se mide desde la cara exterior de la base de la barrera. "
+            "La conexion barrera-losa se conserva como comprobacion independiente por capacidad.")
     for group in data.cantilever_groups:
         if group.side != "derecho":
             continue
@@ -1703,9 +1717,9 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
                          "Casos 1/2/3 + conexion", collision_right.status))
         if interior_right is not None:
             rows.append(("Losa interior, lado derecho", "Transferencia local de colision",
-                         "Horizontal + vertical; conexion por capacidad", interior_right.status))
+                         "Área, anclaje, cortante y conexión", interior_right.status))
             for face in interior_right.faces:
-                rows.append(("Losa interior, lado derecho", f"Minimo por colision, cara {face.face}",
+                rows.append(("Losa interior, lado derecho", f"Armado de losa verificado por colision, cara {face.face}",
                              _option_text(face.option), face.status))
     for label, option in diaphragm_selection_with_skin(data.diaphragm_reinforcement, data.diaphragm_selected):
         rows.append(("Diafragma interior" if data.end_diaphragm_result is not None else "Diafragma", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))

@@ -200,7 +200,7 @@ def _interior_collision_story(collision, styles) -> list:
     )
     story.extend(
         [
-            p("Acero transversal requerido por colision", styles["h2"]),
+            p("Verificacion por colision del acero transversal de losa adoptado", styles["h2"]),
             data_table(
                 ("Cara", "Caso gobernante", "x", "M", "N", "gDC", "gDW"),
                 tuple(
@@ -219,28 +219,37 @@ def _interior_collision_story(collision, styles) -> list:
                 styles,
             ),
             data_table(
-                ("Cara", "As req", "Acero", "As prov", "ld req", "ld disp", "Estado"),
+                ("Cara", "As req", "Acero de losa adoptado", "As prov", "Area"),
                 tuple(
                     (
                         face.face,
                         f"{face.option.required_area_cm2_m:.3f}" if face.option else "-",
-                        f"{face.option.bar.label} @ {face.option.spacing_m:.3f} m" if face.option else "Sin opcion",
+                        f"{face.option.bar.label} @ {face.option.spacing_m:.3f} m" if face.option else "Sin seleccionar",
                         f"{face.option.provided_area_cm2_m:.3f}" if face.option else "-",
-                        f"{face.development_length_m:.3f} m",
-                        f"{face.development_available_m:.3f} m",
-                        face.status,
+                        face.steel_status,
                     )
                     for face in collision.faces
                 ),
-                [20 * mm, 22 * mm, 37 * mm, 23 * mm, 24 * mm, 24 * mm, 20 * mm],
+                [22 * mm, 30 * mm, 58 * mm, 30 * mm, 30 * mm],
+                styles,
+            ),
+            data_table(
+                ("Cara", "ld req", "ld disp", "Anclaje", "Resultado de cara"),
+                tuple((face.face, f"{face.development_length_m:.3f} m" if face.option else "-",
+                       f"{face.development_available_m:.3f} m", face.development_status, face.status)
+                      for face in collision.faces),
+                [22 * mm, 40 * mm, 40 * mm, 34 * mm, 34 * mm],
                 styles,
             ),
             formula_card(
                 "Cortante de la franja interior",
                 "phi Vc = phi 0.265 beta sqrt(f'c) b dv",
                 "beta: factor general con traccion; b=100 cm; dv: peralte efectivo de corte.",
-                f"Vu={collision.shear_demand_tn_m:.3f} Tn/m; beta={collision.shear_beta:.3f}",
-                f"phi Vc={collision.shear_capacity_tn_m:.3f} Tn/m: {collision.shear_status}",
+                f"Vu={collision.shear_demand_tn_m:.3f} Tn/m; beta={collision.shear_beta:.3f}"
+                if collision.shear_status != "PENDIENTE" else f"Vu={collision.shear_demand_tn_m:.3f} Tn/m",
+                f"phi Vc={collision.shear_capacity_tn_m:.3f} Tn/m: {collision.shear_status}"
+                if collision.shear_status != "PENDIENTE" else
+                "PENDIENTE: seleccionar el acero de losa de ambas caras para calcular la resistencia.",
                 "La comprobacion corresponde a cortante sin estribos en la franja local.",
                 "Manual de Puentes MTC 2018, Art. 2.9.1.5.6.",
                 styles,
@@ -266,6 +275,7 @@ def _interior_collision_story(collision, styles) -> list:
             ),
         ]
     )
+    story.extend(p(f"{face.face}: {face.reason}", styles["small"]) for face in collision.faces if face.reason)
     story.extend(p(note, styles["small"]) for note in formal_interior_collision_notes(collision))
     return story
 

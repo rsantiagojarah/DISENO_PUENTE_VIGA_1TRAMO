@@ -5,20 +5,19 @@ This is an explicitly declared elastic strip model, not the A13.4 overhang
 girder model, not an automatic verification of bearings or diaphragms.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import product
-from math import floor
+from math import isfinite
 
 from bridge_design.codes.mtc_2018 import mtc_tension_development_length_cm
-from bridge_design.domain.rebar_catalog import (
-    REINFORCING_BAR_CATALOG, ReinforcementSpacingOption,
-)
+from bridge_design.domain.rebar_catalog import ReinforcementSpacingOption
 from bridge_design.domain.reinforcement import flexural_steel_area_cm2
 from bridge_design.domain.transverse_slab import (
     PointMoment, PointLoad, solve_load_case, transverse_load_placement_cases,
     _bending_moment_at,
 )
 from bridge_design.units.converters import kip_to_tn
+from bridge_design.validation.input_validators import require_positive
 
 
 REFERENCE = (
@@ -56,6 +55,19 @@ class InteriorCollisionFace:
     development_length_m: float
     development_available_m: float
     status: str
+    reason: str = ""
+
+    @property
+    def steel_status(self) -> str:
+        if self.option is None:
+            return "PENDIENTE"
+        return "OK" if self.option.is_compliant else "NO CUMPLE"
+
+    @property
+    def development_status(self) -> str:
+        if self.option is None:
+            return "PENDIENTE"
+        return "OK" if self.development_available_m + 1e-9 >= self.development_length_m else "NO CUMPLE"
 
 
 @dataclass(frozen=True)
@@ -112,12 +124,20 @@ class InteriorCollisionDesign:
                 o = face.option
                 lines.append(f"{o.bar.label} cada {o.spacing_m:.3f} m; "
                              f"As req={o.required_area_cm2_m:.3f}, As prov={o.provided_area_cm2_m:.3f} cm2/m; "
-                             f"ld={face.development_length_m:.3f} m, disponible={face.development_available_m:.3f} m: {face.status}.")
+                             f"area: {face.steel_status}; ld={face.development_length_m:.3f} m, "
+                             f"disponible={face.development_available_m:.3f} m; anclaje: {face.development_status}; "
+                             f"resultado: {face.status}.")
             else:
-                lines.append("NO CUMPLE: sin alternativa del catalogo compatible con la demanda y el peralte.")
-        lines.append(f"Corte: Vu={self.shear_demand_tn_m:.3f}, phi Vc={self.shear_capacity_tn_m:.3f} Tn/m; "
-                     f"beta={self.shear_beta:.3f}: {self.shear_status}. "
-                     f"Conexion barrera-losa: {self.connection_status}. Resultado local: {self.status}.")
+                lines.append("PENDIENTE: falta seleccionar el acero principal de la losa para esta cara.")
+            if face.reason:
+                lines.append(face.reason)
+        if self.shear_status == "PENDIENTE":
+            lines.append(f"Corte: Vu={self.shear_demand_tn_m:.3f} Tn/m; PENDIENTE: "
+                         "seleccionar el acero de losa de ambas caras para calcular la resistencia.")
+        else:
+            lines.append(f"Corte: Vu={self.shear_demand_tn_m:.3f}, phi Vc={self.shear_capacity_tn_m:.3f} Tn/m; "
+                         f"beta={self.shear_beta:.3f}: {self.shear_status}.")
+        lines.append(f"Conexion barrera-losa: {self.connection_status}. Resultado local: {self.status}.")
         return tuple(lines) + self.notes
 
 
@@ -127,16 +147,21 @@ def _shear_at(x, segments, points, reactions):
             - sum(s.q_tn_m * max(0.0, min(x, s.end_m) - s.start_m) for s in segments))
 
 
-def design_interior_collision(geometry, materials, live_loads, layout, barrier, params):
-    """Design the continuous two-face reinforcement required for collision.
+def design_interior_collision(geometry, materials, live_loads, layout, barrier, params, *,
+                              slab_selected=(), slab_cover_cm=None):
+    """Check the adopted transverse slab reinforcement under local collision.
 
-    The same reinforcement is specified across the interior deck; ordinary
+    Negative (A.) and positive (B.) slab selections supply the upper and lower
+    layers; never replace them with independently recommended bars. Ordinary
     Strength/Service reinforcement remains mandatory. Each (M,N) pair is kept
     compatible. N is conservatively carried without reduction to the interior
     side; its horizontal support allocation needs a global in-plane model.
     Local straight-bar anchorage is measured outward from the outer face of
     each barrier base to the bar end at the deck edge cover, for both layers.
     """
+    if slab_cover_cm is not None:
+        # The adopted interior slab may not share the overhang's cover.
+        params = replace(params, concrete_cover_cm=slab_cover_cm)
     placements = transverse_load_placement_cases(geometry, materials, live_loads, layout)
     dead = placements[:2]
     dead_results = tuple(solve_load_case(geometry, materials, p.name, p.segments, p.point_loads) for p in dead)
@@ -162,6 +187,8 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
     # barrier centre, or the section governing the reinforcement demand.
     edge_cover_m = params.concrete_cover_cm / 100
     development_available_m = max(0.0, base[0] - edge_cover_m)
+    slab_choices = {label[:2]: option for label, option in slab_selected}
+    adopted = {"superior": slab_choices.get("A."), "inferior": slab_choices.get("B.")}
     cases, demands = [], {"superior": [], "inferior": []}
     vu = 0.0
     maximum_moment = 0.0
@@ -219,7 +246,7 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
                                         for p, r in zip(dead, dead_results))
                             vu = max(vu, abs(gd*vdc + gw*vdw + _shear_at(sx, (), points, solved.support_reactions_tn)))
     faces = tuple(
-        _design_face(face, rows, geometry, materials, params,
+        _review_face(face, rows, geometry, materials, params, adopted[face],
                      development_available_m=development_available_m)
         for face, rows in demands.items()
     )
@@ -227,14 +254,23 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
     # General no-stirrup shear procedure; aggregate contribution conservatively set to zero.
     selected = [f.option for f in faces if f.option is not None]
     d = min((geometry.slab_thickness_m*100 - params.concrete_cover_cm - o.bar.diameter_cm/2 for o in selected), default=0)
-    dv = max(.9*d, .72*geometry.slab_thickness_m*100)
-    area = min((o.provided_area_cm2_m for o in selected), default=1e-9)
-    epsilon = (max(maximum_moment*100000/dv, vu*1000) + vu*1000 + n*1000) / (2_000_000*area)
-    sxe = min(80., max(12., (dv/2.54)*1.38/.63))
-    beta = 4.8/(1+750*epsilon) * 51/(39+sxe)
-    capacity = params.shear_resistance_factor * _concrete_shear_resistance_tn(
-        materials.concrete.compressive_strength_kg_cm2, 100, dv, beta)
-    shear_status = "OK" if selected and capacity >= vu else "NO CUMPLE"
+    if len(selected) < 2:
+        # Missing reinforcement is not a failed physical check or a substitute
+        # catalogue choice. Keep the demands, but do not publish a fake capacity.
+        beta = capacity = 0.0
+        shear_status = "PENDIENTE"
+    elif d <= 0:
+        beta = capacity = 0.0
+        shear_status = "NO CUMPLE"
+    else:
+        dv = max(.9*d, .72*geometry.slab_thickness_m*100)
+        area = min(o.provided_area_cm2_m for o in selected)
+        epsilon = (max(maximum_moment*100000/dv, vu*1000) + vu*1000 + n*1000) / (2_000_000*area)
+        sxe = min(80., max(12., (dv/2.54)*1.38/.63))
+        beta = 4.8/(1+750*epsilon) * 51/(39+sxe)
+        capacity = params.shear_resistance_factor * _concrete_shear_resistance_tn(
+            materials.concrete.compressive_strength_kg_cm2, 100, dv, beta)
+        shear_status = "OK" if capacity >= vu else "NO CUMPLE"
     hook = barrier.development
     hook_capacity_ld = max(hook.minimum_ldh_cm, hook.modified_ldh_cm / hook.excess_reinforcement_factor)
     connection_ok = (barrier.yield_line.resistance_status == "OK"
@@ -271,14 +307,16 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
         ),
     )
     connection = "OK" if connection_ok else "NO CUMPLE"
-    status = "OK" if connection_ok and shear_status == "OK" and all(f.status == "OK" for f in faces) else "NO CUMPLE"
+    states = (connection, shear_status, *(f.status for f in faces))
+    status = "NO CUMPLE" if "NO CUMPLE" in states else ("PENDIENTE" if "PENDIENTE" in states else "OK")
     return InteriorCollisionDesign(tuple(cases), faces, force, length, moment, vu, capacity, beta,
         shear_status, connection_checks, connection, status, (
             "Casos horizontales y verticales independientes; gamma CT=1.0; DC=0.90/1.25, DW=0.65/1.50. "
             "La colision de barrera no se combina con LL/PL; el armado ordinario de Resistencia y Servicio se conserva.",
-            "Armadura indicada: minimo TOTAL por colision en cada cara de la losa interior. Adoptar la MAYOR "
-            "demanda entre este bloque y el diseno ordinario de la misma cara, no sumar areas. "
-            "Disponer barras continuas con el anclaje indicado hacia ambos bordes; no agregar esta area al voladizo.",
+            "Armadura verificada: acero transversal de losa seleccionado para flexion negativa (cara superior) "
+            "y positiva (cara inferior). As requerido se recalcula para colision con el diametro real de cada cara. "
+            "No se seleccionan barras nuevas ni se suman las areas de los casos ordinario y de colision. "
+            "El armado debe estar presente en la misma cara, direccion y zona de la demanda, y continuar hasta sus anclajes.",
             "Anclaje local adoptado para ambas caras de acero: desde la cara exterior de la base de cada barrera "
             "hacia el borde exterior cercano de la losa, con barras rectas continuas hasta el recubrimiento lateral. "
             f"Ldisp = max(0, ab - c) = max(0, {base[0]:.3f} - {edge_cover_m:.3f}) "
@@ -294,47 +332,48 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
         ))
 
 
-def _design_face(face, rows, geometry, materials, params, *, development_available_m):
+def _review_face(face, rows, geometry, materials, params, selected, *, development_available_m):
+    """Keep the physical slab bars and refresh only their collision checks."""
     fc, fy = materials.concrete.compressive_strength_kg_cm2, materials.steel.yield_strength_kg_cm2
     h = geometry.slab_thickness_m*100
     # For a fixed axial demand, steel increases monotonically with |M|.
     rows = [max((r for r in rows if r[1] == n), key=lambda r:r[0])
             for n in sorted({r[1] for r in rows})]
-    candidates = []
-    for i, bar in enumerate(REINFORCING_BAR_CATALOG):
-        d = h - params.concrete_cover_cm - bar.diameter_cm/2
-        if d <= h/2:
-            continue
-        requirements = []
-        try:
-            for m, n, name, x, gd, gw in rows:
-                # FHWA 4.10: As(M)+N/fy, conservative for combined tension/flexure.
-                area = flexural_steel_area_cm2(m, 100, d, fc, fy,
-                                               phi=params.flexural_resistance_factor)
-                area += n*1000/(min(params.flexural_resistance_factor, .75)*fy)
-                requirements.append((max(area, params.shrinkage_temperature_ratio*100*h),
-                                     m, n, name, x, gd, gw))
-        except ValueError:
-            continue
-        controlling = max(requirements, key=lambda row: row[0])
-        req = controlling[0]
-        spacing = min(params.maximum_spacing_m, floor((bar.area_cm2/req+1e-12)/params.spacing_step_m)*params.spacing_step_m)
-        if spacing < max(params.minimum_spacing_m, bar.diameter_cm/100 + .028575):
-            continue
-        option = ReinforcementSpacingOption(i+1, bar, spacing, req, bar.area_cm2/spacing, True, True)
-        ld, _ = mtc_tension_development_length_cm(bar.diameter_cm, fy, fc,
-            location_factor=params.development_location_factor,
-            coating_factor=params.development_coating_factor,
-            lightweight_factor=params.development_lightweight_factor,
-            confinement_factor=params.development_confinement_factor,
-            excess_reinforcement_factor=1.0)
-        available = development_available_m
-        status = "OK" if available+1e-9 >= ld/100 else "NO CUMPLE"
-        candidates.append((option, controlling, ld/100, available, status))
-    if not candidates:
+    if selected is None:
         row = max(rows, key=lambda r:r[0])
         return InteriorCollisionFace(face, row[2], row[3], row[0], row[1], row[4], row[5],
-                                     None, 0, development_available_m, "NO CUMPLE")
-    option, row, ld, available, status = min(candidates, key=lambda c:(c[4] != "OK", c[0].provided_area_cm2_m))
+                                     None, 0, development_available_m, "PENDIENTE")
+    bar = selected.bar
+    require_positive(selected.spacing_m, "separacion del acero de losa adoptado")
+    d = h - params.concrete_cover_cm - bar.diameter_cm/2
+    requirements = []
+    reason = ""
+    for m, n, name, x, gd, gw in rows:
+        try:
+            if d <= h/2:
+                raise ValueError("El peralte efectivo no permite la verificacion de la cara traccionada.")
+            # Preserve the existing collision model at the ACTUAL diameter.
+            area = flexural_steel_area_cm2(m, 100, d, fc, fy,
+                                           phi=params.flexural_resistance_factor)
+            area += n*1000/(min(params.flexural_resistance_factor, .75)*fy)
+            area = max(area, params.shrinkage_temperature_ratio*100*h)
+        except ValueError as exc:
+            area = float("inf")
+            reason = f"Se conserva el acero elegido, pero no hay solucion de flexion para esta cara: {exc}"
+        requirements.append((area, m, n, name, x, gd, gw))
+    row = max(requirements, key=lambda r:r[0])
+    required = row[0]
+    provided = bar.area_cm2 / selected.spacing_m
+    option = replace(selected, required_area_cm2_m=required, provided_area_cm2_m=provided,
+                     is_compliant=isfinite(required) and provided + 1e-9 >= required,
+                     is_recommended=False, crack_control_status=None)
+    ld, _ = mtc_tension_development_length_cm(bar.diameter_cm, fy, fc,
+        location_factor=params.development_location_factor,
+        coating_factor=params.development_coating_factor,
+        lightweight_factor=params.development_lightweight_factor,
+        confinement_factor=params.development_confinement_factor,
+        excess_reinforcement_factor=1.0)
+    status = "OK" if option.is_compliant and development_available_m + 1e-9 >= ld/100 else "NO CUMPLE"
     _, m, n, name, x, gd, gw = row
-    return InteriorCollisionFace(face, name, x, m, n, gd, gw, option, ld, available, status)
+    return InteriorCollisionFace(face, name, x, m, n, gd, gw, option, ld/100,
+                                 development_available_m, status, reason)

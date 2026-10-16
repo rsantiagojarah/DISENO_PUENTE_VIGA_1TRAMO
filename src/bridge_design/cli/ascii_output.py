@@ -1343,6 +1343,11 @@ def format_cantilever_slab_design_result(
     return "\n".join(lines)
 
 
+def format_interior_collision_result(collision: InteriorCollisionDesign) -> str:
+    """Show collision checks for the slab's actual upper and lower bars."""
+    return "\n".join(_format_interior_collision_lines(collision))
+
+
 def _format_interior_collision_lines(
     collision: InteriorCollisionDesign,
 ) -> list[str]:
@@ -1422,24 +1427,31 @@ def _format_interior_collision_lines(
     )
     lines.extend(
         boxed_table(
-            ("Cara", "As req", "Acero adoptado", "As prov", "ld req", "ld disp", "Estado"),
+            ("Cara", "As req", "Acero de losa adoptado", "As prov", "Area"),
             (
                 (
                     face.face,
                     f"{face.option.required_area_cm2_m:.3f}" if face.option else "-",
-                    f'{face.option.bar.label} @ {face.option.spacing_m:.3f} m' if face.option else "-",
+                    f'{face.option.bar.label} @ {face.option.spacing_m:.3f} m' if face.option else "Sin seleccionar",
                     f"{face.option.provided_area_cm2_m:.3f}" if face.option else "-",
-                    f"{face.development_length_m:.3f}",
-                    f"{face.development_available_m:.3f}",
-                    face.status,
+                    face.steel_status,
                 )
                 for face in collision.faces
             ),
-            aligns=("left", "right", "center", "right", "right", "right", "center"),
-            title="Acero transversal requerido por colision",
+            aligns=("left", "right", "center", "right", "center"),
+            title="COLISION: VERIFICACION DEL ARMADO DE LOSA",
             max_width=108,
         )
     )
+    lines.extend(boxed_table(
+        ("Cara", "ld req (m)", "ld disp (m)", "Anclaje", "Resultado de cara"),
+        ((face.face, f"{face.development_length_m:.3f}" if face.option else "-",
+          f"{face.development_available_m:.3f}", face.development_status, face.status)
+         for face in collision.faces),
+        aligns=("left", "right", "right", "center", "center"),
+        title="Desarrollo del mismo acero desde la cara exterior de la barrera", max_width=108,
+    ))
+    lines.extend(f"{face.face}: {face.reason}" for face in collision.faces if face.reason)
     lines.extend(
         boxed_table(
             ("Control", "Demanda", "Capacidad", "Estado"),
@@ -1464,8 +1476,8 @@ def _format_interior_collision_lines(
                 (
                     "Cortante sin estribos",
                     f"{collision.shear_demand_tn_m:.3f} Tn/m",
-                    f"{collision.shear_capacity_tn_m:.3f} Tn/m",
-                    f"{collision.shear_beta:.3f}",
+                    f"{collision.shear_capacity_tn_m:.3f} Tn/m" if collision.shear_status != "PENDIENTE" else "-",
+                    f"{collision.shear_beta:.3f}" if collision.shear_status != "PENDIENTE" else "-",
                     collision.shear_status,
                 ),
             ),
@@ -1666,6 +1678,11 @@ def _format_flexural_steel_row_legacy(row: FlexuralSteelDesign) -> str:
         f"{row.minimum_area_cm2_m:9.3f} "
         f"{row.required_area_cm2_m:9.3f}"
     )
+
+
+def format_slab_reinforcement_options(reinforcement: TransverseSlabReinforcementDesign) -> str:
+    """Redisplay the ordinary slab choices when revising its adopted bars."""
+    return "\n".join(_format_reinforcement_spacing_tables(reinforcement))
 
 
 def _format_reinforcement_spacing_tables(

@@ -95,7 +95,7 @@ def run_girder_families(api, project):
     return tuple(groups), tuple(families), primary['interior'], primary['exterior']
 
 
-def run_cantilever_family(api, project, barrier):
+def run_cantilever_family(api, project, barrier, *, slab_selected=(), slab_cover_cm=None, selected=None):
     layout = project.transverse_slab.load_layout
     right = replace(project, transverse_slab=replace(project.transverse_slab,
         load_layout=mirrored_layout(layout, project.transverse_slab.geometry.total_width_m)))
@@ -104,7 +104,8 @@ def run_cantilever_family(api, project, barrier):
     for side, member_project in (('izquierdo', project), ('derecho', right)):
         result = api.design_cantilever_slab(member_project.transverse_slab.geometry,
             member_project.materials, member_project.live_loads,
-            member_project.transverse_slab.load_layout, barrier_result=barrier)
+            member_project.transverse_slab.load_layout, barrier_result=barrier,
+            slab_selected=slab_selected, slab_cover_cm=slab_cover_cm)
         result = replace(result, applicability_notes=cantilever_notes_for_side(result,
             member_project.transverse_slab.geometry, member_project.transverse_slab.load_layout, side))
         prepared.append((side, member_project, result))
@@ -114,7 +115,8 @@ def run_cantilever_family(api, project, barrier):
         ('Volado '+side, result) for side, _member_project, result in prepared
     )
     print(api.format_common_cantilever_reinforcement_options(reinforcement, member_designs))
-    selected = api.collect_cantilever_reinforcement_selection(reinforcement)
+    if selected is None:
+        selected = api.collect_cantilever_reinforcement_selection(reinforcement)
     members, computed_values = [], []
     for side, member_project, result in prepared:
         validate_cantilever_selection(selected, result)
@@ -133,4 +135,9 @@ def run_cantilever_family(api, project, barrier):
     for row in family.checks:
         print(f'{row[0]}: gobierna {row[1]}; {row[2]} / {row[3]} {row[4]}; {row[5]}')
     print(f'Longitud comun de barra adicional: {family.development.total_additional_bar_length_m:.3f} m')
+    from bridge_design.cli.ascii_output import format_interior_collision_result
+    for member in members:
+        if member.result.interior_collision is not None:
+            print(f'\nCOLISION CON ARMADO DE LOSA ADOPTADO - LADO {member.side.upper()}')
+            print(format_interior_collision_result(member.result.interior_collision))
     return tuple(members), family, computed_values[0]

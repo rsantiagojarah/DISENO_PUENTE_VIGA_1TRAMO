@@ -215,17 +215,21 @@ def test_word_honors_configured_phi_limit(project, girder):
     assert f"φMn = {expected:.3f}" in blocks[3]
 
 
-def test_command_passes_adopted_slab_and_both_diaphragms_to_report(project, diaphragm, monkeypatch):
+@pytest.mark.parametrize("retry_collision", [False, True])
+def test_command_passes_adopted_slab_and_both_diaphragms_to_report(project, diaphragm, monkeypatch, retry_collision):
     analysis, initial = diaphragm
     # Reuse the analysed geometry for both types, but exercise both CLI branches.
     project = replace(project, end_diaphragm=project.diaphragm)
     monkeypatch.setattr(main, "solve_diaphragm_design", lambda **kwargs: analysis)
     original_slab = main.collect_reinforcement_spacing_selection
     original_diaphragm = main.collect_diaphragm_reinforcement_selection
+    slab_choices = []
     def choose_slab(reinforcement, **kwargs):
         assert callable(kwargs["refresh_for_main"])
         selected = list(original_slab(reinforcement, **kwargs))
-        selected[0] = (selected[0][0], custom_spacing_option(reinforcement.negative.spacing_options, '1"', .30))
+        label, spacing = ('5/8"', .15) if slab_choices else ('1"', .30)
+        selected[0] = (selected[0][0], custom_spacing_option(reinforcement.negative.spacing_options, label, spacing))
+        slab_choices.append(tuple(selected))
         return tuple(selected)
     def choose_diaphragm(reinforcement, **kwargs):
         assert callable(kwargs["refresh_for_main"])
@@ -234,7 +238,18 @@ def test_command_passes_adopted_slab_and_both_diaphragms_to_report(project, diap
             reinforcement.negative.placement_options, '1/2"', 8))
         return tuple(selected)
     captured = []
-    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    collision_questions = []
+    def answer(prompt=""):
+        if "verificar nuevamente la colision" in prompt:
+            collision_questions.append(prompt)
+            return "s" if retry_collision and len(collision_questions) == 1 else ""
+        return ""
+    from unittest.mock import Mock
+    overhang_menu = Mock(wraps=main.collect_cantilever_reinforcement_selection)
+    slab_tables = Mock(wraps=main.format_slab_reinforcement_options)
+    monkeypatch.setattr(main, "collect_cantilever_reinforcement_selection", overhang_menu)
+    monkeypatch.setattr(main, "format_slab_reinforcement_options", slab_tables)
+    monkeypatch.setattr("builtins.input", answer)
     monkeypatch.setattr("builtins.print", lambda *args, **kwargs: None)
     monkeypatch.setattr(main, "collect_reinforcement_spacing_selection", choose_slab)
     monkeypatch.setattr(main, "collect_diaphragm_reinforcement_selection", choose_diaphragm)
@@ -242,7 +257,17 @@ def test_command_passes_adopted_slab_and_both_diaphragms_to_report(project, diap
     main.run_bridge_design(project)
     assert len(captured) == 1
     data = captured[0]
-    assert data.slab_reinforcement.negative.effective_depth_cm == pytest.approx(13.73)
+    assert len(slab_choices) == (2 if retry_collision else 1)
+    assert collision_questions
+    assert overhang_menu.call_count == 1
+    assert slab_tables.call_count == (1 if retry_collision else 0)
+    upper = data.slab_selected[0][1]
+    assert upper.bar.label == ('5/8"' if retry_collision else '1"')
+    assert data.slab_reinforcement.negative.effective_depth_cm == pytest.approx(15 - upper.bar.diameter_cm/2)
+    for group in data.cantilever_groups:
+        for face, (_, chosen) in zip(group.result.interior_collision.faces, data.slab_selected[:2]):
+            assert (face.option.bar, face.option.spacing_m) == (chosen.bar, chosen.spacing_m)
+        assert group.result.interior_collision.faces[0].development_status == ("OK" if retry_collision else "NO CUMPLE")
     for reinforcement, selected in (
         (data.diaphragm_reinforcement, data.diaphragm_selected),
         (data.end_diaphragm_reinforcement, data.end_diaphragm_selected),

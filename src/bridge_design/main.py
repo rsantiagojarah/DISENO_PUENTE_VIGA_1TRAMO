@@ -21,6 +21,7 @@ from bridge_design.cli.ascii_output import (
     format_interior_girder_crack_control_review,
     format_input_summary,
     format_slab_distribution_reinforcement_options,
+    format_slab_reinforcement_options,
     format_transverse_load_location_schemes,
     format_transverse_analysis_result,
 )
@@ -235,31 +236,9 @@ def _run_bridge_design_once(project_inputs) -> None:
         materials=project_inputs.materials,
         analysis=result,
     )
-    from bridge_design.domain.adopted_reinforcement import (
-        adopt_slab_reinforcement, adopt_diaphragm_reinforcement,
-    )
-    selected = collect_reinforcement_spacing_selection(
-        reinforcement,
-        refresh_for_main=lambda chosen: adopt_slab_reinforcement(
-            project_inputs.transverse_slab.geometry, project_inputs.materials,
-            reinforcement, chosen,
-        )[0],
-    )
-    reinforcement, selected = adopt_slab_reinforcement(
-        project_inputs.transverse_slab.geometry, project_inputs.materials, reinforcement, selected,
-    )
-    slab_selection_report = format_reinforcement_spacing_selection(selected)
-    print(slab_selection_report)
-    crack_review = review_transverse_slab_crack_control(
-        geometry=project_inputs.transverse_slab.geometry,
-        materials=project_inputs.materials,
-        analysis=result,
-        reinforcement=reinforcement,
-        negative_spacing=_selected_spacing(selected, "A."),
-        positive_spacing=_selected_spacing(selected, "B."),
-    )
-    slab_crack_report = format_crack_control_review(crack_review)
-    print(slab_crack_report)
+    from bridge_design.domain.adopted_reinforcement import adopt_diaphragm_reinforcement
+    reinforcement, selected, crack_review, slab_selection_report, slab_crack_report = _select_and_review_slab(
+        project_inputs, result, reinforcement)
 
     import sys
     from bridge_design.cli.common_design import run_girder_families, run_cantilever_family
@@ -276,8 +255,25 @@ def _run_bridge_design_once(project_inputs) -> None:
     print(barrier_report)
 
     try:
-        cantilever_groups, cantilever_family, cantilever_values = run_cantilever_family(
-            sys.modules[__name__], project_inputs, barrier_result)
+        overhang_selection = None
+        while True:
+            cantilever_groups, cantilever_family, cantilever_values = run_cantilever_family(
+                sys.modules[__name__], project_inputs, barrier_result,
+                slab_selected=selected, slab_cover_cm=reinforcement.parameters.concrete_cover_cm,
+                selected=overhang_selection)
+            failed_faces = [face for group in cantilever_groups
+                            if group.result.interior_collision is not None
+                            for face in group.result.interior_collision.faces if face.status != "OK"]
+            if not failed_faces:
+                break
+            print("El armado de losa conserva las barras elegidas; revise el area y el anclaje indicados para colision.")
+            answer = input("Desea volver a elegir el acero de la losa y verificar nuevamente la colision? [s/N]: ").strip().lower()
+            if answer not in ("s", "si", "y", "yes"):
+                break
+            reinforcement, selected, crack_review, slab_selection_report, slab_crack_report = _select_and_review_slab(
+                project_inputs, result, reinforcement, show_options=True)
+            # A slab adjustment does not silently change the overhang bars.
+            overhang_selection = cantilever_family.selected
         (cantilever_result, cantilever_selected, cantilever_crack, cantilever_development,
          cantilever_report, cantilever_selection_report, cantilever_review_report) = cantilever_values
     except CantileverSlabApplicabilityError as exc:
@@ -435,7 +431,36 @@ def _run_bridge_design_once(project_inputs) -> None:
 
 
 
-def _run_cantilever(project_inputs, barrier_result, side="", *, prepared=None, selected=None):
+def _select_and_review_slab(project_inputs, analysis, reinforcement, *, show_options=False):
+    """Keep ordinary slab reviews and the collision input on one selection."""
+    from bridge_design.domain.adopted_reinforcement import adopt_slab_reinforcement
+    if show_options:
+        print(format_slab_reinforcement_options(reinforcement))
+        print("Estas opciones corresponden al diseno ordinario; la colision se verificara con las barras que elija.")
+    selected = collect_reinforcement_spacing_selection(
+        reinforcement,
+        refresh_for_main=lambda chosen: adopt_slab_reinforcement(
+            project_inputs.transverse_slab.geometry, project_inputs.materials,
+            reinforcement, chosen,
+        )[0],
+    )
+    reinforcement, selected = adopt_slab_reinforcement(
+        project_inputs.transverse_slab.geometry, project_inputs.materials, reinforcement, selected,
+    )
+    selection_report = format_reinforcement_spacing_selection(selected)
+    print(selection_report)
+    crack_review = review_transverse_slab_crack_control(
+        geometry=project_inputs.transverse_slab.geometry, materials=project_inputs.materials,
+        analysis=analysis, reinforcement=reinforcement,
+        negative_spacing=_selected_spacing(selected, "A."), positive_spacing=_selected_spacing(selected, "B."),
+    )
+    crack_report = format_crack_control_review(crack_review)
+    print(crack_report)
+    return reinforcement, selected, crack_review, selection_report, crack_report
+
+
+def _run_cantilever(project_inputs, barrier_result, side="", *, prepared=None, selected=None,
+                    slab_selected=(), slab_cover_cm=None):
     try:
         cantilever_result = prepared if prepared is not None else design_cantilever_slab(
             geometry=project_inputs.transverse_slab.geometry,
@@ -443,6 +468,8 @@ def _run_cantilever(project_inputs, barrier_result, side="", *, prepared=None, s
             live_loads=project_inputs.live_loads,
             layout=project_inputs.transverse_slab.load_layout,
             barrier_result=barrier_result,
+            slab_selected=slab_selected,
+            slab_cover_cm=slab_cover_cm,
         )
     except CantileverSlabApplicabilityError as exc:
         print(f"DISENO DE LOSA EN VOLADIZO NO COMPLETADO: {exc}")
