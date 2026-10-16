@@ -127,7 +127,7 @@ def test_default_yaml_uses_graphs_and_can_explicitly_choose_elastic():
 
 def test_command_exports_resolved_graph_points_to_json_and_word(tmp_path,capsys):
     import json
-    from zipfile import ZipFile
+    from docx import Document
     from bridge_design.cli.bearing_a_cli import run_bearing_a
     i=small_catalog_inputs("medida")
     output=tmp_path/"resultado.json"
@@ -138,11 +138,17 @@ def test_command_exports_resolved_graph_points_to_json_and_word(tmp_path,capsys)
     assert len(payload["inputs"]["compression_curve"]["points"])>40
     assert "p. 231" in payload["inputs"]["compression_curve"]["source"]
     assert payload["status"]=="REFERENCIAL"
-    with ZipFile(word) as z:
-        text=z.read("word/document.xml").decode("utf-8")
-    assert "digitalización referencial" in text
-    assert "t_S=" in text
-    assert "CUMPLE según la fuente referencial" in capsys.readouterr().out
+    document=Document(word)
+    text=" ".join(document.element.xpath('//*[local-name()="t"]/text()'))
+    # Verify the provenance and qualified conclusion, not superseded wording
+    # or the XML serialization of a mathematical symbol.
+    assert "curvas gráficas de referencia y no a ensayos de un producto específico" in text
+    assert "favorables con las curvas de referencia adoptadas" in text
+    rows=[tuple(cell.text for cell in row.cells) for table in document.tables for row in table.rows]
+    assert ("Zunchos de acero", str(r.adopted.interior_layers+1), f"{r.adopted.steel_cm*10:g}") in rows
+    output=capsys.readouterr().out
+    assert "Estado global: CUMPLE" in output
+    assert "curvas de referencia" in output
 
 
 def test_curve_failure_does_not_become_a_referential_pass():

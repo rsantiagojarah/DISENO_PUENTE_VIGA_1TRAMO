@@ -134,6 +134,8 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
     Strength/Service reinforcement remains mandatory. Each (M,N) pair is kept
     compatible. N is conservatively carried without reduction to the interior
     side; its horizontal support allocation needs a global in-plane model.
+    Local straight-bar anchorage is measured outward from the outer face of
+    each barrier base to the bar end at the deck edge cover, for both layers.
     """
     placements = transverse_load_placement_cases(geometry, materials, live_loads, layout)
     dead = placements[:2]
@@ -155,6 +157,11 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
     base = (layout.barrier_left_m, layout.barrier_left_m + barrier.geometry.base_width_m)
     if base[0] < geometry.overhang_m + geometry.girder_width_m / 2 or base[1] > geometry.support_positions_m[1] - geometry.girder_width_m / 2:
         raise ValueError("La transferencia interior requiere la base completa en el primer vano libre.")
+    # Mirrored barriers have the same outer-face-to-near-edge distance.
+    # This is the adopted LOCAL anchorage reference, not the girder axis,
+    # barrier centre, or the section governing the reinforcement demand.
+    edge_cover_m = params.concrete_cover_cm / 100
+    development_available_m = max(0.0, base[0] - edge_cover_m)
     cases, demands = [], {"superior": [], "inferior": []}
     vu = 0.0
     maximum_moment = 0.0
@@ -211,7 +218,11 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
                             vdc, vdw = (_shear_at(sx, p.segments, p.point_loads, r.support_reactions_tn)
                                         for p, r in zip(dead, dead_results))
                             vu = max(vu, abs(gd*vdc + gw*vdw + _shear_at(sx, (), points, solved.support_reactions_tn)))
-    faces = tuple(_design_face(face, rows, geometry, materials, params) for face, rows in demands.items())
+    faces = tuple(
+        _design_face(face, rows, geometry, materials, params,
+                     development_available_m=development_available_m)
+        for face, rows in demands.items()
+    )
     from bridge_design.domain._cantilever_slab_checks import _concrete_shear_resistance_tn
     # General no-stirrup shear procedure; aggregate contribution conservatively set to zero.
     selected = [f.option for f in faces if f.option is not None]
@@ -268,13 +279,22 @@ def design_interior_collision(geometry, materials, live_loads, layout, barrier, 
             "Armadura indicada: minimo TOTAL por colision en cada cara de la losa interior. Adoptar la MAYOR "
             "demanda entre este bloque y el diseno ordinario de la misma cara, no sumar areas. "
             "Disponer barras continuas con el anclaje indicado hacia ambos bordes; no agregar esta area al voladizo.",
+            "Anclaje local adoptado para ambas caras de acero: desde la cara exterior de la base de cada barrera "
+            "hacia el borde exterior cercano de la losa, con barras rectas continuas hasta el recubrimiento lateral. "
+            f"Ldisp = max(0, ab - c) = max(0, {base[0]:.3f} - {edge_cover_m:.3f}) "
+            f"= {development_available_m:.3f} m; "
+            "ab: distancia cara exterior de barrera-borde de losa; c: recubrimiento lateral. "
+            "La misma longitud se aplica a ambos lados por simetria. Se exige desarrollo completo, sin reduccion por exceso de acero.",
+            "La coordenada x de las demandas se mide desde el borde izquierdo del tablero y no define el origen "
+            "del anclaje local adoptado. Este control no sustituye las verificaciones de desarrollo en otras "
+            "secciones, cortes o empalmes del armado; se mantienen los controles del diseno ordinario y del voladizo.",
             "Alcance: transferencia LOCAL barrera-losa y demandas verticales hacia vigas calculadas. "
             "La distribucion horizontal entre vigas, diafragmas y apoyos requiere el modelo global en planta; "
             "este resultado local no certifica ese sistema.",
         ))
 
 
-def _design_face(face, rows, geometry, materials, params):
+def _design_face(face, rows, geometry, materials, params, *, development_available_m):
     fc, fy = materials.concrete.compressive_strength_kg_cm2, materials.steel.yield_strength_kg_cm2
     h = geometry.slab_thickness_m*100
     # For a fixed axial demand, steel increases monotonically with |M|.
@@ -308,13 +328,13 @@ def _design_face(face, rows, geometry, materials, params):
             lightweight_factor=params.development_lightweight_factor,
             confinement_factor=params.development_confinement_factor,
             excess_reinforcement_factor=1.0)
-        # Full-width bars developed outside the interior design region.
-        available = geometry.overhang_m - params.concrete_cover_cm/100
+        available = development_available_m
         status = "OK" if available+1e-9 >= ld/100 else "NO CUMPLE"
         candidates.append((option, controlling, ld/100, available, status))
     if not candidates:
         row = max(rows, key=lambda r:r[0])
-        return InteriorCollisionFace(face, row[2], row[3], row[0], row[1], row[4], row[5], None, 0, 0, "NO CUMPLE")
+        return InteriorCollisionFace(face, row[2], row[3], row[0], row[1], row[4], row[5],
+                                     None, 0, development_available_m, "NO CUMPLE")
     option, row, ld, available, status = min(candidates, key=lambda c:(c[4] != "OK", c[0].provided_area_cm2_m))
     _, m, n, name, x, gd, gw = row
     return InteriorCollisionFace(face, name, x, m, n, gd, gw, option, ld, available, status)

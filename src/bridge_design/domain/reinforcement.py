@@ -261,12 +261,23 @@ def _with_service_spacing_options(
             geometry.slab_thickness_m * 100.0
             - params.concrete_cover_cm - original.bar.diameter_cm / 2.0
         )
-        strength = flexural_steel_area_cm2(
-            steel.minimum_capacity_moment_tn_m, geometry.strip_length_m * 100.0,
-            depth, materials.concrete.compressive_strength_kg_cm2,
-            materials.steel.yield_strength_kg_cm2, params.flexural_resistance_factor,
-            materials.steel.elastic_modulus_kg_cm2,
-        ) / geometry.strip_length_m
+        try:
+            strength = flexural_steel_area_cm2(
+                steel.minimum_capacity_moment_tn_m, geometry.strip_length_m * 100.0,
+                depth, materials.concrete.compressive_strength_kg_cm2,
+                materials.steel.yield_strength_kg_cm2, params.flexural_resistance_factor,
+                materials.steel.elastic_modulus_kg_cm2,
+            ) / geometry.strip_length_m
+        except ValueError:
+            # A larger diameter can have no compatible flexural solution (or
+            # no effective depth). Keep it non-selectable, including custom
+            # spacings, without discarding feasible alternatives in the catalog.
+            options.append(replace(
+                original, required_area_cm2_m=float("inf"),
+                is_compliant=False, is_recommended=False,
+                crack_control_status=None,
+            ))
+            continue
         required = max(strength, steel.minimum_area_cm2_m)
         case = generate_spacing_options(steel.label, required, grid)
         candidate = next(

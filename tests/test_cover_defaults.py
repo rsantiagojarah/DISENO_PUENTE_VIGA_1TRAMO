@@ -51,17 +51,21 @@ def test_all_connected_regions_use_internal_cover():
 def test_templates_do_not_require_cover_inputs(raw):
     data = deepcopy(raw)
     assert "recubrimiento_losa_cm" not in data["cimentacion"]
-    for side in ("estribo_izquierdo", "estribo_derecho"):
-        assert not any("recubrimiento" in key for key in data[side]["armadura"])
+    assert "estribo_izquierdo" not in data and "estribo_derecho" not in data
+    assert not any("recubrimiento" in key for key in data["estribo"]["armadura"])
     data["suelo_cimentacion"].update(modulo_balasto_vertical_tn_m3=3000,
                                     coeficiente_friccion_interfaz=0.5)
     inputs = connected_inputs_from_yaml(data)
     assert inputs.slab_cover_cm == 7.5
-    assert inputs.left.reinforcement.stem_cover_cm == inputs.right.reinforcement.stem_cover_cm == 7.5
+    for side in (inputs.left, inputs.right):
+        assert side.reinforcement.stem_cover_cm == 7.5
+        assert side.reinforcement.footing_cover_cm == 7.5
 
 
 @pytest.mark.parametrize("block,key", [
     ("cimentacion", "recubrimiento_losa_cm"),
+    ("estribo", "recubrimiento_pantalla_cm"),
+    ("estribo", "recubrimiento_zapata_cm"),
     ("estribo_izquierdo", "recubrimiento_pantalla_cm"),
     ("estribo_izquierdo", "recubrimiento_zapata_cm"),
     ("estribo_derecho", "recubrimiento_pantalla_cm"),
@@ -70,11 +74,19 @@ def test_templates_do_not_require_cover_inputs(raw):
 @pytest.mark.parametrize("value", [5.0, 10.0])
 def test_yaml_cannot_override_internal_covers(block, key, value):
     raw = connected_yaml_template(example=True)
+    if block in ("estribo_izquierdo", "estribo_derecho"):
+        # Legacy inputs remain supported, but must not mix both schemas.
+        common = raw.pop("estribo")
+        raw.pop("cargas_tablero_derecho")
+        raw["estribo_izquierdo"] = deepcopy(common)
+        raw["estribo_derecho"] = deepcopy(common)
     target = raw[block] if block == "cimentacion" else raw[block]["armadura"]
     target[key] = value
+    before = deepcopy(raw)
     inputs = connected_inputs_from_yaml(raw)
     assert inputs.slab_cover_cm == 7.5
     for side in (inputs.left, inputs.right):
         assert side.reinforcement.stem_cover_cm == 7.5
         assert side.reinforcement.footing_cover_cm == 7.5
     assert target[key] == value
+    assert raw == before

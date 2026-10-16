@@ -2,23 +2,27 @@ from dataclasses import replace
 
 import pytest
 
+from bridge_design.codes.mtc_2018 import mtc_tension_development_length_cm
 from bridge_design.domain.barrier import BarrierDesignInputs, design_concrete_barrier
-from bridge_design.domain.cantilever_slab import design_cantilever_slab
+from bridge_design.domain.cantilever_slab import CantileverSlabParameters, design_cantilever_slab
+from bridge_design.domain import interior_collision
 from bridge_design.domain.loads import LiveLoads, PedestrianLoad, VehicleLoadModel
 from bridge_design.domain.transverse_slab import PointMoment, solve_load_case
 from bridge_design.domain.reinforcement import flexural_steel_area_cm2
 from test_cantilever_slab import _geometry, _layout, _materials
 
 
-def _result(level="TL-4", overhang=1.0):
+def _result(level="TL-4", overhang=1.0, *, barrier_outer_face=None, cover_cm=5.0):
     g = replace(_geometry(), overhang_m=overhang, girder_spacing_m=2.56,
                 girder_width_m=.5, girder_count=5)
-    layout = replace(_layout(), barrier_left_m=overhang+.7, barrier_width_m=.375)
+    outer_face = overhang + .7 if barrier_outer_face is None else barrier_outer_face
+    layout = replace(_layout(), barrier_left_m=outer_face, barrier_width_m=.375)
     inputs = BarrierDesignInputs()
     inputs = replace(inputs, impact_load=replace(inputs.impact_load, test_level=level))
     barrier = design_concrete_barrier(inputs, _materials())
     live = LiveLoads(PedestrianLoad.mtc_sidewalk_default(), VehicleLoadModel.mtc_hl93_default())
-    return g, design_cantilever_slab(g, _materials(), live, layout, barrier), barrier
+    params = CantileverSlabParameters(concrete_cover_cm=cover_cm)
+    return g, design_cantilever_slab(g, _materials(), live, layout, barrier, params), barrier
 
 
 def test_point_couple_matches_simply_supported_closed_form():
@@ -72,6 +76,69 @@ def test_selected_steel_is_verified_with_its_actual_diameter():
             assert face.status == "NO CUMPLE"
 
 
+@pytest.mark.parametrize("overhang, outer_face, cover_cm, available", [
+    (.95, 1.50, 5.0, 1.45),
+    (.95, 1.65, 5.0, 1.60),
+    (.80, 1.50, 5.0, 1.45),
+    (.95, 1.50, 6.0, 1.44),
+])
+def test_local_development_uses_outer_barrier_face_not_girder_axis(
+    overhang, outer_face, cover_cm, available,
+):
+    g, result, _ = _result(overhang=overhang, barrier_outer_face=outer_face, cover_cm=cover_cm)
+    collision = result.interior_collision
+    assert {face.face for face in collision.faces} == {"superior", "inferior"}
+    # The right barrier is mirrored: its outer face lies at B - ab.
+    right_outer_face = g.total_width_m - outer_face
+    assert g.total_width_m - right_outer_face - cover_cm / 100 == pytest.approx(available)
+    for face in collision.faces:
+        assert face.development_available_m == pytest.approx(available)
+        assert face.development_available_m != pytest.approx(overhang - cover_cm / 100)
+        assert face.development_available_m != pytest.approx(outer_face + .375 / 2 - cover_cm / 100)
+
+
+@pytest.mark.parametrize("delta, expected", [(-1e-6, "NO CUMPLE"), (0, "OK"), (1e-6, "OK")])
+def test_local_development_still_requires_full_bar_development(monkeypatch, delta, expected):
+    bar = next(b for b in interior_collision.REINFORCING_BAR_CATALOG if b.label == '1/2"')
+    monkeypatch.setattr(interior_collision, "REINFORCING_BAR_CATALOG", (bar,))
+    required_cm, _ = mtc_tension_development_length_cm(
+        bar.diameter_cm, 4200, 280, excess_reinforcement_factor=1.0,
+    )
+    available = required_cm / 100 + delta
+    result = interior_collision._design_face(
+        "superior", [(1.0, 0.0, "caso", 1.50, 1.25, 1.50)],
+        _geometry(), _materials(), CantileverSlabParameters(),
+        development_available_m=available,
+    )
+    assert result.option is not None
+    assert result.option.provided_area_cm2_m > result.option.required_area_cm2_m
+    assert result.development_length_m == pytest.approx(required_cm / 100)
+    assert result.development_available_m == pytest.approx(available)
+    assert result.status == expected
+
+
+@pytest.mark.parametrize("demand_position", [.95, 1.50, 1.875, 10.64])
+def test_demand_coordinate_is_separate_from_local_anchorage_reference(demand_position):
+    result = interior_collision._design_face(
+        "superior", [(1.0, 0.0, "caso", demand_position, 1.25, 1.50)],
+        _geometry(), _materials(), CantileverSlabParameters(),
+        development_available_m=1.45,
+    )
+    assert result.position_m == demand_position
+    assert result.development_available_m == pytest.approx(1.45)
+
+
+def test_unavailable_reinforcement_keeps_geometric_anchorage_length():
+    result = interior_collision._design_face(
+        "superior", [(1.0, 0.0, "caso", 1.50, 1.25, 1.50)],
+        replace(_geometry(), slab_thickness_m=.05), _materials(), CantileverSlabParameters(),
+        development_available_m=1.45,
+    )
+    assert result.option is None
+    assert result.status == "NO CUMPLE"
+    assert result.development_available_m == pytest.approx(1.45)
+
+
 def test_report_contains_demands_steel_reactions_and_real_status():
     from bridge_design.cli.ascii_output import format_cantilever_slab_design_result
     _, result, _ = _result()
@@ -84,6 +151,9 @@ def test_report_contains_demands_steel_reactions_and_real_status():
         "ld req",
         "Conexion barrera-losa",
         "Resultado local:",
+        "desde la cara exterior de la base de cada barrera",
+        "Ldisp = max(0, ab - c) = max(0, 1.700 - 0.050) = 1.650 m",
+        "no sustituye las verificaciones de desarrollo en otras secciones",
     ):
         assert expected in text
     applicability = text.split("Notas de aplicabilidad:", 1)[1]
@@ -126,3 +196,11 @@ def test_word_and_pdf_sections_include_interior_transfer():
     paragraphs = " ".join(getattr(item, "text", "") for item in story)
     assert "Transferencia de colision a la losa interior" in paragraphs
     assert "Acero transversal requerido por colision" in paragraphs
+    for expected in (
+        "desde la cara exterior de la base de cada barrera",
+        "Ldisp = max(0, ab - c) = max(0, 1.700 - 0.050) = 1.650 m",
+        "no sustituye las verificaciones de desarrollo en otras secciones",
+    ):
+        assert expected in text
+        assert expected in paragraphs
+        assert expected in " ".join(local_line for local_line in result.interior_collision.report_lines())
