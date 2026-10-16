@@ -21,6 +21,8 @@ def moment_demand_expression(row, moment='abs(Mu)', cracking='Mcr'):
 def source(row):
     demand = row["demand"]
     origin = f"{row['region']}; {row.get('section_location', 'seccion')}; " if row.get("region") else ""
+    if row.get("zone"):
+        origin = row['zone'] + '; ' + origin
     return (f"{origin}{case_label(demand['case'])}; elemento {demand['element']}; s/L={demand['station']:.6g}; "
             f"x={row['x']:.6g}, y={row['y']:.6g} m; h={demand['depth_cm']:.6g} cm; "
             f"N={demand['axial']:.6g} Tn; M={demand['moment']:.6g} Tn.m; V={demand['shear']:.6g} Tn; cara {row['face']}.")
@@ -109,14 +111,15 @@ def steel_steps(steel, audit):
             "Ms: tn·m/m; fs: kgf/cm²; dc=r+db/2 en cm; smax: m; exposición=1.00; fs_lim=0.60*fy.",
             source(service) + f" As={service['area']:.6g}; d={service['effective']:.6g}; "
             f"dc={service['axis']:.6g}; beta_s={service['beta_service']:.6g}; fs={service['stress']:.6g}; "
-            f"fs_usado={service['stress_used']:.6g}; fs_lim={service['stress_limit']:.6g}; s={steel.spacing_m:.6g} m.",
+            f"fs_usado={service['stress_used']:.6g}; fs_lim={service['stress_limit']:.6g}; "
+            f"s={service.get('maximum_gap', service['spacing']):.6g} m.",
             f"smax={service['maximum_spacing']:.6g} m; fs/fs_lim={service['stress_ratio']:.6g}; "
             f"s/smax={service['spacing_ratio']:.6g}; indice={service['crack_ratio']:.6g}.",
             status(service["crack_ratio"]), REF_CRACK)
     elif service is not None:
         yield AuditStep("Fisuracion sin traccion de servicio",
             "Ms = 0; fs = 0", "Ms: momento de servicio en tn·m/m; fs: tensión por flexión en kgf/cm².",
-            source(service) + f" As={service['area']:.6g} cm²/m; s={steel.spacing_m:.3f} m.",
+            source(service) + f" As={service['area']:.6g} cm²/m; s={service.get('maximum_gap', service['spacing']):.3f} m.",
             "Sin tracción por flexión en Servicio I; la ecuación de separación por fisuración no gobierna.",
             "Se mantienen las comprobaciones de acero mínimo y separación para temperatura y distribución.", REF_CRACK)
     yield from _temperature_and_development_steps(steel, audit, flexure)

@@ -272,7 +272,9 @@ def cantilever_wall_yaml_template() -> YamlMap:
     data["nota"] = (
         "theta=auto (predeterminado): calcula theta=90-atan((e_inferior-e_superior)/(H-D)) en grados, "
         "con cara exterior vertical y ensanche hacia el relleno. theta=90: trasdos vertical. "
-        "Se admite ese theta <= theta ingresado <= 90, con beta=0 para trasdos inclinado; delta segun MTC Tabla 2.4.4.1.5.3-1."
+        "Se admite ese theta <= theta ingresado <= 90, tambien con beta>0; delta segun MTC Tabla 2.4.4.1.5.3-1."
+        " El relleno sube desde la coronacion real hacia el extremo del talon, con beta<phi-psi; "
+        "se incluyen su peso adicional y la altura Hv=H+(Lt+b)*tan(beta), donde b=(H-D)*tan(90-theta)."
     )
     return data
 

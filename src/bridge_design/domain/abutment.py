@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, replace
 from math import atan, cos, degrees, isfinite, radians, sin, sqrt, tan
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from bridge_design.domain.cover_defaults import SOIL_CONTACT_COVER_CM
 from bridge_design.domain.anchorage_status import anchorage_status
@@ -275,8 +275,6 @@ class AbutmentSoilInputs:
             raise ValueError("delta debe ser finito.")
         if self.wall_backface_angle_deg <= seismic_angle + self.wall_soil_friction_deg:
             raise ValueError("theta debe superar delta mas el angulo sismico para Mononobe-Okabe.")
-        if self.wall_backface_angle_deg < 90.0 - 1e-9 and self.backfill_slope_deg > 1e-9:
-            raise ValueError("El trasdos inclinado requiere relleno horizontal: beta=0.")
 
 
 @dataclass(frozen=True)
@@ -536,6 +534,8 @@ class HeelWeightBreakdown:
     lsy_arm_m: float
     seat_concrete_weight_tn_m: float
     seat_concrete_moment_tn_m_m: float
+    soil_slope_tn_m: float = 0.0
+    soil_slope_arm_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -1422,6 +1422,45 @@ def _concrete_components(inputs: AbutmentInputs) -> tuple[LoadComponent, ...]:
     )
 
 
+def wall_backfill_surface_length_m(inputs: AbutmentInputs) -> float:
+    """Horizontal projection from the real backface crown to the heel edge."""
+    g = inputs.geometry
+    setback = wall_backface_setback_m(g, inputs.soil.wall_backface_angle_deg) if inputs.is_pure_wall else 0.0
+    return g.heel_length_m + setback
+
+
+def wall_backfill_rise_m(inputs: AbutmentInputs) -> float:
+    """Rise from the real stem crown to the heel edge, including its setback."""
+    if not inputs.is_pure_wall:
+        return 0.0
+    return wall_backfill_surface_length_m(inputs) * tan(radians(inputs.soil.backfill_slope_deg))
+
+
+def virtual_retained_height_m(inputs: AbutmentInputs) -> float:
+    """Height of the global pressure plane above the footing bottom."""
+    return inputs.geometry.retained_height_m + wall_backfill_rise_m(inputs)
+
+
+def _sloping_backfill_component(inputs: AbutmentInputs) -> LoadComponent | None:
+    """Entire extra soil triangle above the crown for global stability.
+
+    Heel design splits this triangle at the stem base: direct overburden on the
+    heel and soil above the backface, included only in the transfer correction.
+    """
+    rise = wall_backfill_rise_m(inputs)
+    if rise <= 0.0:
+        return None
+    g = inputs.geometry
+    length = wall_backfill_surface_length_m(inputs)
+    area = length * rise / 2.0
+    return LoadComponent(
+        "Relleno por pendiente beta", "EV",
+        area * inputs.materials.soil_unit_weight_kg_m3 / 1000.0,
+        g.footing_width_m - length / 3.0,
+        g.retained_height_m + rise / 3.0,
+    )
+
+
 def _soil_components(inputs: AbutmentInputs) -> tuple[LoadComponent, ...]:
     g = inputs.geometry
     gamma = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
@@ -1455,19 +1494,23 @@ def _soil_components(inputs: AbutmentInputs) -> tuple[LoadComponent, ...]:
                 g.toe_length_m + g.lower_stem_thickness_m - setback / 3.0,
                 g.footing_thickness_m + 2.0 * e71 / 3.0,
             ),)
-            front_height = min(max(g.front_soil_depth_m - g.footing_thickness_m, 0.0), e71)
-            front_batter = max(g.lower_stem_thickness_m - g.upper_stem_thickness_m - setback, 0.0)
-            front_width = front_batter * front_height / e71
-            rows += ((
-                "Relleno triangular frontal", front_width * front_height / 2.0,
-                g.toe_length_m + front_width / 3.0,
-                g.footing_thickness_m + 2.0 * front_height / 3.0,
-            ),)
-        return tuple(
+        # The exposed face can be battered even when the back face is vertical.
+        # Its soil wedge must not depend on the presence of a rear setback.
+        front_height = min(max(g.front_soil_depth_m - g.footing_thickness_m, 0.0), e71)
+        front_batter = max(g.lower_stem_thickness_m - g.upper_stem_thickness_m - setback, 0.0)
+        front_width = front_batter * front_height / e71
+        rows += ((
+            "Relleno triangular frontal", front_width * front_height / 2.0,
+            g.toe_length_m + front_width / 3.0,
+            g.footing_thickness_m + 2.0 * front_height / 3.0,
+        ),)
+        components = tuple(
             LoadComponent(name, "EV", area * gamma * g.strip_width_m, x, y)
             for name, area, x, y in rows
             if area > 0.0
         )
+        slope_component = _sloping_backfill_component(inputs)
+        return components + ((slope_component,) if slope_component is not None else ())
     front_depth = g.front_soil_depth_m
     puntera = g.toe_length_m
     e_inferior = g.lower_stem_thickness_m
@@ -1559,13 +1602,14 @@ def _soil_pressures(
     effective_heel_m = g.heel_length_m - g.backfill_step_width_m
     if inputs.is_pure_wall:
         effective_heel_m += wall_backface_setback_m(g, soil.wall_backface_angle_deg)
+    virtual_height = virtual_retained_height_m(inputs)
     lsy = effective_heel_m * h_eq * gamma_soil
-    lsx = ka * h_eq * gamma_soil * g.retained_height_m
+    lsx = ka * h_eq * gamma_soil * virtual_height
     pedestrian_lsy = soil.pedestrian_surcharge_tn_m2 * effective_heel_m
-    pedestrian_lsx = ka * soil.pedestrian_surcharge_tn_m2 * g.retained_height_m
-    eh = 0.5 * ka * gamma_soil * g.retained_height_m**2.0
+    pedestrian_lsx = ka * soil.pedestrian_surcharge_tn_m2 * virtual_height
+    eh = 0.5 * ka * gamma_soil * virtual_height**2.0
     k_ae, seismic_angle = mononobe_okabe_active_coefficient(global_inputs)
-    pae = 0.5 * k_ae * gamma_soil * g.retained_height_m**2.0
+    pae = 0.5 * k_ae * gamma_soil * virtual_height**2.0
     eq_terr = pae - eh
     as_coeff = soil.fpga * soil.pga
     kh = 0.5 * as_coeff
@@ -1619,7 +1663,7 @@ def _load_components(
         horizontal_a = _horizontal_seismic_combo_a(
             pressures,
             pir_arm,
-            g.retained_height_m,
+            virtual_retained_height_m(inputs),
             include_superstructure=False,
             braking_tn_m=0.0,
             peq_arm_m=0.0,
@@ -1628,7 +1672,7 @@ def _load_components(
         horizontal_b = _horizontal_seismic_combo_b(
             pressures,
             pir_arm,
-            g.retained_height_m,
+            virtual_retained_height_m(inputs),
             include_superstructure=False,
             braking_tn_m=0.0,
             peq_arm_m=0.0,
@@ -1952,7 +1996,7 @@ def _structural_design(
     footing_temperature_as = _footing_temperature_as(inputs)
     stem_option = selected_reinforcement.get("Pantalla")
     stem_design = _reinforce_at_adopted_depth(
-        lambda depth_cm: _reinforced_case(
+        lambda depth_cm, option: _reinforced_case(
             "Pantalla",
             stem_mu,
             depth_cm,
@@ -1963,7 +2007,7 @@ def _structural_design(
             r.flexural_phi,
             r.stem_main_bar_label,
             stem_temperature_as,
-            stem_option,
+            option,
             notes=(
                 "As = max(As Resistencia I, As Evento Extremo); cada estado se "
                 "verifica con φ limitado por la deformación neta de tracción."
@@ -1978,7 +2022,7 @@ def _structural_design(
     )
     heel_option = selected_reinforcement.get("Zapata - talon superior")
     heel_design = _reinforce_at_adopted_depth(
-        lambda depth_cm: _reinforced_case(
+        lambda depth_cm, option: _reinforced_case(
             "Zapata - talon superior",
             heel_mu,
             depth_cm,
@@ -1989,7 +2033,7 @@ def _structural_design(
             r.footing_design_phi_for_as,
             r.heel_main_bar_label,
             footing_temperature_as,
-            heel_option,
+            option,
             notes="Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente.",
             shear_method="simplified",
         ),
@@ -2002,7 +2046,7 @@ def _structural_design(
     if g.toe_length_m > 0.0:
         toe_option = selected_reinforcement.get("Zapata - puntera inferior")
 
-        def _toe_case(depth_cm: float) -> StructuralDesignCase:
+        def _toe_case(depth_cm: float, option: ReinforcementSpacingOption | None) -> StructuralDesignCase:
             toe_demands = tuple(
                 _toe_design_demands(inputs, state, depth_cm) for state in states
             )
@@ -2019,7 +2063,7 @@ def _structural_design(
                 r.footing_design_phi_for_as,
                 r.toe_main_bar_label,
                 footing_temperature_as,
-                toe_option,
+                option,
                 notes="Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente.",
                 shear_method="simplified",
             )
@@ -2039,27 +2083,73 @@ def _section_effective_depth_cm(gross_depth_cm: float, cover_cm: float, bar_diam
 
 
 def _reinforce_at_adopted_depth(
-    build_case,
+    build_case: Callable[[float, ReinforcementSpacingOption | None], StructuralDesignCase],
     gross_depth_cm: float,
     cover_cm: float,
     assumed_diameter_cm: float,
     selected_option: ReinforcementSpacingOption | None,
 ) -> StructuralDesignCase:
-    """Size the section with the diameter of the bar that is actually adopted."""
+    """Size the adopted section and check each alternative at its own depth.
+
+    The same builder also updates depth-dependent demands (notably the toe).
+    Recommendation eligibility covers flexure/minimum steel and spacing, not
+    the separate shear, service or anchorage checks.
+    """
+    cases_by_depth: dict[float, StructuralDesignCase] = {}
+
+    def case_at_diameter(diameter_cm: float) -> StructuralDesignCase:
+        depth_cm = _section_effective_depth_cm(gross_depth_cm, cover_cm, diameter_cm)
+        if depth_cm not in cases_by_depth:
+            cases_by_depth[depth_cm] = build_case(depth_cm, selected_option)
+        return cases_by_depth[depth_cm]
+
     if selected_option is not None:
-        return build_case(
-            _section_effective_depth_cm(gross_depth_cm, cover_cm, selected_option.bar.diameter_cm)
+        case = case_at_diameter(selected_option.bar.diameter_cm)
+    else:
+        case = case_at_diameter(assumed_diameter_cm)
+        for _ in range(3):
+            adopted_diameter_cm = _bar_by_label(case.selected_bar_label).diameter_cm
+            updated_cm = _section_effective_depth_cm(gross_depth_cm, cover_cm, adopted_diameter_cm)
+            if abs(updated_cm - case.effective_depth_cm) <= 1e-6:
+                break
+            case = case_at_diameter(adopted_diameter_cm)
+
+    options: list[ReinforcementSpacingOption] = []
+    for original in case.spacing_options.options:
+        try:
+            candidate_case = case_at_diameter(original.bar.diameter_cm)
+        except ValueError:
+            # A thicker bar can leave too little depth for a singly reinforced
+            # section even when the adopted diameter has a feasible solution.
+            options.append(replace(
+                original, required_area_cm2_m=float("inf"),
+                is_compliant=False, is_recommended=False,
+            ))
+            continue
+        candidate = next(
+            option for option in candidate_case.spacing_options.options
+            if option.bar == original.bar
         )
-    depth_cm = _section_effective_depth_cm(gross_depth_cm, cover_cm, assumed_diameter_cm)
-    case = build_case(depth_cm)
-    for _ in range(3):
-        adopted_diameter_cm = _bar_by_label(case.selected_bar_label).diameter_cm
-        updated_cm = _section_effective_depth_cm(gross_depth_cm, cover_cm, adopted_diameter_cm)
-        if abs(updated_cm - depth_cm) <= 1e-6:
-            return case
-        depth_cm = updated_cm
-        case = build_case(depth_cm)
-    return case
+        compliant = candidate.is_compliant
+        if compliant:
+            checked = build_case(candidate_case.effective_depth_cm, candidate)
+            compliant = checked.moment_status == "OK"
+        options.append(replace(candidate, is_compliant=compliant, is_recommended=False))
+    recommended = min(
+        (option for option in options if option.is_compliant),
+        key=lambda option: (
+            option.provided_area_cm2_m - option.required_area_cm2_m,
+            -option.spacing_m,
+        ),
+        default=None,
+    )
+    return replace(case, spacing_options=replace(
+        case.spacing_options,
+        options=tuple(
+            replace(option, is_recommended=bool(recommended and option.item == recommended.item))
+            for option in options
+        ),
+    ))
 
 
 def _key_structural_design(
@@ -2077,7 +2167,7 @@ def _key_structural_design(
     minimum_as = _key_temperature_as(inputs)
     key_option = selected_reinforcement.get("Diente de concreto")
     return _reinforce_at_adopted_depth(
-        lambda depth_cm: _reinforced_case(
+        lambda depth_cm, option: _reinforced_case(
             "Diente de concreto",
             moment,
             depth_cm,
@@ -2088,7 +2178,7 @@ def _key_structural_design(
             r.footing_design_phi_for_as,
             r.key_main_bar_label,
             minimum_as,
-            key_option,
+            option,
             shear_method="simplified",
         ),
         inputs.key.width_m * 100.0,
@@ -2603,21 +2693,27 @@ def _stem_cut_bar_details(
     case: StructuralDesignCase,
     check: AbutmentDevelopmentCheck,
     stem_cut: AbutmentStemReinforcementCut,
-) -> tuple[AbutmentBarDetail, AbutmentBarDetail]:
+) -> tuple[AbutmentBarDetail, ...]:
     anchorage_m = _required_anchor_length_cm(check) / 100.0
     anchorage = f"{_detail_note(case.name)}; {check.anchorage_type}"
     every = stem_cut.continuous_every_n_bars
-    return (
+    # The lower spacing describes the complete grid, not the cut-bar family.
+    # Split the grid into n interleaved families: n-1 cut and one continuous.
+    cut_families = tuple(
         AbutmentBarDetail(
             mark="",
             element=case.name,
-            face="Cara relleno, barras cortadas",
+            face="Cara relleno, barras cortadas" + (f" {index}" if every > 2 else ""),
             bar_label=stem_cut.lower_bar_label,
-            spacing_m=stem_cut.lower_spacing_m,
+            spacing_m=stem_cut.upper_spacing_m,
             length_m=stem_cut.lower_cut_bar_length_m,
             anchorage_m=anchorage_m,
-            note=f"Se corta 1 de cada {every}; {anchorage}",
-        ),
+            note=(f"Familia cortada {index} de {every - 1}; una barra de cada {every}; "
+                  f"intercalada a {index * stem_cut.lower_spacing_m:.3f} m de la familia continua; {anchorage}"),
+        )
+        for index in range(1, every)
+    )
+    return cut_families + (
         AbutmentBarDetail(
             mark="",
             element=case.name,
@@ -2802,6 +2898,7 @@ def _stem_cut_upper_steel_satisfies(
         if depth <= 0.0 or not _stem_provided_steel_satisfies_limit_states(
             inputs, provided_as_cm2_m, depth,
             _stem_design_moments_at_height(inputs, pressures, start),
+            gross_depth_cm=thickness * 100.0,
         ):
             return False
     _moment, effective_depth_cm, _, _, required_as, _required_moment = _stem_cut_design_at_height(
@@ -2817,6 +2914,7 @@ def _stem_cut_upper_steel_satisfies(
         provided_as_cm2_m,
         effective_depth_cm,
         _stem_design_moments_at_height(inputs, pressures, height_above_footing_m),
+        gross_depth_cm=_stem_thickness_at_height_m(inputs, height_above_footing_m) * 100.0,
     )
 
 
@@ -2911,7 +3009,10 @@ def _stem_provided_steel_satisfies_limit_states(
     provided_as_cm2_m: float,
     effective_depth_cm: float,
     moments: dict[str, float] | float,
+    *,
+    gross_depth_cm: float,
 ) -> bool:
+    """Check the adopted effective depth against the actual gross section."""
     if isinstance(moments, dict):
         strength_mu = moments["strength_mu"]
         extreme_mu = moments["extreme_mu"]
@@ -2919,18 +3020,13 @@ def _stem_provided_steel_satisfies_limit_states(
         # Compatibilidad: un solo momento se verifica con ambos φ.
         strength_mu = abs(moments)
         extreme_mu = abs(moments)
-    thickness_cm = (
-        effective_depth_cm
-        + inputs.reinforcement.stem_cover_cm
-        + inputs.reinforcement.stem_main_bar_diameter_cm / 2.0
-    )
     strength_required = max(
         strength_mu,
-        _minimum_flexural_capacity_moment_tn_m(strength_mu, thickness_cm, inputs),
+        _minimum_flexural_capacity_moment_tn_m(strength_mu, gross_depth_cm, inputs),
     )
     extreme_required = max(
         extreme_mu,
-        _minimum_flexural_capacity_moment_tn_m(extreme_mu, thickness_cm, inputs),
+        _minimum_flexural_capacity_moment_tn_m(extreme_mu, gross_depth_cm, inputs),
     )
     return (
         _moment_resistance_tn_m(
@@ -3160,11 +3256,23 @@ def _heel_weight_breakdown(inputs: AbutmentInputs) -> HeelWeightBreakdown:
     soil_rect = h_heel * h * gamma_soil
     soil_triangle = b_step * g.backwall_taper_height_m / 2.0 * gamma_soil
     soil_step = b_step * (h - g.seat_block_height_m - g.backwall_drop_m - g.backwall_taper_height_m) * gamma_soil
-    soil_weight = soil_rect + soil_triangle + soil_step
+    # Direct load over x in [0, Lt], measured from the backface at its base.
+    # With setback b, the surface rises by (b+x)*tan(beta). The remaining
+    # triangle over x in [-b, 0] belongs to heel_transfer, never to this load.
+    soil_slope = soil_slope_moment = 0.0
+    if inputs.is_pure_wall:
+        setback = wall_backface_setback_m(g, inputs.soil.wall_backface_angle_deg)
+        slope = tan(radians(inputs.soil.backfill_slope_deg))
+        length = g.heel_length_m
+        soil_slope = gamma_soil * slope * (setback * length + length**2 / 2.0)
+        soil_slope_moment = gamma_soil * slope * (setback * length**2 / 2.0 + length**3 / 3.0)
+    soil_slope_arm = soil_slope_moment / soil_slope if soil_slope > 0.0 else 0.0
+    soil_weight = soil_rect + soil_triangle + soil_step + soil_slope
     soil_arm = 0.0 if soil_weight <= 1e-12 else (
         soil_rect * (b_step + h_heel / 2.0)
         + soil_triangle * (b_step / 3.0)
         + soil_step * (b_step / 2.0)
+        + soil_slope_moment
     ) / soil_weight
     h_eq = inputs.soil.vehicular_surcharge_height_m
     if h_eq is None:
@@ -3199,6 +3307,8 @@ def _heel_weight_breakdown(inputs: AbutmentInputs) -> HeelWeightBreakdown:
         lsy_arm_m=h_heel / 2.0 + b_step,
         seat_concrete_weight_tn_m=gamma_concrete * concrete_area,
         seat_concrete_moment_tn_m_m=gamma_concrete * concrete_first,
+        soil_slope_tn_m=soil_slope,
+        soil_slope_arm_m=soil_slope_arm,
     )
 
 

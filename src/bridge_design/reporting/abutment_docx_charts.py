@@ -13,6 +13,7 @@ from bridge_design.domain.abutment import (
     StabilityStateResult,
     _stem_thickness_at_height_m,
     wall_backface_setback_m,
+    virtual_retained_height_m,
 )
 from bridge_design.domain.wall_friction import _back_x
 
@@ -93,14 +94,16 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
     left, right, top, base = 170, 1620, 145, 760
     width = right - left
     height = base - top
+    display_height = virtual_retained_height_m(result.inputs)
 
     def sx(value: float) -> float:
         return left + value / g.footing_width_m * width
 
     def sy(value: float) -> float:
-        return base - value / g.retained_height_m * height
+        return base - value / display_height * height
 
     footing_top = sy(g.footing_thickness_m)
+    crown_top = sy(g.retained_height_m)
     draw.rectangle((left, footing_top, right, base), fill=CONCRETE, outline=INK, width=4)
     stem_left_base = sx(g.toe_length_m)
     stem_right_base = sx(g.toe_length_m + g.lower_stem_thickness_m)
@@ -121,7 +124,7 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
         draw.polygon(
             [
                 (soil_left, sy(g.retained_height_m)),
-                (right, sy(g.retained_height_m)),
+                (right, sy(display_height)),
                 (right, footing_top),
                 (stem_right_base, footing_top),
             ],
@@ -130,6 +133,16 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
         )
         draw.text((sx(g.toe_length_m + g.lower_stem_thickness_m + g.heel_length_m / 2) - 80, top + 55), "Relleno", font=regular, fill=INK)
         draw.text((stem_left_top - 145, top + 75), "Pantalla", font=small, fill=INK)
+        front_height = min(max(g.front_soil_depth_m - g.footing_thickness_m, 0.0), g.stem_height_above_footing_m)
+        if front_height > 0.0:
+            front_batter = max(g.lower_stem_thickness_m - g.upper_stem_thickness_m - setback, 0.0)
+            front_width = front_batter * front_height / g.stem_height_above_footing_m
+            draw.polygon(
+                [(left, footing_top), (stem_left_base, footing_top),
+                 (sx(g.toe_length_m + front_width), sy(g.footing_thickness_m + front_height)),
+                 (left, sy(g.footing_thickness_m + front_height))],
+                fill=SOIL, outline=RULE,
+            )
     else:
         setback = 0.0
         front_face, back_face = abutment_stem_faces(result.inputs)
@@ -154,7 +167,7 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
     if result.key is not None:
         key_center = (stem_left_base + stem_right_base) / 2.0
         key_half = max(result.inputs.key.width_m * width / g.footing_width_m / 2.0, 28)
-        key_depth = result.inputs.key.height_m / g.retained_height_m * height
+        key_depth = result.inputs.key.height_m / display_height * height
         draw.rectangle(
             (key_center - key_half, base, key_center + key_half, base + key_depth),
             fill=CONCRETE,
@@ -164,7 +177,7 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
         draw.text((key_center + key_half + 12, base + 8), "Dentellón", font=small, fill=INK)
 
     _dimension(draw, (left, 890), (right, 890), f"B = {g.footing_width_m:.2f} m", regular, horizontal=True)
-    _dimension(draw, (105, base), (105, top), f"H = {g.retained_height_m:.2f} m", regular, horizontal=False)
+    _dimension(draw, (105, base), (105, crown_top), f"H = {g.retained_height_m:.2f} m", regular, horizontal=False)
     if g.toe_length_m > 0.0:
         _dimension(draw, (left, 835), (stem_left_base, 835), f"Lp = {g.toe_length_m:.2f} m", small, horizontal=True)
     else:
@@ -173,16 +186,16 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
 
     alpha = radians(result.pressures.stem_force_angle_deg)
     for index in range(7):
-        y = top + 70 + index * (footing_top - top - 140) / 6
-        fraction = (footing_top - y) / (footing_top - top)
+        y = crown_top + 70 + index * (footing_top - crown_top - 140) / 6
+        fraction = (footing_top - y) / (footing_top - crown_top)
         if result.inputs.is_pure_wall:
             pressure_x = stem_right_base - fraction * setback / g.footing_width_m * width + 8
         else:
-            model_y = (base - y) / height * g.retained_height_m
+            model_y = (base - y) / height * display_height
             above_footing = min(max(model_y - g.footing_thickness_m, 0.0), g.stem_height_above_footing_m)
             pressure_x = sx(_back_x(g, above_footing)) + 8
         length = 45 + index * 16
-        dx, dy = length * cos(alpha), -length * sin(alpha) * (height / g.retained_height_m) / (width / g.footing_width_m)
+        dx, dy = length * cos(alpha), -length * sin(alpha) * (height / display_height) / (width / g.footing_width_m)
         draw.line((pressure_x + dx, y + dy, pressure_x, y), fill=ACCENT, width=4)
         draw.polygon([(pressure_x, y), (pressure_x + 14, y - 8), (pressure_x + 14, y + 8)], fill=ACCENT)
     pressure_label_x = stem_right_base + 160
@@ -190,7 +203,7 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
         pressure_label_x = sx(_back_x(g, g.stem_height_above_footing_m * 0.55)) + 24
     draw.text((pressure_label_x, top + height / 2 + 40), "Empuje sobre pantalla", font=small, fill=ACCENT)
     if result.inputs.is_pure_wall:
-        draw.text((70, 85), f"Trasdós real: θ = {result.inputs.soil.wall_backface_angle_deg:.4f}°; relleno a la derecha", font=small, fill=INK)
+        draw.text((70, 85), f"Trasdós: θ = {result.inputs.soil.wall_backface_angle_deg:.4f}°; relleno: β = {result.inputs.soil.backfill_slope_deg:.3f}°; Hv = {display_height:.3f} m", font=small, fill=INK)
     image.save(path, dpi=(220, 220), optimize=True)
     return path
 

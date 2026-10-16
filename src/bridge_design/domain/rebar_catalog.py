@@ -1,7 +1,7 @@
 """Reusable reinforcing bar catalog and spacing options."""
 
 from dataclasses import dataclass
-from math import floor
+from math import floor, isfinite
 
 from bridge_design.validation.input_validators import require_non_negative, require_positive
 
@@ -53,6 +53,7 @@ class ReinforcementSpacingOption:
     is_compliant: bool
     is_recommended: bool = False
     is_custom: bool = False
+    crack_control_status: str | None = None
 
     @property
     def excess_percent(self) -> float:
@@ -181,17 +182,26 @@ def custom_spacing_option(
         raise ValueError(
             f"La separacion no puede exceder {case_options.maximum_spacing_m:.3f} m."
         )
+    # Each diameter can have its own effective depth and required area.
+    candidate = next((option for option in case_options.options if option.bar == bar), None)
+    required_area = (
+        candidate.required_area_cm2_m
+        if candidate is not None
+        else case_options.required_area_cm2_m
+    )
+    if not isfinite(required_area):
+        raise ValueError(f"La barra {bar.label} no tiene una solucion de flexion viable para esta seccion.")
     provided = bar.area_cm2 / spacing_m
-    if provided + 1e-9 < case_options.required_area_cm2_m:
+    if provided + 1e-9 < required_area:
         raise ValueError(
             f"As provisto = {provided:.3f} cm2/m es menor que "
-            f"As requerido = {case_options.required_area_cm2_m:.3f} cm2/m."
+            f"As requerido = {required_area:.3f} cm2/m."
         )
     return ReinforcementSpacingOption(
         item=0,
         bar=bar,
         spacing_m=spacing_m,
-        required_area_cm2_m=case_options.required_area_cm2_m,
+        required_area_cm2_m=required_area,
         provided_area_cm2_m=provided,
         is_compliant=True,
         is_custom=True,

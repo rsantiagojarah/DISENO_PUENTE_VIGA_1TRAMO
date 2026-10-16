@@ -11,6 +11,7 @@ from bridge_design.domain.abutment import (
     StructuralDesignCase,
     abutment_load_factors,
     wall_backface_setback_m,
+    virtual_retained_height_m,
 )
 from bridge_design.domain.rebar_catalog import ReinforcementCaseOptions, ReinforcementSpacingOption
 
@@ -87,6 +88,9 @@ def format_abutment_reinforcement_option_tables(
     """Return option tables for selecting abutment reinforcement before final checks."""
     lines: list[str] = []
     lines.extend(audit_block_title("E", title, 112))
+    lines.append("As requerido recalculado con el diametro y peralte efectivo de cada alternativa.")
+    lines.append("RECOM.: menor exceso de As entre opciones que cumplen flexion, acero minimo y separacion.")
+    lines.append("Cortante, servicio y anclaje se verifican por separado con el armado adoptado.")
     for case_options in _abutment_reinforcement_case_options(result):
         lines.append("")
         lines.extend(_format_spacing_option_table(case_options))
@@ -310,6 +314,8 @@ def _format_spacing_option_table(case_options: ReinforcementCaseOptions) -> list
 
 def _format_stem_reinforcement_cut_option(result: AbutmentDesignResult) -> list[str]:
     cut = result.stem_reinforcement_cut
+    if cut is not None and cut.status != "OK":
+        return _format_uncut_stem(result, "OPCION DE CORTE DE ACERO PRINCIPAL DE PANTALLA")
     if cut is None:
         return [
             "",
@@ -626,6 +632,7 @@ def _format_soil_pressure_procedure(result: AbutmentDesignResult) -> list[str]:
     g = data.geometry
     soil = data.soil
     p = result.pressures
+    virtual_height = virtual_retained_height_m(data)
     gamma = data.materials.soil_unit_weight_kg_m3 / 1000.0
     effective_heel = g.heel_length_m - g.backfill_step_width_m
     if data.is_pure_wall:
@@ -633,18 +640,19 @@ def _format_soil_pressure_procedure(result: AbutmentDesignResult) -> list[str]:
     as_coeff = soil.fpga * soil.pga
     kh = 0.5 * as_coeff
     rows = [
+        ("Hv plano virtual", "H + (Lt+b)*tan(beta) en muros; H en estribos", f"H={g.retained_height_m:.3f}; Lt={g.heel_length_m:.3f}; b={wall_backface_setback_m(g, soil.wall_backface_angle_deg):.6f}; beta={soil.backfill_slope_deg:.3f}", f"{virtual_height:.6f} m"),
         ("Ka Coulomb", "f(phi, delta, beta, theta)", f"phi={soil.friction_angle_deg:.3f}; delta=0.000; beta={soil.backfill_slope_deg:.3f}; theta=90.000 (plano virtual)", f"{p.ka:.4f}"),
         ("h' vehicular", "valor ingresado o interpolado por H", f"H={g.retained_height_m:.3f}", f"{p.live_surcharge_height_m:.3f} m"),
         ("LSy vehicular", "Btalon* h' * gamma", f"{effective_heel:.3f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}", f"{p.lsy_tn_m:.3f} Tn/m"),
-        ("LSx vehicular", "Ka * h' * gamma * H", f"{p.ka:.4f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}*{g.retained_height_m:.3f}", f"{p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m"),
+        ("LSx vehicular", "Ka * h' * gamma * Hv", f"{p.ka:.4f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}*{virtual_height:.6f}", f"{p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m"),
         ("LS peatonal vertical", "qpeat * Btalon", f"{soil.pedestrian_surcharge_tn_m2:.3f}*{effective_heel:.3f}", f"{p.pedestrian_lsy_tn_m:.3f} Tn/m"),
-        ("LS peatonal horizontal", "Ka * qpeat * H", f"{p.ka:.4f}*{soil.pedestrian_surcharge_tn_m2:.3f}*{g.retained_height_m:.3f}", f"{p.pedestrian_lsx_tn_m:.3f} Tn/m"),
-        ("EH terreno", "0.5 * Ka * gamma * H^2", f"0.5*{p.ka:.4f}*{gamma:.3f}*{g.retained_height_m:.3f}^2", f"{p.eh_tn_m:.3f} Tn/m"),
+        ("LS peatonal horizontal", "Ka * qpeat * Hv", f"{p.ka:.4f}*{soil.pedestrian_surcharge_tn_m2:.3f}*{virtual_height:.6f}", f"{p.pedestrian_lsx_tn_m:.3f} Tn/m"),
+        ("EH terreno", "0.5 * Ka * gamma * Hv^2", f"0.5*{p.ka:.4f}*{gamma:.3f}*{virtual_height:.6f}^2", f"{p.eh_tn_m:.3f} Tn/m"),
         ("As", "Fpga * PGA", f"{soil.fpga:.3f}*{soil.pga:.3f}", f"{as_coeff:.4f}"),
         ("gamma_EQ", "valor de proyecto si hay carga viva concurrente", f"{data.gamma_eq:.2f}", f"{data.gamma_eq:.2f}"),
         ("kh", "0.5 * As", f"0.5*{as_coeff:.4f}", f"{kh:.4f}"),
         ("kAE", "Mononobe-Okabe", f"angulo sismico={p.seismic_angle_deg:.3f} grados", f"{p.k_ae:.4f}"),
-        ("PAE", "0.5 * kAE * gamma * H^2", f"0.5*{p.k_ae:.4f}*{gamma:.3f}*{g.retained_height_m:.3f}^2", f"{p.pae_tn_m:.3f} Tn/m"),
+        ("PAE", "0.5 * kAE * gamma * Hv^2", f"0.5*{p.k_ae:.4f}*{gamma:.3f}*{virtual_height:.6f}^2", f"{p.pae_tn_m:.3f} Tn/m"),
         ("EQterr", "PAE - EH", f"{p.pae_tn_m:.3f} - {p.eh_tn_m:.3f}", f"{p.eq_terr_tn_m:.3f} Tn/m"),
         ("PIR", "kh * (DC + EV)", f"{kh:.4f}*({result.dc_self_weight_tn_m:.3f}+{result.ev_weight_tn_m:.3f})", f"{p.pir_tn_m:.3f} Tn/m"),
     ]
@@ -797,6 +805,7 @@ def _format_pressures(result: AbutmentDesignResult) -> list[str]:
     p = result.pressures
     data = result.inputs
     g = data.geometry
+    virtual_height = virtual_retained_height_m(data)
     soil = data.soil
     gamma = data.materials.soil_unit_weight_kg_m3 / 1000.0
     effective_heel = g.heel_length_m - g.backfill_step_width_m
@@ -805,13 +814,14 @@ def _format_pressures(result: AbutmentDesignResult) -> list[str]:
     as_coeff = soil.fpga * soil.pga
     kh = 0.5 * as_coeff
     values = [
+        ("Hv plano virtual", "H + (Lt+b)*tan(beta) en muros; H en estribos", f"{virtual_height:.6f} m"),
         ("Ka Coulomb", f"Coulomb(phi={soil.friction_angle_deg:.3f}, delta=0.000, beta={soil.backfill_slope_deg:.3f}, theta=90.000 (plano virtual))", f"{p.ka:.4f}"),
         ("h' vehicular adoptado", f"h'({g.retained_height_m:.3f})", f"{p.live_surcharge_height_m:.3f} m"),
         ("LSy vehicular", f"{effective_heel:.3f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}", f"{p.lsy_tn_m:.3f} Ton/m"),
-        ("LSx vehicular + peatonal", f"{p.ka:.4f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}*{g.retained_height_m:.3f} + {p.ka:.4f}*{soil.pedestrian_surcharge_tn_m2:.3f}*{g.retained_height_m:.3f}", f"{p.lsx_tn_m:.3f} Ton/m"),
-        ("EH terreno", f"0.5*{p.ka:.4f}*{gamma:.3f}*{g.retained_height_m:.3f}^2", f"{p.eh_tn_m:.3f} Ton/m"),
+        ("LSx vehicular + peatonal", f"{p.ka:.4f}*{p.live_surcharge_height_m:.3f}*{gamma:.3f}*{virtual_height:.6f} + {p.ka:.4f}*{soil.pedestrian_surcharge_tn_m2:.3f}*{virtual_height:.6f}", f"{p.lsx_tn_m:.3f} Ton/m"),
+        ("EH terreno", f"0.5*{p.ka:.4f}*{gamma:.3f}*{virtual_height:.6f}^2", f"{p.eh_tn_m:.3f} Ton/m"),
         ("kAE sismico", f"Mononobe-Okabe(kh={kh:.4f})", f"{p.k_ae:.4f}"),
-        ("PAE", f"0.5*{p.k_ae:.4f}*{gamma:.3f}*{g.retained_height_m:.3f}^2", f"{p.pae_tn_m:.3f} Ton/m"),
+        ("PAE", f"0.5*{p.k_ae:.4f}*{gamma:.3f}*{virtual_height:.6f}^2", f"{p.pae_tn_m:.3f} Ton/m"),
         ("EQterr = PAE - EH", f"{p.pae_tn_m:.3f} - {p.eh_tn_m:.3f}", f"{p.eq_terr_tn_m:.3f} Ton/m"),
         ("PIR", f"{kh:.4f}*({result.dc_self_weight_tn_m:.3f}+{result.ev_weight_tn_m:.3f})", f"{p.pir_tn_m:.3f} Ton/m"),
     ]
@@ -1163,8 +1173,29 @@ def _required_as_control(case: StructuralDesignCase) -> str:
     return f"{label} = {value:.3f} cm2/m"
 
 
+def _format_uncut_stem(result: AbutmentDesignResult, title: str) -> list[str]:
+    """Explain why an evaluated cut is not used in the adopted bar schedule."""
+    cut = result.stem_reinforcement_cut
+    case = result.stem_design
+    return [
+        "",
+        *key_value_box(
+            title,
+            (
+                ("Estado del corte evaluado", cut.status),
+                ("Detalle adoptado", "Sin corte; todas las barras principales continuan hasta la coronacion."),
+                ("Acero continuo", f"{case.selected_bar_label} @ {case.selected_spacing_m:.3f} m"),
+                ("Criterio", cut.notes),
+            ),
+            width=112,
+        ),
+    ]
+
+
 def _format_stem_reinforcement_cut(result: AbutmentDesignResult) -> list[str]:
     cut = result.stem_reinforcement_cut
+    if cut is not None and cut.status != "OK":
+        return _format_uncut_stem(result, "CORTE DE ACERO PRINCIPAL DE PANTALLA")
     if cut is None:
         return [
             "",
@@ -1324,6 +1355,7 @@ def _format_bar_details(result: AbutmentDesignResult) -> list[str]:
 
 def _format_wall_backface(result: AbutmentDesignResult) -> list[str]:
     from bridge_design.domain.abutment import _stem_design_demands
+    from bridge_design.domain.inclined_wall import surcharge_geometry_factor
     g, soil, p = result.inputs.geometry, result.inputs.soil, result.pressures
     a = _stem_design_demands(result.inputs, p)
     return [
@@ -1335,6 +1367,8 @@ def _format_wall_backface(result: AbutmentDesignResult) -> list[str]:
             [
                 ("theta del trasdos real desde horizontal", f"{soil.wall_backface_angle_deg:.8f} grados"),
                 ("Retiro superior hacia puntera", f"{wall_backface_setback_m(g, soil.wall_backface_angle_deg):.5f} m"),
+                ("beta pendiente del relleno desde horizontal", f"{soil.backfill_slope_deg:.6f} grados"),
+                ("Fq = 1/[1+tan(90-theta)*tan(beta)]; PLS=Ka*q*Hp*Fq", f"{surcharge_geometry_factor(result.inputs):.8f}"),
                 ("Ka / kAE sobre pantalla", f"{p.stem_ka:.6f} / {p.stem_k_ae:.6f}"),
                 ("delta interfaz pantalla (MTC Tabla 2.4.4.1.5.3-1)", f"{soil.wall_soil_friction_deg:.6f} grados"),
                 ("Direccion del empuje bajo horizontal", f"{p.stem_force_angle_deg:.6f} grados"),

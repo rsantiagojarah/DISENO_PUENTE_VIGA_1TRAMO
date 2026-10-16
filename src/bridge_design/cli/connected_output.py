@@ -129,7 +129,8 @@ def _number(row, key, unit=""):
 
 def _source(row):
     demand = row["demand"]
-    return f"{row['region']}; {case_label(demand['case'])}; elemento {demand['element']}; s/L={demand['station']:.3f}; {row['face']}"
+    zone = f"{row['zone']}; " if row.get('zone') else ''
+    return zone + f"{row['region']}; {case_label(demand['case'])}; elemento {demand['element']}; s/L={demand['station']:.3f}; {row['face']}"
 
 
 def _steel_summary(result):
@@ -168,10 +169,14 @@ def _steel_summary(result):
     for steel in result.reinforcement:
         lines.extend(format_foundation_cut(steel))
         if steel.region == "Pantalla - vertical relleno" and steel.role == "primary":
-            lines.append(f"Propuesta de corte del acero elegido - {steel.region}")
+            lines.append(("Corte adoptado" if steel.stem_cut_adopted else "Propuesta de corte del acero elegido") + f" - {steel.region}")
             lines.extend(_format_stem_reinforcement_cut_option(steel))
             if steel.stem_reinforcement_cut:
-                lines.append(steel.stem_reinforcement_cut.notes)
+                note = steel.stem_reinforcement_cut.notes
+                if steel.stem_cut_adopted:
+                    note = note.replace('La opcion no sustituye el armado uniforme seleccionado ni el detalle de union con la cajuela.',
+                                        'Corte elegido expresamente; se conserva el detalle de union con la cajuela.')
+                lines.append(note)
     lines.extend(boxed_table(("Region", "Acero por cara", "As req", "As prov", "Indice", "Estado"),
         ((s.region, f"{s.bar_label} @ {s.spacing_m:.3f} m", f"{s.temperature_cm2_m:.3f}",
           f"{traces[s.region]['transverse_area']:.3f}", f"{s.transverse_utilization:.3f}", _status(s.transverse_utilization))
@@ -186,10 +191,10 @@ def _steel_summary(result):
             continue
         crack_rows.append((steel.region, _number(service['demand'], 'moment'), _number(service, 'stress'),
             _number(service, 'stress_limit'), _number(service, 'axis'), _number(service, 'beta_service'),
-            f"{steel.spacing_m:.3f}", _number(service, 'maximum_spacing') if service.get('service_tension', True) else "No gobierna",
+            f"{service.get('maximum_gap', service['spacing']):.3f}", _number(service, 'maximum_spacing') if service.get('service_tension', True) else "No gobierna",
             "OK" if service.get('stress_ratio', float('inf')) <= 1+1e-8 else "NO",
             "OK" if service.get('spacing_ratio', float('inf')) <= 1+1e-8 else "NO",
-            "OK" if steel.crack_utilization <= 1+1e-8 else "NO"))
+            "OK" if service['crack_ratio'] <= 1+1e-8 else "NO"))
     if crack_rows:
         lines.extend(boxed_table(("Elemento", "Ms tn m/m", "fs kgf/cm2", "fs lim", "dc cm", "beta_s",
                                   "s prov m", "s max m", "E-fs", "E-s", "Estado"), crack_rows,

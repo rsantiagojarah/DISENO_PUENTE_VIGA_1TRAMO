@@ -26,6 +26,11 @@ from bridge_design.units.converters import m_to_ft, m_to_in
 KG_CM2_TO_MPA = 0.0980665
 
 
+def upper_limit_symbol(value: float, limit: float) -> str:
+    """Numerical comparisons must not print a passing inequality on failure."""
+    return "≤" if value <= limit + 1e-9 else ">"
+
+
 def flexural_as_min_trace(
     *,
     strip: bool,
@@ -45,6 +50,7 @@ def flexural_as_min_trace(
     fy = steel.yield_strength_kg_cm2
     es = steel.elastic_modulus_kg_cm2
     fc = concrete.compressive_strength_kg_cm2
+    phi_limit = getattr(design, "flexural_resistance_factor", 0.90)
     units = "cm²/m" if strip else "cm²"
     position_m = getattr(design, "position_m", 0.0)
     cracking_moment = getattr(design, "cracking_moment_tn_m", 0.0)
@@ -90,17 +96,20 @@ def flexural_as_min_trace(
             steel_elastic_modulus_kg_cm2=es,
         )
 
-    required_response = response(strength_area) if strength_area > 0.0 else None
+    axial_area = getattr(design, "axial_area_cm2_m", 0.0)
+    bending_area = strength_area - axial_area
+    required_response = response(bending_area) if bending_area > 0.0 else None
     provided = provided_area if provided_area is not None else required_area
-    provided_response = response(provided) if provided > 0.0 else None
+    available_bending_area = provided - axial_area
+    provided_response = response(available_bending_area) if available_bending_area > 0.0 else None
     epsilon_y = fy / es
     required_phi = (
-        min(0.90, required_response.resistance_factor)
+        min(phi_limit, required_response.resistance_factor)
         if required_response is not None
         else 0.0
     )
     provided_phi = (
-        min(0.90, provided_response.resistance_factor)
+        min(phi_limit, provided_response.resistance_factor)
         if provided_response is not None
         else 0.0
     )
@@ -167,10 +176,22 @@ def flexural_as_min_trace(
         "Mobjetivo: demanda que incorpora el mínimo resistente del MTC; "
         "c: profundidad del eje neutro; a = β1·c: bloque equivalente; "
         "εy: deformación de fluencia; εs: deformación del acero; "
-        "fs: esfuerzo compatible del acero; φ: factor determinado con εt, limitado a 0.90; "
+        f"fs: esfuerzo compatible del acero; φ: factor determinado con εt, limitado a {phi_limit:.2f}; "
         "As,res: acero por resistencia φMn ≥ Mobjetivo; As,min: acero mínimo por cuantía; "
         + min_legend
     )
+    axial_lines = ""
+    if axial_area > 0.0:
+        formula += "  ;  As,N = N/(φ·fy)  ;  As,res = As,M + As,N  ;  As,flex,prov = As,prov − As,N"
+        legend += (
+            " Para el voladizo se mantiene el modelo aditivo de flexión y tracción: "
+            "se reserva As,N antes de evaluar la resistencia a flexión."
+        )
+        axial_lines = (
+            f"As,N = {axial_area:.3f} {units}\n"
+            f"As,M = {strength_area:.3f} − {axial_area:.3f} = {bending_area:.3f} {units}\n"
+            f"As,flex,prov = {provided:.3f} − {axial_area:.3f} = {available_bending_area:.3f} {units}\n"
+        )
     compatibility_lines = ""
     if required_response is not None:
         compatibility_lines = (
@@ -219,6 +240,7 @@ def flexural_as_min_trace(
         f"fy = {fy:.0f} kg/cm²\n"
         f"f'c = {fc:.1f} kg/cm²\n"
         f"As,res = {strength_area:.3f} {units}\n"
+        f"{axial_lines}"
         f"{compatibility_lines}"
         f"{provided_lines}"
         f"{min_lines}"
@@ -230,6 +252,8 @@ def flexural_as_min_trace(
         f"φMn = {provided_phi_mn:.3f} Tn·m frente a Mobjetivo = "
         f"{target_moment:.3f} Tn·m: {provided_capacity_status}."
     )
+    if provided_capacity_status == "NO CUMPLE":
+        compliance_comment = "La resistencia del armado adoptado no alcanza la demanda de flexión."
     compatibility_comment = (
         f"{compliance_comment} La compatibilidad confirma que el acero requerido "
         f"{'fluye' if required_yields else 'no fluye'} y que el acero adoptado "
@@ -249,7 +273,8 @@ def crack_control_trace(crack, *, slab_thickness_cm: float | None = None) -> tup
         beta = crack.beta_s
         denom = beta - 1.0
         h = dc + dc / (0.7 * denom) if denom > 1e-9 else dc * 2.0
-    d = h - dc
+    elastic = getattr(crack, "section_inertia_cm4", None) is not None
+    d = crack.effective_depth_cm if elastic else h - dc
     mserv = crack.service_moment_tn_m
     as_prov = crack.provided_area_cm2_m
     fs = crack.steel_stress_kg_cm2
@@ -265,9 +290,25 @@ def crack_control_trace(crack, *, slab_thickness_cm: float | None = None) -> tup
         "fs,real ≤ 0.60·fy  ;  "
         "smax = 123000·γe/(βs·fss) − 2·dc  ;  sprov ≤ smax"
     )
+    stress_legend = (
+        "fs = n·Mserv·(d − x)/I; sección transformada con el centroide de las capas adoptadas; "
+        if elastic else f"fs = Mserv/(As,prov·{jd:.2f}·d); "
+    )
+    stress_substitution = (
+        f"d = h − distancia al centroide del acero = {d:.2f} cm\n"
+        f"sección {'fisurada' if crack.section_is_cracked else 'no fisurada'}; "
+        f"n = {crack.section_modular_ratio}; x = {crack.section_neutral_axis_depth_cm:.3f} cm; "
+        f"I = {crack.section_inertia_cm4:,.3f} cm⁴\n"
+        f"fs = {crack.section_modular_ratio}·({mserv:.3f}·100000)·"
+        f"({d:.3f} − {crack.section_neutral_axis_depth_cm:.3f})/"
+        f"{crack.section_inertia_cm4:,.3f} = {fs:.1f} kg/cm²\n"
+        if elastic else
+        f"d = h − dc = {d:.2f} cm\n"
+        f"fs = ({mserv:.3f}·100000)/({as_prov:.3f}·{jd:.2f}·{d:.2f}) = {fs:.1f} kg/cm²\n"
+    )
     legend = (
         f"Mserv: momento de {combo} (factores 1.0); "
-        f"fs = Mserv/(As,prov·{jd:.2f}·d); "
+        + stress_legend +
         "βs = 1 + dc/[0.7(h − dc)]; dc = c + db/2; "
         "γe: factor de exposición (1.0 ambiente normal); "
         "fss = min(fs,real; 0.60·fy) para la ecuación de separación."
@@ -275,11 +316,10 @@ def crack_control_trace(crack, *, slab_thickness_cm: float | None = None) -> tup
     substitution = (
         f"Mserv = {mserv:.3f} Tn·m ({combo})\n"
         f"barra = {crack.bar_label}\n"
-        f"As,prov = {as_prov:.3f} cm²/m\n"
+        f"As,prov = {as_prov:.3f} {'cm²' if elastic else 'cm²/m'}\n"
         f"dc = {dc:.2f} cm\n"
         f"h = {h:.2f} cm\n"
-        f"d = h − dc = {d:.2f} cm\n"
-        f"fs = ({mserv:.3f}·100000)/({as_prov:.3f}·{jd:.2f}·{d:.2f}) = {fs:.1f} kg/cm²\n"
+        + stress_substitution +
         f"flím = 0.60·fy = {crack.steel_stress_limit_kg_cm2:.1f} kg/cm²: "
         f"{crack.stress_status}\n"
         f"fss usada en espaciamiento = {fs_used:.1f} kg/cm²\n"
@@ -289,7 +329,7 @@ def crack_control_trace(crack, *, slab_thickness_cm: float | None = None) -> tup
     )
     result = (
         f"Esfuerzo: {crack.stress_status}; separación "
-        f"({crack.provided_spacing_m:.3f} ≤ {crack.maximum_spacing_m:.3f} m): "
+        f"({crack.provided_spacing_m:.3f} {upper_limit_symbol(crack.provided_spacing_m, crack.maximum_spacing_m)} {crack.maximum_spacing_m:.3f} m): "
         f"{crack.spacing_status}; resultado conjunto: {crack.status}."
     )
     comment = (
@@ -368,6 +408,7 @@ def interior_g_factor_trace(geometry) -> tuple[str, str, str, str, str]:
 
 def exterior_g_factor_trace(geometry, vehicle) -> tuple[str, str, str, str, str]:
     """Build gM / gV detail for an exterior girder."""
+    geometry = geometry.with_distribution_factors(vehicle)
     de = geometry.exterior_web_to_traffic_barrier_m
     g_m = float(geometry.live_load_distribution_factor_g)
     g_v = float(geometry.live_load_shear_distribution_factor_g)
@@ -460,7 +501,7 @@ def ll_im_with_g_trace(
     return formula, legend, substitution, result, comment
 
 
-def skin_steel_trace(skin_design, option_text: str, compliance: str) -> tuple[str, str, str, str, str]:
+def skin_steel_trace(skin_design, option_text: str, compliance: str, *, is_compliant: bool = True) -> tuple[str, str, str, str, str]:
     dl = skin_design.effective_depth_cm
     ask = skin_design.required_area_cm2_m_per_face
     if dl > 90.0:
@@ -498,7 +539,12 @@ def skin_steel_trace(skin_design, option_text: str, compliance: str) -> tuple[st
         f"smax = {skin_design.maximum_spacing_m:.3f} m\n"
         f"opción adoptada: {option_text}"
     )
-    result = "El acero de piel adoptado satisface simultáneamente cuantía y separación."
+    result = (
+        "El acero de piel adoptado satisface simultáneamente cuantía y separación."
+        if is_compliant else "El acero de piel adoptado NO CUMPLE la cuantía o la separación exigida."
+    )
+    if ask <= 0:
+        result = "La exigencia de acero de piel no aplica para este peralte; la temperatura se verifica por separado."
     return formula, legend, substitution, result, compliance
 
 
@@ -542,8 +588,8 @@ def service_stress_trace(service, concrete, steel) -> tuple[str, str, str, str, 
         f"límite acero = 0.60·{steel.yield_strength_kg_cm2:.0f} = {fs_lim:.1f} kg/cm²"
     )
     result = (
-        f"fc,serv = {fc:.2f} ≤ {fc_lim:.2f}: {service.concrete_status}; "
-        f"fs,serv = {fs:.1f} ≤ {fs_lim:.1f}: {service.steel_status}."
+        f"fc,serv = {fc:.2f} {upper_limit_symbol(fc, fc_lim)} {fc_lim:.2f}: {service.concrete_status}; "
+        f"fs,serv = {fs:.1f} {upper_limit_symbol(fs, fs_lim)} {fs_lim:.1f}: {service.steel_status}."
     )
     comment = (
         "Las tensiones elásticas se mantienen dentro de los límites de Servicio I."
@@ -586,7 +632,7 @@ def fatigue_trace(fatigue, steel) -> tuple[str, str, str, str, str]:
         f"ΔfF = {gamma:.2f}·{delta:.1f} = {delta_f:.1f} kg/cm²\n"
         f"(ΔF)TH = 24 − 20·({fmin_ksi:.3f}/{fy_ksi:.1f}) = {allow_ksi:.3f} ksi = {allow:.1f} kg/cm²"
     )
-    result = f"ΔfF = {delta_f:.1f} kg/cm² ≤ ΔfTH = {allow:.1f} kg/cm²: {fatigue.status}."
+    result = f"ΔfF = {delta_f:.1f} kg/cm² {upper_limit_symbol(delta_f, allow)} ΔfTH = {allow:.1f} kg/cm²: {fatigue.status}."
     comment = (
         "El rango de tensión de las barras rectas adoptadas no gobierna el dimensionamiento."
         if fatigue.status == "CUMPLE"
@@ -598,36 +644,50 @@ def fatigue_trace(fatigue, steel) -> tuple[str, str, str, str, str]:
 def barrier_mw_mc_trace(flex, concrete, steel) -> tuple[str, str, str, str, str]:
     fy = steel.yield_strength_kg_cm2
     fc = concrete.compressive_strength_kg_cm2
+    es = steel.elastic_modulus_kg_cm2
+
+    def component_lines(comp, prefix, area_unit, moment_unit):
+        # Use the engine's compatibility model, not the special case fs = fy.
+        response = rectangular_flexural_response(
+            comp.steel_area_cm2, comp.concrete_width_cm, comp.effective_depth_cm,
+            fc, fy, es,
+        )
+        fs = response.steel_stress_kg_cm2
+        c = response.neutral_axis_depth_cm
+        a = comp.compression_block_depth_cm
+        yields = response.steel_strain + 1e-12 >= fy / es
+        return (
+            f"{prefix}-{comp.label}: As = {comp.steel_area_cm2:.3f} {area_unit}",
+            f"b = {comp.concrete_width_cm:.2f} cm",
+            f"d = {comp.effective_depth_cm:.3f} cm",
+            f"c = {c:.3f} cm; a = {a:.3f} cm",
+            f"εs = 0.003·({comp.effective_depth_cm:.3f} − {c:.3f})/{c:.3f} = {response.steel_strain:.6f}",
+            f"fs = min({es:.0f}·{response.steel_strain:.6f}; {fy:.0f}) = {fs:.3f} kg/cm²: "
+            f"{'FLUYE' if yields else 'NO FLUYE'}",
+            f"a = {comp.steel_area_cm2:.3f}·{fs:.3f}/(0.85·{fc:.1f}·{comp.concrete_width_cm:.2f}) = {a:.3f} cm",
+            f"Mn = {comp.steel_area_cm2:.3f}·{fs:.3f}·({comp.effective_depth_cm:.3f} − {a:.3f}/2)/100000 "
+            f"= {comp.nominal_moment_tn_m:.3f} {moment_unit}",
+        )
+
     lines: list[str] = ["Componentes Mw:"]
     for comp in flex.mw_components:
-        a = comp.compression_block_depth_cm
-        lines.extend(
-            (
-                f"Mw-{comp.label}: As = {comp.steel_area_cm2:.3f} cm²",
-                f"b = {comp.concrete_width_cm:.2f} cm",
-                f"d = {comp.effective_depth_cm:.2f} cm",
-                f"a = {comp.steel_area_cm2:.3f}·{fy:.0f}/(0.85·{fc:.1f}·{comp.concrete_width_cm:.2f}) = {a:.3f} cm",
-                f"Mn = {comp.steel_area_cm2:.3f}·{fy:.0f}·({comp.effective_depth_cm:.2f} − {a:.3f}/2)/100000 "
-                f"= {comp.nominal_moment_tn_m:.3f} Tn·m",
-            )
-        )
+        lines.extend(component_lines(comp, "Mw", "cm²", "Tn·m"))
     lines.append(f"Mw = Σ = {flex.mw_tn_m:.3f} Tn·m")
     lines.append("Componentes Mc:")
     for comp in flex.mc_components:
-        a = comp.compression_block_depth_cm
-        lines.extend(
-            (
-                f"Mc-{comp.label}: As = {comp.steel_area_cm2:.3f} cm²/m",
-                f"d = {comp.effective_depth_cm:.2f} cm",
-                f"a = {a:.3f} cm",
-                f"Mn = {comp.nominal_moment_tn_m:.3f} Tn·m/m",
-            )
-        )
+        lines.extend(component_lines(comp, "Mc", "cm²/m", "Tn·m/m"))
     lines.append(f"Mc (promedio ponderado) = {flex.mc_tn_m:.3f} Tn·m/m")
-    formula = "a = As·fy/(0.85·f'c·b)  ;  Mn = As·fy·(d − a/2)  ;  Mw = Σ Mn  ;  Mc = Σ(hi·Mni)/Σ hi"
+    formula = (
+        "εs = 0.003·(d − c)/c  ;  fs = min(Es·εs; fy)  ;  "
+        "a = As·fs/(0.85·f'c·b)  ;  Mn = As·fs·(d − a/2)/100000  ;  "
+        "Mw = Σ Mn  ;  Mc = Σ(hi·Mni)/Σ hi"
+    )
     legend = (
         "Mw: resistencia flexional horizontal del paño; Mc: resistencia vertical por metro "
-        "(promedio ponderado por altura de segmentos)."
+        "(promedio ponderado por altura de segmentos). "
+        "c: eje neutro obtenido por equilibrio y compatibilidad; εs: deformación del acero; "
+        "Es: módulo elástico; fs: esfuerzo compatible, limitado por fy. "
+        "Con fuerzas en kg y longitudes en cm, 100000 convierte kg·cm a Tn·m."
     )
     substitution = "\n".join(lines)
     result = f"Se adoptan Mw = {flex.mw_tn_m:.3f} Tn·m y Mc = {flex.mc_tn_m:.3f} Tn·m/m en el mecanismo."
@@ -676,7 +736,7 @@ def barrier_interface_trace(inputs, materials, shear) -> tuple[str, str, str, st
         f"Vn = {shear.nominal_shear_tn_m:.3f} Tn/m\n"
         f"Vact = {shear.acting_shear_tn_m:.3f} Tn/m"
     )
-    result = f"Vact = {shear.acting_shear_tn_m:.3f} ≤ Vn = {shear.nominal_shear_tn_m:.3f}: {shear.status}."
+    result = f"Vact = {shear.acting_shear_tn_m:.3f} {upper_limit_symbol(shear.acting_shear_tn_m, shear.nominal_shear_tn_m)} Vn = {shear.nominal_shear_tn_m:.3f}: {shear.status}."
     comment = (
         "La interfaz puede transferir el esfuerzo longitudinal asociado al mecanismo de impacto."
         if shear.status == "OK" or shear.status == "CUMPLE"
@@ -685,7 +745,8 @@ def barrier_interface_trace(inputs, materials, shear) -> tuple[str, str, str, st
     return formula, legend, substitution, result, comment
 
 
-def cantilever_collision_trace(collision, control, geom_height: float | None = None) -> tuple[str, str, str, str, str]:
+def cantilever_collision_trace(collision, control, flexural) -> tuple[str, str, str, str, str]:
+    """Distinguish interface demand from the compatible case adopted at the root."""
     ft = collision.transverse_force_tn
     ltr = collision.transfer_length_m
     h = collision.barrier_height_m
@@ -693,39 +754,50 @@ def cantilever_collision_trace(collision, control, geom_height: float | None = N
     vct = collision.interface_shear_tn_m
     mcol = collision.collision_moment_tn_m
     mperm = collision.permanent_moment_tn_m
-    mu_ee = collision.design_moment_tn_m
+    interface = next(case for case in collision.cases if case.name == "Caso 1 - colision horizontal A-A")
+    root = next(case for case in collision.cases if case.name == "Caso 1 - seccion B-B")
+    adopted = next(case for case in flexural.load_cases
+                   if case.combination_name == flexural.controlling_combination_name)
+    b_factor = root.axial_tension_tn_m / vct
     mu_ri = control.design_moment_tn_m
     formula = (
-        "Casos 1/2/3; Ltr = Lc + 2H ; N = max(Ft,Rw)/Ltr ; Mcol = max(Mc,N·H) ; As = As(M)+N/(phi·fy) ; "
-        "Mperm = |γDC·MDC + γDW·MDW|  ;  Mu,EE-II = Mcol + Mperm"
+        "Ltr = Lc + 2H ; N,A-A = max(Ft,Rw)/Ltr ; Mcol = max(Mc,N,A-A·H) ; "
+        "Mperm = |γDC·MDC + γDW·MDW| ; M,A-A = Mcol + Mperm ; "
+        "M,B-B = ηB·Mcol + Mperm ; N,B-B = ηB·N,A-A ; As = As(M) + N/(φ·fy)"
     )
     legend = (
         "F: mayor entre fuerza TL y resistencia desarrollable Rw; Lc: longitud crítica de la barrera; "
         "H: altura de la barrera; Mperm: permanentes factorizados de Resistencia I en el voladizo "
-        "(sin PL ni LL)."
+        "(sin PL ni LL). Interfaz A-A: unión barrera-losa. Raíz B-B: eje de viga exterior. "
+        "ηB: factor de distribución de la colisión hasta B-B utilizado por el motor. "
+        "Se comparan las demandas de acero de Resistencia y de colisión B-B, conservando cada par M–N."
     )
     substitution = (
         f"Ft = {ft:.3f} Tn\n"
         f"H = {h:.3f} m\n"
         f"Lc = Ltr − 2H = {ltr:.3f} − 2·{h:.3f} = {lc:.3f} m\n"
         f"Ltr = {lc:.3f} + 2·{h:.3f} = {ltr:.3f} m\n"
-        f"Vct = {ft:.3f}/{ltr:.3f} = {vct:.3f} Tn/m\n"
+        f"N,A-A = {vct:.3f} Tn/m (= {ft:.3f}/{ltr:.3f})\n"
         f"Mcol = max(Mc, {vct:.3f}·{h:.3f}) = {mcol:.3f} Tn·m/m\n"
         f"Mperm = {mperm:.3f} Tn·m/m\n"
-        f"Mu,EE-II = {mcol:.3f} + {mperm:.3f} = {mu_ee:.3f} Tn·m/m\n"
+        f"M,A-A = {interface.moment_tn_m:.3f} Tn·m/m (= {mcol:.3f} + {mperm:.3f})\n"
+        f"ηB = {b_factor:.6f}\n"
+        f"M,B-B = {b_factor:.6f}·{mcol:.3f} + {mperm:.3f} = {root.moment_tn_m:.3f} Tn·m/m\n"
+        f"N,B-B = {b_factor:.6f}·{vct:.3f} = {root.axial_tension_tn_m:.3f} Tn/m\n"
         f"Mu,RI = {mu_ri:.3f} Tn·m/m\n"
         + "Casos: " + "; ".join(
             f"{case.name}: M={case.moment_tn_m:.3f}, N={case.axial_tension_tn_m:.3f}, {case.status}"
             for case in collision.cases
         )
     )
-    design = max(mu_ri, mu_ee)
-    result = f"El diseño flexional adopta Mu = max({mu_ri:.3f}; {mu_ee:.3f}) = {design:.3f} Tn·m/m."
+    result = (
+        f"Raíz B-B: gobierna {flexural.controlling_combination_name}; "
+        f"M = {adopted.moment_tn_m:.3f} Tn·m/m; N = {adopted.axial_tension_tn_m:.3f} Tn/m. "
+        f"Con d = {flexural.effective_depth_cm:.2f} cm, As,req = {flexural.required_area_cm2_m:.3f} cm²/m."
+    )
     comment = (
-        "El Evento Extremo II gobierna el acero superior; por ello el momento de Resistencia I "
-        "no se utiliza para dimensionar la armadura final."
-        if mu_ee >= mu_ri - 1e-9
-        else "Resistencia I gobierna frente al Evento Extremo II en este voladizo."
+        "La combinación gobernante procede del cálculo del acero con el diámetro adoptado, "
+        "no del mayor momento aislado. Los esfuerzos de A-A no sustituyen a los de B-B."
     )
     return formula, legend, substitution, result, comment
 

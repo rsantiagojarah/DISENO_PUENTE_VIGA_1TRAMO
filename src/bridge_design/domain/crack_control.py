@@ -49,6 +49,11 @@ class CrackControlCheck:
     spacing_status: str
     status: str
     reference: str = CRACK_CONTROL_REINFORCEMENT_REFERENCE
+    effective_depth_cm: float | None = None
+    section_modular_ratio: int | None = None
+    section_neutral_axis_depth_cm: float | None = None
+    section_inertia_cm4: float | None = None
+    section_is_cracked: bool | None = None
 
     @property
     def is_compliant(self) -> bool:
@@ -175,14 +180,31 @@ def _review_flexural_steel(
     selected_spacing: ReinforcementSpacingOption | None,
 ) -> CrackControlCheck:
     selected = selected_spacing or _recommended_option(steel)
-    dc_cm = (
-        reinforcement.parameters.concrete_cover_cm
-        + selected.bar.diameter_cm / 2.0
+    return review_slab_spacing_crack_control(
+        geometry, materials, abs(service_row.combined_moment_tn_m),
+        reinforcement.parameters.concrete_cover_cm, selected,
+        label=label, direction=steel.direction,
+        service_combination_name=service_row.combination_name,
     )
+
+
+def review_slab_spacing_crack_control(
+    geometry: TransverseSlabGeometry,
+    materials: MaterialProperties,
+    service_moment_tn_m: float,
+    concrete_cover_cm: float,
+    selected: ReinforcementSpacingOption,
+    *,
+    label: str = "Acero principal",
+    direction: str = "M-",
+    service_combination_name: str = "SERVICIO I",
+) -> CrackControlCheck:
+    """Check the same service model for a candidate and for the adopted steel."""
+    dc_cm = concrete_cover_cm + selected.bar.diameter_cm / 2.0
     slab_thickness_cm = geometry.slab_thickness_m * 100.0
     effective_depth_cm = slab_thickness_cm - dc_cm
     steel_stress = _service_steel_stress_kg_cm2(
-        service_moment_tn_m=abs(service_row.combined_moment_tn_m),
+        service_moment_tn_m=abs(service_moment_tn_m),
         provided_area_cm2_m=selected.provided_area_cm2_m,
         effective_depth_cm=effective_depth_cm,
     )
@@ -201,9 +223,9 @@ def _review_flexural_steel(
     )
     return CrackControlCheck(
         label=label,
-        direction=steel.direction,
-        service_combination_name=service_row.combination_name,
-        service_moment_tn_m=abs(service_row.combined_moment_tn_m),
+        direction=direction,
+        service_combination_name=service_combination_name,
+        service_moment_tn_m=abs(service_moment_tn_m),
         bar_label=selected.bar.label,
         bar_area_cm2=selected.bar.area_cm2,
         provided_spacing_m=selected.spacing_m,

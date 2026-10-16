@@ -101,3 +101,15 @@ def selected_option(items: tuple[tuple[str, Any], ...], prefix: str) -> Any | No
         if label.startswith(prefix):
             return option
     return None
+
+
+def diaphragm_selection_with_skin(reinforcement, selected: tuple) -> tuple:
+    """Keep legacy report inputs consistent with their default Ask adoption."""
+    if reinforcement is None or reinforcement.skin.required_area_cm2_m_per_face <= 0.0:
+        return selected
+    if selected_option(selected, "E.") is not None:
+        return selected
+    option = reinforcement.skin.spacing_options.recommended
+    if option is None:
+        return selected
+    return (*selected, ("E. Ask longitudinal por cara diafragma", option))

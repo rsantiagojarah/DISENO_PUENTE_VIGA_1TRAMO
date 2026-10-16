@@ -1,6 +1,7 @@
 """Regression for the conditional minimum capacity in individual toe design."""
 
 from dataclasses import replace
+from math import sqrt
 
 import pytest
 
@@ -8,14 +9,17 @@ from bridge_design.domain import abutment
 from bridge_design.domain.rebar_catalog import custom_spacing_option
 
 
-@pytest.mark.parametrize("moment,minimum", [(100, 64.6148752047468), (55, 64.6148752047468), (20, 26.6)])
-def test_toe_keeps_conditional_minimum_with_legacy_inputs(monkeypatch, moment, minimum):
+@pytest.mark.parametrize("moment", [100, 55, 20])
+def test_toe_keeps_conditional_minimum_with_legacy_inputs(monkeypatch, moment):
     monkeypatch.setattr(abutment, '_toe_design_demands', lambda *args: (moment, 1))
     neutral = abutment.AbutmentInputs()
     legacy = replace(neutral, reinforcement=replace(
         neutral.reinforcement, toe_moment_capacity_multiplier=1.33))
     original = abutment.solve_abutment_design(neutral)
     actual = abutment.solve_abutment_design(legacy)
+    # Current gross-section expression: gamma1*gamma3 = 1.6*0.67, not 1.1.
+    cracking = 1.072 * 2.01 * sqrt(210) * (100 * 110**2 / 6) / 100000
+    minimum = min(cracking, 1.33 * moment)
     assert actual.toe_design == original.toe_design
     assert actual.toe_design.controlling_moment_tn_m_m == moment
     assert actual.toe_design.minimum_capacity_moment_tn_m_m == pytest.approx(minimum)

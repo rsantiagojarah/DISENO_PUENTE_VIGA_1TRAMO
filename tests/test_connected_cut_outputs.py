@@ -52,6 +52,7 @@ def test_real_model_has_both_pdf_arrangements_and_reports(selected, tmp_path):
     assert serialized[1]["cutoff_left_m"] == bottom.cutoff_left_m
     rows = list(csv.DictReader((tmp_path/"cortes_zapata.csv").open(encoding="utf-8-sig")))
     assert len(rows) == 2 and all(r["estado"] == "APLICA" for r in rows)
+    assert all(r["uso"] == "PROPUESTA NO ADOPTADA" for r in rows)
     for name in ("resumen.txt", "auditoria.txt"):
         text = (tmp_path/name).read_text(encoding="utf-8")
         assert "CORTES DE ACERO - Zapata combinada - longitudinal superior" in text
@@ -64,6 +65,8 @@ def test_real_model_has_both_pdf_arrangements_and_reports(selected, tmp_path):
     cells = "\n".join(c.text for t in document.tables for row in t.rows for c in row.cells)
     assert f"{top.cutoff_left_m:.3f} / {top.cutoff_right_m:.3f} m" in cells
     assert f"{bottom.cutoff_left_m:.3f} / {bottom.cutoff_right_m:.3f} m" in cells
+    assert 'PROPUESTA NO ADOPTADA' in cells
+    assert 'Propuesta no adoptada' in text
 
 
 def test_reselection_discards_stale_cuts_and_exported_lengths(selected, tmp_path):

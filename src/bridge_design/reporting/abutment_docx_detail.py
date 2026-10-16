@@ -38,10 +38,26 @@ from bridge_design.domain.abutment import (
     _upper_concrete_weight_and_arm,
     abutment_load_factors,
     equivalent_vehicular_surcharge_height_m,
+    virtual_retained_height_m,
+    wall_backfill_rise_m,
+    wall_backfill_surface_length_m,
+    wall_backface_setback_m,
 )
 from bridge_design.domain.rebar_catalog import REINFORCING_BAR_CATALOG
+from bridge_design.domain.concrete_flexure import (
+    CONCRETE_ULTIMATE_STRAIN,
+    mtc_beta1,
+    rectangular_flexural_response,
+)
 
 KG_CM2_TO_MPA = 0.0980665
+
+
+def comparison_symbol(left: float, right: float, *, at_least: bool = False) -> str:
+    """Show the actual numerical relation, independently of acceptance wording."""
+    if at_least:
+        return "≥" if left >= right else "<"
+    return "≤" if left <= right else ">"
 
 
 def _factor_for_type(factors: LoadFactors, load_type: str, *, horizontal: bool) -> float:
@@ -354,7 +370,17 @@ def mtc_seismic_envelope_trace(result: AbutmentDesignResult) -> tuple[str, str, 
 
 def pressure_arms_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, str]:
     g = result.inputs.geometry
-    h = g.retained_height_m
+    h = virtual_retained_height_m(result.inputs)
+    if result.inputs.is_pure_wall:
+        return (
+            "yEH = Hv/3 ; yLSx = Hv/2 ; yEQterr = Hv/2",
+            "Hv: altura del plano virtual en el extremo del talón, medida desde el fondo de zapata; "
+            "no es la altura de la pantalla sobre zapata.",
+            f"Hv = {h:.3f} m\nyEH = {h:.3f}/3 = {h/3:.3f} m\n"
+            f"yLSx = {h:.3f}/2 = {h/2:.3f} m\nyEQterr = {h:.3f}/2 = {h/2:.3f} m",
+            "Los brazos corresponden al plano virtual de estabilidad global.",
+            "Se conserva el diagrama triangular estático y el incremento sísmico del modelo.",
+        )
     formula = "yEH = H/3 ; yLSx = H/2 ; yEQterr = H/2 ; yBR = H + hb"
     legend = (
         "yEH: brazo del empuje estático triangular; yLSx, yEQterr: brazos de diagramas uniformes/"
@@ -372,6 +398,36 @@ def pressure_arms_trace(result: AbutmentDesignResult) -> tuple[str, str, str, st
         "Estos brazos se usan en MHu = Σ(Hi·yi) y en el inventario de componentes horizontales."
     )
     return formula, legend, substitution, result_text, comment
+
+
+def wall_backfill_geometry_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str, str]:
+    data = result.inputs
+    g = data.geometry
+    rise = wall_backfill_rise_m(data)
+    height = virtual_retained_height_m(data)
+    gamma = data.materials.soil_unit_weight_kg_m3 / 1000.0
+    setback = wall_backface_setback_m(g, data.soil.wall_backface_angle_deg)
+    length = wall_backfill_surface_length_m(data)
+    weight = length * rise * gamma / 2.0
+    return (
+        "b = (H−D)·tan(90°−θ) ; Lβ = Lt+b ; ΔH = Lβ·tanβ ; Hv = H+ΔH ; Wβ = γs·Lβ·ΔH/2 ; "
+        "xβ = B−Lβ/3 ; yβ = H+ΔH/3",
+        "β: pendiente ascendente del relleno desde la coronación real; Lt: talón; b: retiro superior del trasdós; "
+        "Lβ: proyección horizontal del relleno desde coronación a extremo del talón; "
+        "H: altura hasta la coronación desde fondo de zapata; Hv: altura del plano virtual; "
+        "Wβ: peso adicional por pendiente; xβ, yβ: centroide desde puntera y fondo.",
+        f"b = {g.stem_height_above_footing_m:.3f}·tan(90°−{data.soil.wall_backface_angle_deg:.6f}°) = {setback:.6f} m\n"
+        f"Lβ = {g.heel_length_m:.3f}+{setback:.6f} = {length:.6f} m\n"
+        f"ΔH = {length:.6f}·tan({data.soil.backfill_slope_deg:.3f}°) = {rise:.6f} m\n"
+        f"Hv = {g.retained_height_m:.3f}+{rise:.6f} = {height:.6f} m\n"
+        f"Wβ = {gamma:.3f}·{length:.6f}·{rise:.6f}/2 = {weight:.6f} Tn/m\n"
+        f"xβ = {g.footing_width_m:.3f}−{length:.6f}/3 = {g.footing_width_m-length/3:.6f} m\n"
+        f"yβ = {g.retained_height_m:.3f}+{rise:.6f}/3 = {g.retained_height_m+rise/3:.6f} m",
+        f"La estabilidad global usa Hv = {height:.6f} m; la pantalla conserva Hp = H−D = {g.stem_height_above_footing_m:.3f} m.",
+        "La cuña se incluye una sola vez en EV y en la masa sísmica del conjunto. "
+        "El talón recibe directamente la porción sobre Lt; la porción sobre b se incluye en la transferencia del trasdós, sin duplicarla. "
+        "Se conserva el modelo de empuje global horizontal (δ=0 en el plano virtual).",
+    )
 
 
 def concrete_geometry_rows(result: AbutmentDesignResult) -> tuple[tuple[str, ...], ...]:
@@ -442,7 +498,9 @@ def eccentricity_limit_trace(
         )
         comment = "MTC 2.8.1.1.12.3 / AASHTO 11.6.3.3 para fundaciones en suelo."
     result_text = (
-        f"|e| = {abs(state.eccentricity_m):.3f} m ≤ e_lím = {state.eccentricity_limit_m:.3f} m: "
+        f"|e| = {abs(state.eccentricity_m):.3f} m "
+        f"{comparison_symbol(abs(state.eccentricity_m), state.eccentricity_limit_m)} "
+        f"e_lím = {state.eccentricity_limit_m:.3f} m: "
         f"{state.overturning_status}."
     )
     return formula, legend, substitution, result_text, comment
@@ -472,7 +530,9 @@ def allowable_bearing_trace(
             "(0.55 resistencia; 0.80 evento extremo); FS: factor de seguridad nominal; qadm: admisible."
         )
     result_text = (
-        f"qM = {state.geotechnical_pressure_kg_cm2:.3f} kg/cm² ≤ qlím = {state.q_allow_kg_cm2:.3f} kg/cm²: "
+        f"qM = {state.geotechnical_pressure_kg_cm2:.3f} kg/cm² "
+        f"{comparison_symbol(state.geotechnical_pressure_kg_cm2, state.q_allow_kg_cm2)} "
+        f"qlím = {state.q_allow_kg_cm2:.3f} kg/cm²: "
         f"{state.bearing_status}."
     )
     comment = "La verificación geotécnica compara la presión Meyerhof con qlím del estado límite."
@@ -508,17 +568,30 @@ def stem_demand_trace(result: AbutmentDesignResult) -> tuple[str, str, str, str,
     demands = _stem_design_demands(result.inputs, result.pressures)
     if result.inputs.is_pure_wall or result.inputs.soil.wall_soil_friction_deg > 0.0:
         p = result.pressures
+        surcharge_formula = surcharge_legend = surcharge_substitution = ""
+        if result.inputs.is_pure_wall:
+            from bridge_design.domain.inclined_wall import surcharge_geometry_factor
+            factor = surcharge_geometry_factor(result.inputs)
+            h = result.inputs.geometry.stem_height_above_footing_m
+            q = result.inputs.materials.soil_unit_weight_kg_m3 / 1000.0 * p.live_surcharge_height_m + result.inputs.soil.pedestrian_surcharge_tn_m2
+            surcharge_formula = "Fq=1/[1+tan(90°−θ)·tanβ]; PLS=Ka·q·Hp·Fq; "
+            surcharge_legend = "q: sobrecarga vertical por área horizontal; Hp=H−D: altura real de pantalla; Fq: factor geométrico. "
+            surcharge_substitution = (
+                f"β={result.inputs.soil.backfill_slope_deg:.6f}°; Fq={factor:.8f}; q={q:.6f} Tn/m²; Hp={h:.6f} m\n"
+                f"PLS={p.stem_ka:.8f}·{q:.6f}·{h:.6f}·{factor:.8f}={p.stem_ka*q*h*factor:.6f} Tn/m\n"
+            )
         bridge_terms = "" if result.inputs.is_pure_wall else (
             " En estribos se agregan 1.75MBR en Resistencia y MPEQ+γEQ·MBR en Evento Extremo."
         )
         return (
-            "Px=P·cos(α); Py=P·sin(α); M=P_x·y-P_y·(x_cara-x_centro); α=90°-θ+δ; "
+            surcharge_formula + "Px=P·cos(α); Py=P·sin(α); M=P_x·y-P_y·(x_cara-x_centro); α=90°-θ+δ; "
             "Mu,R=max|1.75MLS+1.50MEH+γDC·MDC|; Mu,E=max|γEQ·MLS+MEH+MEQ+0.5MPIR+MDC|, "
             "|γEQ·MLS+M[max(0.5PAE,EH)]+MPIR+MDC|" + bridge_terms,
-            "P: resultante sobre pantalla; Py positiva hacia abajo; MDC: momento desfavorable del peso propio. "
+            surcharge_legend + "P: resultante sobre pantalla; Py positiva hacia abajo; MDC: momento desfavorable del peso propio. "
             "La estabilidad global usa un cuerpo distinto: muro más relleno sobre el talón.",
             f"θ={result.inputs.soil.wall_backface_angle_deg:.6f}°; δ={result.inputs.soil.wall_soil_friction_deg:.6f}°; α={p.stem_force_angle_deg:.6f}°; "
             f"Ka,pantalla={p.stem_ka:.6f}; kAE,pantalla={p.stem_k_ae:.6f}; γEQ={result.inputs.gamma_eq:.3f}\n"
+            + surcharge_substitution
             + "\n".join(f"{key} = {demands[key]:.5f}" for key in (
                 "eh_horizontal", "eh_vertical", "ls_horizontal", "ls_vertical", "eq_horizontal", "eq_vertical",
                 "eh_moment", "ls_moment", "eq_moment", "weight_moment", "pir_moment",
@@ -722,6 +795,36 @@ def heel_toe_demand_trace(
         if factors is None:
             raise ValueError("El estado estructural debe conservar sus factores de carga.")
         extra_lines = []
+        if weights.soil_slope_tn_m > 0.0:
+            extra_lines.append(
+                f"WEV,β = {weights.soil_slope_tn_m:.3f} Tn/m; incluido en WEV, "
+                f"a xβ,t = {weights.soil_slope_arm_m:.6f} m de la cara. "
+                "Wβ,t = γs·tanβ·(b·Lt+Lt²/2); xβ,t = (b·Lt²/2+Lt³/3)/(b·Lt+Lt²/2). "
+                "Se mantiene el modelo de carga vertical del suelo sobre el talón."
+            )
+        if result.inputs.is_pure_wall and demand.extra_loads:
+            from bridge_design.domain.inclined_wall import heel_transfer_breakdown
+            transfer = heel_transfer_breakdown(result.inputs, state)
+            extra_lines.extend((
+                "Transferencia incremental respecto del trasdós vertical liso sobre la misma superficie: "
+                f"H0=Hp+b·tanβ={transfer['reference_height']:.6f} m; "
+                f"Wb={transfer['wedge_weight']:.6f}; Wβ,b={transfer['slope_wedge_weight']:.6f} Tn/m. "
+                "Wb=γs·b·Hp/2; Wβ,b=γs·b²·tanβ/2.",
+                "ΔV=γEV·(Wb+Wβ,b)+γLSv·q·b−Σγi·Pi·sinα = "
+                f"{transfer['soil_vertical']:.6f}+({transfer['surcharge_vertical']:.6f})+({transfer['face_vertical']:.6f})"
+                f" = {transfer['vertical']:.6f} Tn/m",
+                "ΔM=Mpesos+Msobrecarga+Mcaras+Minercia = "
+                f"{transfer['soil_moment']:.6f}+({transfer['surcharge_moment']:.6f})+({transfer['face_moment']:.6f})+({transfer['inertia_moment']:.6f})"
+                f" = {transfer['moment']:.6f} Tn·m/m. "
+                "Mcaras=Σγi·[Pi·(cosα+sinα·tan(90°−θ))·yi−P0i·y0i]. "
+                "P0i se calcula con θ=90°, δ=0 y H0. La inercia incremental incluye solo el suelo sobre b; "
+                "la del suelo común sobre Lt se cancela frente a la referencia.",
+                "Minercia=−fEQ·cPIR·kh·[Wb·2Hp/3+Wβ,b·(Hp+b·tanβ/3)]; "
+                f"fEQ={factors.eq:.2f}; "
+                f"cPIR={1.0 if state.seismic_papir_combination == SEISMIC_PAPIR_COMBO_B else 0.5:.2f}; "
+                f"kh={0.5*result.inputs.soil.fpga*result.inputs.soil.pga:.6f}. "
+                "fEQ es el factor de la acción sísmica del estado, no el factor de carga viva concurrente.",
+            ))
         if weights.seat_concrete_weight_tn_m > 1e-9:
             extra_lines.append(
                 f"WDC,cajuela = {weights.seat_concrete_weight_tn_m:.3f} Tn/m; "
@@ -757,7 +860,7 @@ def heel_toe_demand_trace(
             f"Wzap = {weights.heel_length_m:.3f}·D·γc = {weights.footing_weight_tn_m:.3f} Tn/m; "
             f"xzap = {weights.footing_arm_m:.3f} m\n"
             f"WEV = {weights.soil_rect_tn_m:.3f} + {weights.soil_triangle_tn_m:.3f} + "
-            f"{weights.soil_step_tn_m:.3f} = {weights.soil_weight_tn_m:.3f} Tn/m; "
+            f"{weights.soil_step_tn_m:.3f} + {weights.soil_slope_tn_m:.3f} = {weights.soil_weight_tn_m:.3f} Tn/m; "
             f"xEV = {weights.soil_arm_m:.3f} m\n"
             f"WLS = {weights.lsy_tn_m:.3f} Tn/m; xLS = {weights.lsy_arm_m:.3f} m"
             f"{extra_block}\n"
@@ -888,6 +991,68 @@ def effective_depth_trace(
     return formula, legend, substitution, result_text, comment
 
 
+def flexural_resistance_trace(
+    result: AbutmentDesignResult,
+    case: StructuralDesignCase,
+) -> tuple[str, str, str, str, str]:
+    """Develop the same strain-compatible resistance used by the design engine."""
+    materials = result.inputs.materials
+    fc, fy = materials.concrete_strength_kg_cm2, materials.steel_yield_kg_cm2
+    area, depth = case.provided_as_cm2_m, case.effective_depth_cm
+    response = rectangular_flexural_response(
+        area, 100.0, depth, fc, fy, STEEL_ELASTIC_MODULUS_KG_CM2,
+    )
+    bar = _bar_by_label(case.selected_bar_label)
+    beta = mtc_beta1(fc)
+    c, a = response.neutral_axis_depth_cm, response.compression_block_depth_cm
+    strain, stress = response.steel_strain, response.steel_stress_kg_cm2
+    phi = case.applied_flexural_phi
+    formula = (
+        "As,prov = Ab/s ; a = β1·c ; εs = 0.003·(d − c)/c ; fs = min(fy, Es·εs) ; "
+        "0.85·f'c·b·a = As,prov·fs ; φ = min(φ,lím, φ(εt)) ; "
+        "Mr = φ·As,prov·fs·(d − a/2)/100000"
+    )
+    legend = (
+        "Ab: área de barra en cm²; s: separación en m; As,prov: acero por metro en cm²/m; "
+        "b = 100 cm; d: peralte efectivo; c: eje neutro; a: bloque de compresión (cm); "
+        "β1: factor del bloque; εs = εt: deformación del acero en esta sección de una capa; "
+        "Es: módulo del acero; fs: esfuerzo por compatibilidad, limitado por fy (kg/cm²); "
+        "φ,lím: límite del estado; φ(εt): factor por deformación; Mr: resistencia en Tn·m/m."
+    )
+    substitution = (
+        f"As,prov = {bar.area_cm2:.3f}/{case.selected_spacing_m:.3f} = {area:.3f} cm²/m\n"
+        f"f'c = {fc:.3f} kg/cm²; fy = {fy:.3f} kg/cm²; b = 100 cm; d = {depth:.6f} cm\n"
+        f"Es = {STEEL_ELASTIC_MODULUS_KG_CM2:.0f} kg/cm²; β1 = {beta:.6f}\n"
+        f"0.85·{fc:.3f}·100·({beta:.6f}·c) = "
+        f"{area:.6f}·min({fy:.3f}, {STEEL_ELASTIC_MODULUS_KG_CM2:.0f}·"
+        f"{CONCRETE_ULTIMATE_STRAIN:.3f}·({depth:.6f} − c)/c)\n"
+        f"c = {c:.6f} cm; a = {beta:.6f}·{c:.6f} = {a:.6f} cm\n"
+        f"εs = {CONCRETE_ULTIMATE_STRAIN:.3f}·({depth:.6f} − {c:.6f})/{c:.6f} = {strain:.9f}\n"
+        f"fs = min({fy:.3f}, {STEEL_ELASTIC_MODULUS_KG_CM2:.0f}·{strain:.9f}) = {stress:.3f} kg/cm²\n"
+        f"φ = {phi:.6f}\n"
+        f"Mr = {phi:.6f}·{area:.6f}·{stress:.3f}·({depth:.6f} − {a:.6f}/2)/100000 "
+        f"= {case.moment_resistance_tn_m_m:.3f} Tn·m/m"
+    )
+    if case.name == "Pantalla" and case.strength_limit_mu_tn_m_m:
+        substitution += (
+            f"\nφ,R = {case.strength_phi:.6f}; Mr,R = {case.strength_moment_resistance_tn_m_m:.3f} Tn·m/m "
+            f"({case.strength_moment_status} frente a Mu,R = {case.strength_limit_mu_tn_m_m:.3f})\n"
+            f"φ,E = {case.extreme_phi:.6f}; Mr,E = {case.extreme_moment_resistance_tn_m_m:.3f} Tn·m/m "
+            f"({case.extreme_moment_status} frente a Mu,E = {case.extreme_limit_mu_tn_m_m:.3f})"
+        )
+    result_text = (
+        f"Se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m, "
+        f"con estado a flexión {case.moment_status}."
+    )
+    comment = (
+        "El momento resistente cubre la demanda de cada estado límite y la capacidad mínima aplicable."
+        if case.moment_status == "OK"
+        else "La verificación no cumple con el criterio de aceptación establecido."
+    )
+    comment += " El eje neutro y fs se obtienen por equilibrio y compatibilidad, sin imponer fs = fy."
+    return formula, legend, substitution, result_text, comment
+
+
 def cracking_and_temperature_trace(
     result: AbutmentDesignResult,
     case: StructuralDesignCase,
@@ -996,8 +1161,12 @@ def secondary_temperature_trace(
         )
     else:
         result_text = (
-            f"As,prov = {case.provided_as_cm2_m:.3f} cm²/m ≥ As,adic = {case.required_as_cm2_m:.3f} cm²/m; "
-            f"s = {case.selected_spacing_m*100:.1f} cm ≤ smax = {case.maximum_spacing_m*100:.1f} cm: "
+            f"As,prov = {case.provided_as_cm2_m:.3f} cm²/m "
+            f"{comparison_symbol(case.provided_as_cm2_m, case.required_as_cm2_m, at_least=True)} "
+            f"As,adic = {case.required_as_cm2_m:.3f} cm²/m; "
+            f"s = {case.selected_spacing_m*100:.1f} cm "
+            f"{comparison_symbol(case.selected_spacing_m, case.maximum_spacing_m)} "
+            f"smax = {case.maximum_spacing_m*100:.1f} cm: "
             f"{case.status}."
         )
     comment = (
@@ -1073,7 +1242,9 @@ def shear_beta_trace(
             f"queda junto a la cara del muro. Referencia: {REF_SHEAR_BETA}"
         )
     result_text = (
-        f"Vu = {case.shear_demand_tn_m:.3f} Tn/m ≤ Vr = {case.shear_resistance_tn_m:.3f} Tn/m: "
+        f"Vu = {case.shear_demand_tn_m:.3f} Tn/m "
+        f"{comparison_symbol(case.shear_demand_tn_m, case.shear_resistance_tn_m)} "
+        f"Vr = {case.shear_resistance_tn_m:.3f} Tn/m: "
         f"{case.shear_status}."
     )
     return formula, legend, substitution, result_text, comment
@@ -1108,11 +1279,14 @@ def stem_cut_continuous_pattern_trace(
         f"sinf = {cut.lower_spacing_m:.3f} m\n"
         f"n = {cut.continuous_every_n_bars}\n"
         f"ssup = {cut.continuous_every_n_bars}·{cut.lower_spacing_m:.3f} = {cut.upper_spacing_m:.3f} m "
-        f"≤ smax,pat = {cut.upper_spacing_limit_m:.3f} m\n"
+        f"{comparison_symbol(cut.upper_spacing_m, cut.upper_spacing_limit_m)} "
+        f"smax,pat = {cut.upper_spacing_limit_m:.3f} m\n"
         f"As,sup = {bar.area_cm2:.3f}/{cut.upper_spacing_m:.3f} = {cut.upper_provided_as_cm2_m:.3f} cm²/m"
     )
     result_text = (
-        f"As,sup = {cut.upper_provided_as_cm2_m:.3f} cm²/m ≥ As,temp = {cut.minimum_as_cm2_m:.3f} cm²/m: "
+        f"As,sup = {cut.upper_provided_as_cm2_m:.3f} cm²/m "
+        f"{comparison_symbol(cut.upper_provided_as_cm2_m, cut.minimum_as_cm2_m, at_least=True)} "
+        f"As,temp = {cut.minimum_as_cm2_m:.3f} cm²/m: "
         f"{'OK' if cut.upper_provided_as_cm2_m + 1e-9 >= cut.minimum_as_cm2_m else 'NO'}."
     )
     comment = (
@@ -1120,7 +1294,8 @@ def stem_cut_continuous_pattern_trace(
         f"La grilla de {step:.3f} m la deja en {grid_spacing:.3f} m y el tope smax = {smax:.3f} m "
         f"fija smax,pat = {cut.upper_spacing_limit_m:.3f} m. "
         f"El corte continúa 1 de cada {cut.continuous_every_n_bars} barras, "
-        f"con ssup = {cut.upper_spacing_m:.3f} m ≤ smax,pat."
+        f"con ssup = {cut.upper_spacing_m:.3f} m "
+        f"{comparison_symbol(cut.upper_spacing_m, cut.upper_spacing_limit_m)} smax,pat."
     )
     return formula, legend, substitution, result_text, comment
 
@@ -1158,7 +1333,9 @@ def stem_cut_theoretical_height_trace(
     steel_ok = cut.upper_provided_as_cm2_m + 1e-9 >= cut.required_as_at_cut_cm2_m
     result_text = (
         f"En ht = {cut.theoretical_cut_height_m:.3f} m: Mr = {cut.moment_resistance_at_cut_tn_m_m:.3f} Tn·m/m "
-        f"≥ Mreq = {cut.required_moment_at_cut_tn_m_m:.3f} Tn·m/m y As,sup ≥ As,req(ht): "
+        f"{comparison_symbol(cut.moment_resistance_at_cut_tn_m_m, cut.required_moment_at_cut_tn_m_m, at_least=True)} "
+        f"Mreq = {cut.required_moment_at_cut_tn_m_m:.3f} Tn·m/m y As,sup "
+        f"{comparison_symbol(cut.upper_provided_as_cm2_m, cut.required_as_at_cut_cm2_m, at_least=True)} As,req(ht): "
         f"{'OK' if capacity_ok and steel_ok else 'NO'}."
     )
     comment = (
@@ -1196,13 +1373,16 @@ def stem_cut_constructive_length_trace(
         f"= {cut.continuous_bar_length_m:.3f} m"
     )
     result_text = (
-        f"Barras cortadas ({cut.lower_bar_label} @ {cut.lower_spacing_m:.3f} m): L = {cut.lower_cut_bar_length_m:.3f} m; "
+        f"Barras cortadas ({cut.continuous_every_n_bars - 1} familia(s) de "
+        f"{cut.lower_bar_label} @ {cut.upper_spacing_m:.3f} m): L = {cut.lower_cut_bar_length_m:.3f} m; "
         f"barras continuas (1 de cada {cut.continuous_every_n_bars}, {cut.upper_bar_label} @ "
         f"{cut.upper_spacing_m:.3f} m): L = {cut.continuous_bar_length_m:.3f} m."
     )
     comment = (
         "Sobre la zapata la barra sigue recta, así que hc se prolonga con ld_recto. "
         "ld_zapata es solo el empotramiento dentro de la zapata y puede ser el gancho; no sube el corte."
+        f" Las familias se intercalan para formar la parrilla inferior de {cut.lower_spacing_m:.3f} m; "
+        f"cada familia tiene una separación de {cut.upper_spacing_m:.3f} m."
     )
     return formula, legend, substitution, result_text, comment
 
@@ -1229,7 +1409,8 @@ def crack_control_trace(result: AbutmentDesignResult, check) -> tuple[str, str, 
     )
     substitution = (
         f"Ms = {check.service_moment_tn_m_m:.3f} Tn·m/m\n"
-        f"fs = {check.steel_stress_kg_cm2:.1f} kg/cm² ≤ "
+        f"fs = {check.steel_stress_kg_cm2:.1f} kg/cm² "
+        f"{comparison_symbol(check.steel_stress_kg_cm2, check.steel_stress_limit_kg_cm2)} "
         f"0.60fy = {check.steel_stress_limit_kg_cm2:.1f} kg/cm²: {check.stress_status}\n"
         f"fss usada en espaciamiento = {check.steel_stress_used_kg_cm2:.1f} kg/cm² "
         f"= {fss_mpa:.3f} MPa\n"
@@ -1239,7 +1420,8 @@ def crack_control_trace(result: AbutmentDesignResult, check) -> tuple[str, str, 
         f"= {check.maximum_spacing_m*1000:.1f} mm = {check.maximum_spacing_m:.3f} m"
     )
     result_text = (
-        f"Esfuerzo: {check.stress_status}; sprov = {check.provided_spacing_m:.3f} m ≤ "
+        f"Esfuerzo: {check.stress_status}; sprov = {check.provided_spacing_m:.3f} m "
+        f"{comparison_symbol(check.provided_spacing_m, check.maximum_spacing_m)} "
         f"smax = {check.maximum_spacing_m:.3f} m: {check.spacing_status}; "
         f"resultado conjunto: {check.status}."
     )

@@ -9,6 +9,7 @@ from bridge_design.domain.common_reinforcement import (
     validate_cantilever_selection, validate_girder_selection,
 )
 from bridge_design.domain.girder_tributaries import girder_load_groups
+from bridge_design.domain.interior_girder import require_admissible_main_placement
 from bridge_design.domain.pipe_load import mirrored_layout
 from bridge_design.reporting.models import CantileverReportGroup, GirderReportGroup
 from bridge_design.reporting.common_design import CantileverDesignFamily, make_girder_family
@@ -19,6 +20,18 @@ def prepare_girder(api, project, exterior):
     geometry = getattr(project, prefix+'_girder')
     analysis = getattr(api, 'solve_'+prefix+'_girder_design')(geometry, project.materials, project.live_loads)
     steel = getattr(api, 'design_'+prefix+'_girder_reinforcement')(geometry, project.materials, analysis)
+    require_admissible_main_placement(steel.main.placement_options)
+    shear = getattr(api, 'design_'+prefix+'_girder_shear')(geometry, project.materials, analysis, steel)
+    return analysis, steel, shear
+
+
+def refresh_girder_for_main(api, project, exterior, values, main):
+    """Rebuild dependent options at the explicitly selected main-bar centroid."""
+    from bridge_design.domain.adopted_reinforcement import adopt_girder_reinforcement
+    prefix = 'exterior' if exterior else 'interior'
+    analysis, steel, _shear = values
+    geometry = getattr(project, prefix+'_girder')
+    steel = adopt_girder_reinforcement(geometry, project.materials, steel, main)
     shear = getattr(api, 'design_'+prefix+'_girder_shear')(geometry, project.materials, analysis, steel)
     return analysis, steel, shear
 
@@ -36,9 +49,32 @@ def run_girder_families(api, project):
             prepared.append((tuple(row.index for row in load_group), member_project,
                              prepare_girder(api, member_project, exterior)))
         steel = common_girder_reinforcement(p[2][1] for p in prepared)
-        shear = common_girder_shear(p[2][2] for p in prepared)
+        recommended_main = require_admissible_main_placement(steel.main.placement_options)
+
+        def refresh_for_main(main):
+            nonlocal prepared
+            refreshed = [
+                (indices, member_project, refresh_girder_for_main(
+                    api, member_project, exterior, values, main))
+                for indices, member_project, values in prepared
+            ]
+            common_steel = common_girder_reinforcement(p[2][1] for p in refreshed)
+            common_shear = common_girder_shear(p[2][2] for p in refreshed)
+            prepared = refreshed
+            return common_steel, common_shear
+
+        # The first table uses the common default, not each member's own REC.
+        steel, shear = refresh_for_main(recommended_main)
         print('\nARMADO COMUN DE VIGAS '+('EXTERIORES' if exterior else 'INTERIORES'))
-        selected = getattr(api, 'collect_'+prefix+'_girder_reinforcement_selection')(steel, shear)
+        member_designs = tuple(
+            (', '.join(f'V{index + 1}' for index in indices), values[1], values[2])
+            for indices, _member_project, values in prepared
+        )
+        print(api.format_common_girder_reinforcement_options(steel, shear, member_designs))
+        selected = getattr(api, 'collect_'+prefix+'_girder_reinforcement_selection')(
+            steel, shear, refresh_for_main=refresh_for_main)
+        # Also validate externally supplied selections against the adopted depth.
+        refresh_for_main(next(o for label, o in selected if label.startswith('A.')))
         members = []
         for indices, member_project, values in prepared:
             validate_girder_selection(selected, values[1], values[2])
@@ -74,6 +110,10 @@ def run_cantilever_family(api, project, barrier):
         prepared.append((side, member_project, result))
     reinforcement = common_cantilever_reinforcement(p[2] for p in prepared)
     print('\nARMADO COMUN PARA AMBOS VOLADOS')
+    member_designs = tuple(
+        ('Volado '+side, result) for side, _member_project, result in prepared
+    )
+    print(api.format_common_cantilever_reinforcement_options(reinforcement, member_designs))
     selected = api.collect_cantilever_reinforcement_selection(reinforcement)
     members, computed_values = [], []
     for side, member_project, result in prepared:
@@ -82,6 +122,11 @@ def run_cantilever_family(api, project, barrier):
             computed = api._run_cantilever(member_project, barrier, prepared=result, selected=selected)
         members.append(CantileverReportGroup(side, member_project, *computed[:4]))
         computed_values.append(computed)
+    reinforcement = common_cantilever_reinforcement(m.result for m in members)
+    selected = tuple((label, replace(option,
+        required_area_cm2_m=max(m.selected[i][1].required_area_cm2_m for m in members),
+        is_compliant=all(m.selected[i][1].is_compliant for m in members)))
+        for i, (label, option) in enumerate(selected))
     family = CantileverDesignFamily(tuple(members), reinforcement, selected)
     for row in family.individual_rows:
         print(f'{row[0]}: Mu={row[1]} Tn.m/m; Vu={row[2]} Tn/m; As req={row[3]} cm2/m; {row[4]}')

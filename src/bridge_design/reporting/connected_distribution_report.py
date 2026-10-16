@@ -19,7 +19,8 @@ def distribution_groups(reinforcement):
 
 def governing_source(row):
     d = row['demand']
-    return (f"{row['region']}; {case_label(d['case'])}; elemento {d['element']}; "
+    zone = f"{row['zone']}; " if row.get('zone') else ''
+    return (zone + f"{row['region']}; {case_label(d['case'])}; elemento {d['element']}; "
             f"s/L={d['station']:.3f}; x={row['x']:.3f}, z={row['y']:.3f} m; "
             f"h={d['depth_cm']:.2f} cm; M={d['moment']:.3f} tn·m/m; "
             f"V={d['shear']:.3f} tn/m; cara {row['face']}.").replace('-0.000', '0.000')
@@ -65,6 +66,11 @@ def write_distributed_design(document, result, reinforcement, audit, charts=None
                ((s.region.split(' - ', 1)[-1], s.face, f'{s.required_as_cm2_m:.3f}',
                  f'{s.bar_label} @ {s.spacing_m:.3f}', f'{s.area_per_face_cm2_m:.3f}', s.status)
                 for s in records), widths=(34, 25, 24, 34, 24, 19))
+        if any(s.foundation_reinforcement_cut is not None and
+               s.foundation_reinforcement_cut.is_adopted for s in records):
+            _body(document, 'En las distribuciones de zapata con cortes, esta tabla y el desarrollo del armado completo '
+                  'corresponden a la zona reforzada. El detalle de cortes verifica el acero local de cada tramo; '
+                  'el resumen del punto 11 distingue las zonas con solo acero continuo y con refuerzo adicional.')
         for steel in records:
             if steel.role != 'primary':
                 continue
@@ -73,7 +79,8 @@ def write_distributed_design(document, result, reinforcement, audit, charts=None
             from bridge_design.reporting.connected_cut_report import write_foundation_cut
             write_foundation_cut(document, steel)
             if steel.region == 'Pantalla - vertical relleno':
-                document.add_heading('Opción de corte de acero principal de pantalla', level=4)
+                document.add_heading(('Corte adoptado' if steel.stem_cut_adopted else 'Opción de corte')
+                                     + ' de acero principal de pantalla', level=4)
                 cut = steel.stem_reinforcement_cut
                 if cut is None:
                     _body(document, 'NO APLICA: la distribución elegida no admite una reducción '
@@ -86,13 +93,20 @@ def write_distributed_design(document, result, reinforcement, audit, charts=None
                         ('Altura teórica sobre zapata', f'{cut.theoretical_cut_height_m:.3f} m'),
                         ('Altura constructiva sobre zapata', f'{cut.constructive_cut_height_m:.3f} m'),
                         ('Prolongación ld', f'{cut.development_extension_m:.3f} m'),
+                        ('Anclaje en zapata para longitudes', f'{cut.footing_anchorage_m:.3f} m '
+                         + ('con gancho' if steel.anchor_status == 'SOLO GANCHO' else 'recto')),
                         ('Longitud barras cortadas', f'{cut.lower_cut_bar_length_m:.3f} m'),
                         ('Longitud barras continuas', f'{cut.continuous_bar_length_m:.3f} m'),
                         ('Estado de la opción', cut.status),
                     ), widths=(80, 80))
-                    note = case_label(cut.notes).replace(
-                        'La opcion no sustituye el armado uniforme seleccionado ni el detalle de union con la cajuela.', '')
+                    note = case_label(cut.notes)
+                    if steel.stem_cut_adopted:
+                        note = note.replace(
+                            'La opcion no sustituye el armado uniforme seleccionado ni el detalle de union con la cajuela.',
+                            'Corte elegido expresamente; se conserva la comprobación independiente de la unión con la cajuela.')
                     _body(document, note.strip())
+                    if not steel.stem_cut_adopted:
+                        _body(document, 'Propuesta no adoptada: se conserva el acero uniforme elegido, sin cortes.')
 
         write_temperature(document, records, audit)
 
@@ -111,6 +125,8 @@ def write_distributed_design(document, result, reinforcement, audit, charts=None
           'El estado de anclaje compara por separado ld recto y ld gancho con la longitud disponible. '
           'RECTO Y CON GANCHO indica ambas alternativas; SOLO GANCHO indica que solo cumple con gancho; '
           'NO CUMPLE indica que ninguna longitud alcanza el desarrollo calculado.')
+    _body(document, 'Con cortes adoptados, el servicio gobernante es el mayor índice entre las zonas con su acero local. '
+          'Las propuestas no adoptadas no modifican la verificación del acero uniforme elegido.')
     for region, records in grouped.items():
         document.add_heading(region, level=2)
         primary = [s for s in records if s.role == 'primary']
@@ -122,7 +138,7 @@ def write_distributed_design(document, result, reinforcement, audit, charts=None
                 continue
             tension = row.get('service_tension', True)
             service_rows.append((steel.region.split(' - ', 1)[-1],
-                f"{row['side']}: {case_label(row['demand']['case'])}" if tension else 'Sin tracción',
+                f"{row.get('zone', row['side'])}: {case_label(row['demand']['case'])}" if tension else 'Sin tracción',
                 f"{row['stress']:.2f}", f"{row['stress_limit']:.2f}",
                 f"{row['maximum_spacing']:.3f}" if tension else '—',
                 'CUMPLE' if tension and row['crack_ratio'] <= 1+1e-8 else 'NO CUMPLE' if tension else 'No gobierna'))

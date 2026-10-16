@@ -46,6 +46,25 @@ def test_cut_reuses_pattern_and_development_and_checks_both_sides(cut_model):
     assert "cajuela" in cut.notes
 
 
+@pytest.mark.parametrize("command", [1, 2])
+def test_hooked_footing_anchorage_changes_lengths_not_cut_height(cut_model, command):
+    data, mesh, steel, demands = cut_model
+    if command == 2:
+        from bridge_design.cli.connected_2_yaml import connected_2_inputs_from_yaml, connected_2_yaml_template
+        data = connected_2_inputs_from_yaml(connected_2_yaml_template(example=True))
+    straight = connected_stem_reinforcement_cut(data, mesh, steel, demands, footing_anchorage_m=.50)
+    hooked = connected_stem_reinforcement_cut(data, mesh, steel, demands, footing_anchorage_m=.20)
+    assert straight is not None and hooked is not None
+    assert hooked.theoretical_cut_height_m == straight.theoretical_cut_height_m
+    assert hooked.constructive_cut_height_m == straight.constructive_cut_height_m
+    assert hooked.development_extension_m == straight.development_extension_m == .50
+    assert hooked.footing_anchorage_m == .20
+    assert hooked.lower_cut_bar_length_m == pytest.approx(straight.lower_cut_bar_length_m-.30)
+    assert hooked.continuous_bar_length_m == pytest.approx(straight.continuous_bar_length_m-.30)
+    assert hooked.moment_resistance_at_cut_tn_m_m == straight.moment_resistance_at_cut_tn_m_m
+    assert hooked.status == straight.status
+
+
 @pytest.mark.parametrize("field,limit_state,value", [
     ("moment", "strength", 500), ("shear", "strength", 500), ("moment", "service", 500),
 ])

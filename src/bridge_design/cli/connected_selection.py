@@ -20,11 +20,12 @@ def format_connected_options(groups):
              DESIGN_SCOPE_NOTE,
              "Un unico armado por cara y direccion para ambos estribos, con la envolvente de los dos lados. "
              "As req y As prov en cm2/m.",
-             "Estado de opciones: solo area requerida por flexion y minimos frente al area proporcionada.",
+             "Estado de opciones: area requerida por flexion y minimos frente al area proporcionada, "
+             "respetando la separacion constructiva del catalogo.",
              "Cortante, fisuracion y anclaje se verifican con la distribucion elegida en el resumen final."]
     if any(group.offer_cuts for group in groups):
         lines.append("C1, C2... eligen un corte de 1 de cada 2 ya verificado en pantalla del relleno y en la zapata longitudinal. "
-                     "El item numerico conserva ese acero en toda la longitud.")
+                     "El item numerico o P conserva ese acero en toda la longitud, sin adoptar cortes automaticos.")
     for group in groups:
         options = []
         for item, steel in enumerate(group.principal, 1):
@@ -51,13 +52,13 @@ def format_connected_options(groups):
 
 def _format_cut_alternatives(group):
     if group.region == STEM_REGION:
-        note = "s mayor desde la base hasta el corte; s menor de alli a la coronacion."
+        note = "s menor desde la base hasta el corte; s mayor de alli a la coronacion."
         place = "Altura sobre base"
     elif group.region == TOP_FOOTING:
-        note = "s mayor en el centro; s menor en los dos extremos."
+        note = "s menor en el centro; s mayor en los dos extremos."
         place = "Desde cara interior"
     elif group.region == BOTTOM_FOOTING:
-        note = "s mayor en los dos extremos; s menor en el centro."
+        note = "s menor en los dos extremos; s mayor en el centro."
         place = "Desde cara interior"
     else:
         return []
@@ -67,7 +68,7 @@ def _format_cut_alternatives(group):
         return lines
     rows = tuple((cut.code, cut.bar_label, f"{cut.heavy_spacing_m:.3f}", f"{cut.light_spacing_m:.3f}", cut.location_text)
                  for cut in group.cuts)
-    lines.extend(boxed_table(("Corte", "Barra", "s mayor (m)", "s menor (m)", place), rows,
+    lines.extend(boxed_table(("Corte", "Barra", "s menor (m)", "s mayor (m)", place), rows,
                              aligns=("center", "center", "right", "right", "left"),
                              title=f"CORTES - {group.region}"))
     return lines
@@ -82,7 +83,7 @@ def _principal_choice(result, group):
         modes = "C#=corte, P=personalizado" if group.offer_cuts else "P=personalizado"
         raw = input(f"{group.region} - elija item [{default_item}] ({modes}): ").strip()
         if not raw:
-            return default if default.foundation_continuous else default.principal
+            return default if default.foundation_continuous or default.stem_cut else default.principal
         try:
             if group.offer_cuts and raw.lower().startswith("c") and raw[1:].isdigit():
                 chosen_cut = next((cut for cut in group.cuts if cut.code.lower() == raw.lower()), None)
@@ -164,15 +165,15 @@ def format_connected_selection(result):
     if is_connected_2(result.inputs):
         for steel in result.reinforcement:
             cut = steel.foundation_reinforcement_cut
-            if cut is not None and cut.status == "APLICA" and cut.pattern is not None and cut.pattern.cycle_bars == 2:
+            if cut is not None and cut.is_adopted and cut.pattern.cycle_bars == 2:
                 sense = "hacia el centro" if cut.distance_from_inner_face_m >= 0 else "hacia el talon"
-                lines.append(f"{steel.region}: {steel.bar_label}; s mayor {steel.spacing_m:.3f} m; "
-                             f"s menor {cut.pattern.equivalent_spacing_m:.3f} m; "
+                lines.append(f"{steel.region}: {steel.bar_label}; s menor {steel.spacing_m:.3f} m; "
+                             f"s mayor {cut.pattern.equivalent_spacing_m:.3f} m; "
                              f"corte a {abs(cut.distance_from_inner_face_m):.3f} m de cada cara interior, {sense}.")
             stem = steel.stem_reinforcement_cut
-            if steel.region == STEM_REGION and stem is not None and stem.status == "OK" and stem.continuous_every_n_bars == 2:
-                lines.append(f"{steel.region}: {stem.lower_bar_label}; s mayor {stem.lower_spacing_m:.3f} m; "
-                             f"s menor {stem.upper_spacing_m:.3f} m; "
+            if steel.stem_cut_adopted and stem.continuous_every_n_bars == 2:
+                lines.append(f"{steel.region}: {stem.lower_bar_label}; s menor {stem.lower_spacing_m:.3f} m; "
+                             f"s mayor {stem.upper_spacing_m:.3f} m; "
                              f"corte a {stem.constructive_cut_height_m:.3f} m sobre la base.")
     elif any(c.foundation_continuous for c in result.selected_reinforcement.values()):
         lines.append("En el armado por zonas, esta tabla muestra el TOTAL donde coinciden continuo y adicional. "

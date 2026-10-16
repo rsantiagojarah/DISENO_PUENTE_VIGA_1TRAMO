@@ -6,6 +6,7 @@ from math import hypot
 from PIL import Image, ImageDraw
 
 from bridge_design.domain.frame_sections import section_force_at
+from bridge_design.domain.connected_reinforcement import section_demand
 from bridge_design.reporting.connected_case_groups import case_label
 from bridge_design.reporting.connected_chart_geometry import (
     BLUE, GRAY, RED, draw_structure, font, structure_polygons,
@@ -41,9 +42,12 @@ def frame_envelope(result, field, case_names=None):
         length = hypot(last.x - first.x, last.y - first.y)
         points = []
         for station in sorted(stations[index]):
-            values = [(getattr(section_force_at(index, row.end_forces[index], case.distributed[index],
-                                               length, station), field), label)
-                      for label, row, case in included]
+            values = []
+            for label, row, case in included:
+                section = section_force_at(index, row.end_forces[index], case.distributed[index], length, station)
+                if field == "moment" and result.inputs.section_offsets:
+                    section = section_demand(result.inputs, result.mesh, row, section)
+                values.append((getattr(section, field), label))
             minimum, minimum_case = min(values, key=lambda entry: entry[0])
             maximum, maximum_case = max(values, key=lambda entry: entry[0])
             points.append(EnvelopePoint(index, station, minimum, maximum, minimum_case, maximum_case))
@@ -155,6 +159,9 @@ def frame_envelope_chart(result, field, path, case_names=None, group_name=None):
               fill=GRAY, font=font(28))
     draw.text((80, 1320), "Ordenada positiva: abajo en cimentacion; derecha en pantallas. N positivo a traccion.",
               fill=GRAY, font=font(28))
-    draw.text((80, 1360), "Envolvente de los casos indicados. Los extremos pueden proceder de casos distintos y no son simultaneos.",
+    note = ("Momentos al centroide local, como en el diseno. Los extremos pueden proceder de casos distintos y no son simultaneos."
+            if field == "moment" and data.section_offsets else
+            "Envolvente de los casos indicados. Los extremos pueden proceder de casos distintos y no son simultaneos.")
+    draw.text((80, 1360), note,
               fill=GRAY, font=font(28))
     canvas.save(path)

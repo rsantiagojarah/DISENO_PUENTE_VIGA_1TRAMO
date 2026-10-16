@@ -22,6 +22,8 @@ from bridge_design.domain.concrete_flexure import (
     RectangularFlexuralResponse,
     mtc_beta1,
     mtc_flexural_resistance_factor,
+    rectangular_flexural_response,
+    required_rectangular_steel_area_cm2,
 )
 from bridge_design.domain.crack_control import (
     CrackControlCheck,
@@ -69,6 +71,10 @@ SHEAR_DESIGN_REFERENCE = (
     "Manual de Puentes MTC 2018, Art. 2.9.1.5.6 (5.8 AASHTO): "
     "modelo seccional para corte en concreto armado no pretensado."
 )
+
+
+class NoAdmissibleMainReinforcementError(ValueError):
+    """The catalog has no usable main-bar layout; the inputs need revision."""
 
 
 @dataclass(frozen=True)
@@ -356,6 +362,7 @@ class MainGirderSteelDesign:
     placement_options: LongitudinalPlacementCaseOptions
     cracking_moment_tn_m: float = 0.0
     minimum_capacity_moment_tn_m: float = 0.0
+    flexural_resistance_factor: float = DEFAULT_FLEXURAL_RESISTANCE_FACTOR
 
 
 @dataclass(frozen=True)
@@ -628,10 +635,14 @@ def combine_interior_girder_shears(
     geometry: InteriorGirderGeometry,
     result: InteriorGirderAnalysisResult,
     parameters: InteriorGirderReinforcementParameters | None = None,
+    *,
+    effective_depth_cm: float | None = None,
 ) -> tuple[InteriorGirderCombinedShear, ...]:
     """Return Strength I shears at critical sections near both supports."""
     params = parameters or InteriorGirderReinforcementParameters()
-    effective_depth_cm = _effective_depth_cm_for_girder(geometry, params)
+    if effective_depth_cm is None:
+        effective_depth_cm = _effective_depth_cm_for_girder(geometry, params)
+    require_positive(effective_depth_cm, "peralte efectivo para seccion de cortante")
     dv_m = _effective_shear_depth_cm(geometry, effective_depth_cm) / 100.0
     positions = (
         min(max(dv_m, 0.0), geometry.span_length_m),
@@ -707,7 +718,7 @@ def design_interior_girder_reinforcement(
         effective_depth_cm=effective_depth_cm,
     )
     required_area = max(strength_area, minimum_area)
-    placement_options = _iterated_main_placement_options(
+    placement_options = _verified_main_placement_options(
         "Acero principal longitudinal", required_area, geometry, params,
         minimum_moment, flange_width_cm, flange_thickness_cm,
         web_width_cm, materials,
@@ -767,6 +778,7 @@ def design_interior_girder_reinforcement(
             placement_options=placement_options,
             cracking_moment_tn_m=cracking_moment,
             minimum_capacity_moment_tn_m=minimum_moment,
+            flexural_resistance_factor=params.flexural_resistance_factor,
         ),
         temperature=WebTemperatureSteelDesign(
             ratio=params.shrinkage_temperature_ratio,
@@ -814,12 +826,10 @@ def review_interior_girder_crack_control(
         key=lambda item: item.combined_moment_tn_m,
     )
     dc_cm = reinforcement.parameters.concrete_cover_cm + selected.bar_diameter_cm / 2.0
-    effective_depth_cm = geometry.total_t_section_depth_m * 100.0 - dc_cm
-    steel_stress = _service_steel_stress_kg_cm2(
-        service_moment_tn_m=service_row.combined_moment_tn_m,
-        provided_area_cm2=selected.provided_area_cm2,
-        effective_depth_cm=effective_depth_cm,
+    service = verify_interior_girder_service_stresses(
+        geometry, materials, analysis, reinforcement, selected,
     )
+    steel_stress = service.steel_tension_kg_cm2
     stress_limit = 0.60 * materials.steel.yield_strength_kg_cm2
     stress_used = min(steel_stress, stress_limit)
     maximum_spacing, beta_s = maximum_crack_control_spacing_m(
@@ -854,6 +864,11 @@ def review_interior_girder_crack_control(
             stress_status=stress_status,
             spacing_status=spacing_status,
             status=status,
+            effective_depth_cm=_steel_depth_cm(geometry, selected, reinforcement.parameters),
+            section_modular_ratio=service.section.modular_ratio,
+            section_neutral_axis_depth_cm=service.section.neutral_axis_depth_cm,
+            section_inertia_cm4=service.section.inertia_cm4,
+            section_is_cracked=service.section.is_cracked,
         )
     )
 
@@ -961,7 +976,9 @@ def design_interior_girder_shear(
     """Return simplified sectional shear design for a nonprestressed interior girder."""
     params = reinforcement.parameters
     controlling = max(
-        combine_interior_girder_shears(geometry, analysis, params),
+        combine_interior_girder_shears(
+            geometry, analysis, params, effective_depth_cm=reinforcement.main.effective_depth_cm,
+        ),
         key=lambda item: item.combined_shear_tn,
     )
     effective_shear_depth_cm = _effective_shear_depth_cm(
@@ -1308,15 +1325,28 @@ def generate_main_bar_placement_options(
             continue
         max_per_layer = _max_bars_per_layer(geometry, parameters, bar.diameter_cm)
         for count in range(2, max_count + 1):
+            # Keep item numbers stable even when a physical layout is omitted.
+            current_item = item
+            item += 1
             layers = ceil(count / max_per_layer)
             provided = count * bar.area_cm2
             clear_spacing = _clear_spacing_cm(geometry, parameters, bar.diameter_cm, min(count, max_per_layer))
-            centroid_cm, effective_depth_cm = _placement_effective_depth_cm(
-                geometry, parameters, bar.diameter_cm, count, max_per_layer, clear_spacing
-            )
+            if clear_spacing + 1e-9 < parameters.minimum_clear_bar_spacing_cm:
+                continue
+            pitch = bar.diameter_cm + max(parameters.minimum_clear_bar_spacing_cm, clear_spacing)
+            occupied_depth = 2 * parameters.concrete_cover_cm + bar.diameter_cm + (layers - 1) * pitch
+            if occupied_depth > geometry.total_t_section_depth_m * 100.0 + 1e-9:
+                continue
+            try:
+                centroid_cm, effective_depth_cm = _placement_effective_depth_cm(
+                    geometry, parameters, bar.diameter_cm, count, max_per_layer, clear_spacing
+                )
+            except ValueError:
+                # One impossible alternative must not stop the entire catalog.
+                continue
             options.append(
                 LongitudinalBarPlacementOption(
-                    item=item,
+                    item=current_item,
                     bar_label=bar.label,
                     bar_area_cm2=bar.area_cm2,
                     bar_diameter_cm=bar.diameter_cm,
@@ -1335,7 +1365,6 @@ def generate_main_bar_placement_options(
                     effective_depth_cm=effective_depth_cm,
                 )
             )
-            item += 1
     recommended = _recommended_placement(options)
     if recommended is None:
         return LongitudinalPlacementCaseOptions(label, required_area_cm2, tuple(options))
@@ -2018,47 +2047,76 @@ def _placement_effective_depth_cm(
     layers = ceil(bar_count / bars_per_layer)
     vertical_clear = max(parameters.minimum_clear_bar_spacing_cm, clear_spacing_cm)
     first = parameters.concrete_cover_cm + diameter_cm / 2.0
-    last_layer = min(layers, 1 + (bar_count - 1) // bars_per_layer)
-    centroid = first + (last_layer - 1) * (diameter_cm + vertical_clear) / 2.0
+    # The detailing fills the lower layers first; the last one may be partial.
+    # Equal diameters make the area-weighted centroid a bar-count average.
+    weighted_height = sum(
+        min(bars_per_layer, bar_count - layer * bars_per_layer)
+        * (first + layer * (diameter_cm + vertical_clear))
+        for layer in range(layers)
+    )
+    centroid = weighted_height / bar_count
     depth = geometry.total_t_section_depth_m * 100.0 - centroid
     require_positive(depth, "peralte efectivo multicapa")
     return centroid, depth
 
 
-def _iterated_main_placement_options(
+def _verified_main_placement_options(
     label: str,
     required_area_cm2: float,
     geometry: InteriorGirderGeometry,
     parameters: InteriorGirderReinforcementParameters,
     moment_tn_m: float,
-    flange_width_cm: float,
-    flange_thickness_cm: float,
+    flange_width_cm: float | None,
+    flange_thickness_cm: float | None,
     web_width_cm: float,
     materials: MaterialProperties,
+    *,
+    maximum_bar_count: int | None = None,
 ) -> LongitudinalPlacementCaseOptions:
-    """Select detail and repeat flexural demand with its actual centroid."""
-    options = generate_main_bar_placement_options(label, required_area_cm2, geometry, parameters)
-    for _ in range(3):
-        selected = options.recommended
-        if selected is None:
-            break
-        d = selected.effective_depth_cm
-        strength, _ = t_beam_flexural_steel_area_cm2(
-            moment_tn_m, flange_width_cm, flange_thickness_cm, web_width_cm, d,
-            materials.concrete.compressive_strength_kg_cm2,
-            materials.steel.yield_strength_kg_cm2, parameters.flexural_resistance_factor,
-            materials.steel.elastic_modulus_kg_cm2,
-        )
-        minimum = _minimum_flexural_area_cm2(
-            materials.concrete.compressive_strength_kg_cm2,
-            materials.steel.yield_strength_kg_cm2, web_width_cm, d,
-        )
-        updated = max(strength, minimum)
-        if updated <= required_area_cm2 + 1e-9:
-            break
-        required_area_cm2 = updated
-        options = generate_main_bar_placement_options(label, required_area_cm2, geometry, parameters)
-    return options
+    """Check every layout at its own centroid before marking OK or REC.
+
+    The scalar input only sizes the catalog. Each option retains its own As
+    demand, including the minimum, and a separate compatible-capacity check.
+    A missing flange selects the rectangular diaphragm model.
+    """
+    case = generate_main_bar_placement_options(
+        label, required_area_cm2, geometry, parameters, maximum_bar_count)
+    fc = materials.concrete.compressive_strength_kg_cm2
+    fy = materials.steel.yield_strength_kg_cm2
+    es = materials.steel.elastic_modulus_kg_cm2
+    phi = parameters.flexural_resistance_factor
+    options = []
+    for option in case.options:
+        d = option.effective_depth_cm
+        try:
+            if flange_width_cm is None:
+                strength = required_rectangular_steel_area_cm2(
+                    moment_tn_m, web_width_cm, d, fc, fy, phi, es)
+                response = rectangular_flexural_response(
+                    option.provided_area_cm2, web_width_cm, d, fc, fy, es)
+            else:
+                strength, _ = t_beam_flexural_steel_area_cm2(
+                    moment_tn_m, flange_width_cm, flange_thickness_cm,
+                    web_width_cm, d, fc, fy, phi, es)
+                response = t_beam_flexural_response(
+                    option.provided_area_cm2, flange_width_cm, flange_thickness_cm,
+                    web_width_cm, d, fc, fy, es)
+            required = max(strength, _minimum_flexural_area_cm2(fc, fy, web_width_cm, d))
+            capacity_ok = min(phi, response.resistance_factor) * response.nominal_moment_tn_m + 1e-9 >= moment_tn_m
+        except ValueError:
+            # An infeasible section at this depth must not approve this layout
+            # or suppress the other, feasible alternatives.
+            required, capacity_ok = float("inf"), False
+        compliant = (option.provided_area_cm2 + 1e-9 >= required and capacity_ok
+            and option.layers <= parameters.maximum_main_bar_layers
+            and option.clear_spacing_cm + 1e-9 >= parameters.minimum_clear_bar_spacing_cm)
+        options.append(replace(option, required_area_cm2=required,
+                               is_compliant=compliant, is_recommended=False))
+    recommended = _recommended_placement(options)
+    return replace(case,
+        required_area_cm2=recommended.required_area_cm2 if recommended else required_area_cm2,
+        options=tuple(replace(o, is_recommended=recommended is not None and o.item == recommended.item)
+                      for o in options))
 
 
 def _gross_t_section_properties(
@@ -2465,10 +2523,21 @@ def _recommended_placement(
 def _recommended_main_option(
     steel: MainGirderSteelDesign,
 ) -> LongitudinalBarPlacementOption:
-    recommended = steel.placement_options.recommended
-    if recommended is None:
-        raise ValueError("No hay opcion recomendada para el acero principal de viga.")
-    return recommended
+    return require_admissible_main_placement(steel.placement_options)
+
+
+def require_admissible_main_placement(case_options) -> LongitudinalBarPlacementOption:
+    """Return a valid default, never the last rejected or absent catalog item."""
+    recommended = case_options.recommended
+    if recommended is not None and recommended.is_compliant:
+        return recommended
+    alternative = _recommended_placement(list(case_options.options))
+    if alternative is not None:
+        return alternative
+    raise NoAdmissibleMainReinforcementError(
+        f"No hay disposicion admisible para {case_options.label} con el catalogo y la geometria actuales. "
+        "Revise la seccion, el recubrimiento y la disposicion del armado antes de continuar."
+    )
 
 
 def _service_steel_stress_kg_cm2(

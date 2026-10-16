@@ -37,7 +37,7 @@ from bridge_design.domain.interior_girder import (
     _required_shear_reinforcement_cm2_m,
     _sample_at,
     _skin_reinforcement_requirements,
-    generate_main_bar_placement_options,
+    _verified_main_placement_options,
 )
 from bridge_design.domain.load_combinations import LoadFactor
 from bridge_design.domain.loads import LiveLoads, VehicleLoadModel
@@ -225,6 +225,7 @@ class DiaphragmFlexuralSteelDesign:
     placement_options: LongitudinalPlacementCaseOptions
     cracking_moment_tn_m: float = 0.0
     minimum_capacity_moment_tn_m: float = 0.0
+    flexural_resistance_factor: float = DEFAULT_FLEXURAL_RESISTANCE_FACTOR
 
 
 @dataclass(frozen=True)
@@ -787,6 +788,7 @@ def _design_flexural_steel(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
         steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=params.flexural_resistance_factor,
+        steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
     )
     minimum_area = _minimum_flexural_area_cm2(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
@@ -795,8 +797,9 @@ def _design_flexural_steel(
         effective_depth_cm=effective_depth_cm,
     )
     required_area = max(strength_area, minimum_area)
-    placement_options = generate_main_bar_placement_options(
-        label, required_area, geometry, params, maximum_bar_count=16
+    placement_options = _verified_main_placement_options(
+        label, required_area, geometry, params, minimum_moment,
+        None, None, section_width_cm, materials, maximum_bar_count=16
     )
     selected = placement_options.recommended
     if selected is not None:
@@ -808,6 +811,7 @@ def _design_flexural_steel(
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
             steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
             phi=params.flexural_resistance_factor,
+            steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
         )
         minimum_area = _minimum_flexural_area_cm2(
             materials.concrete.compressive_strength_kg_cm2,
@@ -816,13 +820,6 @@ def _design_flexural_steel(
             effective_depth_cm,
         )
         required_area = max(strength_area, minimum_area)
-        if required_area > placement_options.required_area_cm2 + 1e-9:
-            placement_options = generate_main_bar_placement_options(
-                label, required_area, geometry, params, maximum_bar_count=16
-            )
-            selected = placement_options.recommended
-            if selected is not None:
-                effective_depth_cm = selected.effective_depth_cm
     return DiaphragmFlexuralSteelDesign(
         label=label,
         direction=direction,
@@ -837,6 +834,7 @@ def _design_flexural_steel(
         placement_options=placement_options,
         cracking_moment_tn_m=cracking_moment,
         minimum_capacity_moment_tn_m=minimum_moment,
+        flexural_resistance_factor=params.flexural_resistance_factor,
     )
 
 
@@ -905,9 +903,11 @@ def _design_diaphragm_shear(
             dc_factor=controlling.dc_factor,
             dw_shear_tn=controlling.dw_shear_tn,
             dw_factor=controlling.dw_factor,
-            ll_im_shear_tn=controlling.pl_shear_tn + controlling.ll_im_shear_tn,
+            ll_im_shear_tn=controlling.ll_im_shear_tn,
             ll_im_factor=controlling.ll_im_factor,
             combined_shear_tn=controlling.combined_shear_tn,
+            pl_shear_tn=controlling.pl_shear_tn,
+            pl_factor=controlling.pl_factor,
         ),
         effective_shear_depth_cm=effective_shear_depth_cm,
         web_width_cm=web_width_cm,

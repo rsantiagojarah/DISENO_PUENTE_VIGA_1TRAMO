@@ -56,9 +56,12 @@ def test_abutment_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "750" in xml
     assert "2.9.1.4.5.8" in xml
     assert "As,adic" in xml
-    assert "smax,pat" in xml
-    assert "Altura teórica de corte ht" in xml
-    assert "Lcort" in xml
+    # The default stem's proposed cut reaches the crown (NO CONVIENE).
+    # Its Word detail must agree with the continuous adopted bar schedule.
+    assert "Estado del corte evaluado: NO CONVIENE" in xml
+    assert "El corte no se adopta." in xml
+    assert "acero principal continuo en toda la altura" in xml
+    assert "Patrón constructivo adoptado" not in xml
     assert "2.9.1.5.6.3.4.2" in xml or "Procedimiento general" in xml
     assert "123000" in xml
     assert "36.629" in xml

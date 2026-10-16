@@ -88,14 +88,48 @@ def connected_front_matter(document, result):
     document.add_page_break()
 
 
+def reinforcement_summary_rows(steel):
+    """Show the actual local steel, not the heavy-zone grid over the whole footing."""
+    cut = steel.foundation_reinforcement_cut
+    if cut is not None and cut.is_adopted:
+        for zone in cut.zones:
+            if zone.reinforcement == "Solo continuo":
+                pattern = cut.pattern
+                arrangement = (f'{steel.bar_label} @ {pattern.equivalent_spacing_m:.3f} m'
+                    if pattern.cycle_bars == 2 else
+                    f'{steel.bar_label}: continúan {pattern.continuing_bars} de cada {pattern.cycle_bars}; '
+                    f'hueco máx. {pattern.maximum_gap_m:.3f} m')
+            else:
+                arrangement = f'{steel.bar_label} @ {steel.spacing_m:.3f} m'
+            yield (f'{steel.region}\n{zone.name}: x={zone.start_m:.3f}–{zone.end_m:.3f} m',
+                   arrangement + '\n' + zone.reinforcement, f'{zone.area_cm2_m:.3f}', zone.status)
+    elif steel.stem_cut_adopted:
+        stem = steel.stem_reinforcement_cut
+        height = stem.constructive_cut_height_m
+        yield (f'{steel.region}\nDesde base hasta h={height:.3f} m',
+               f'{stem.lower_bar_label} @ {stem.lower_spacing_m:.3f} m',
+               f'{steel.area_per_face_cm2_m:.3f}', steel.status)
+        yield (f'{steel.region}\nSobre h={height:.3f} m hasta inicio de cajuela',
+               f'{stem.upper_bar_label} @ {stem.upper_spacing_m:.3f} m',
+               f'{stem.upper_provided_as_cm2_m:.3f}', stem.status)
+    else:
+        yield (steel.region, f'{steel.bar_label} @ {steel.spacing_m:.3f} m',
+               f'{steel.area_per_face_cm2_m:.3f}', steel.status)
+
+
 def connected_summary_and_references(document, result):
     document.add_heading("11. " + SECTIONS[10], level=1)
     _table(document, ("Distribución", "Acero elegido", "As cm²/m", "Estado"),
-           ((steel.region, f"{steel.bar_label} @ {steel.spacing_m:.3f} m",
-             f"{steel.area_per_face_cm2_m:.3f}", steel.status)
-            for steel in report_reinforcement(result)), widths=(66, 40, 28, 24), accent=True)
+           (row for steel in report_reinforcement(result) for row in reinforcement_summary_rows(steel)),
+           widths=(66, 40, 28, 24), accent=True)
     _body(document, "Las áreas y verificaciones corresponden a las barras y separaciones adoptadas. "
           "Los estados de la tabla resumen corresponden a flexión, cortante, servicio y acero mínimo.")
+    if any(s.foundation_reinforcement_cut is not None and s.foundation_reinforcement_cut.is_adopted
+           for s in report_reinforcement(result)):
+        _body(document, "En la zapata con cortes se muestra el acero y el estado local de cada zona. "
+              "Solo continuo y continuo más adicional corresponden a tramos distintos, no a parrillas que deban "
+              "sumarse nuevamente. Las coordenadas x se miden desde el extremo izquierdo de la cimentación; "
+              "las familias intercaladas se detallan en el punto 8.")
     for steel in report_reinforcement(result):
         controls = failing_controls(steel)
         if steel.status != "OK":

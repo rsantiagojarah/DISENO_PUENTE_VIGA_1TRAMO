@@ -44,13 +44,13 @@ def test_equal_thickness_auto_is_vertical(monkeypatch):
     assert _collect_soil(g, element_label="muro").wall_backface_angle_deg == 90.0
 
 
-def test_invalid_automatic_slope_reprompts_without_silent_geometry_change(monkeypatch, capsys):
-    answers = iter(["", "", "", "", "", "5", "", "90", "", "", "", ""])
+def test_automatic_theta_accepts_sloping_fill_without_changing_geometry(monkeypatch, capsys):
+    answers = iter(["", "", "", "", "", "5", "", "", "", "", ""])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     soil = _collect_soil(geometry(), element_label="muro")
-    assert soil.wall_backface_angle_deg == 90.0
+    assert soil.wall_backface_angle_deg == pytest.approx(85.42607874009914)
     assert soil.backfill_slope_deg == 5.0
-    assert "beta=0" in capsys.readouterr().out
+    assert "theta adoptado = 85.42607874" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("mode", ["auto", None, "omitted"])
@@ -77,11 +77,12 @@ def test_old_yaml_numeric_angles_are_not_overridden(theta):
     assert cantilever_wall_inputs_from_yaml(data).soil.wall_backface_angle_deg == theta
 
 
-def test_yaml_auto_incompatible_slope_is_rejected():
+def test_yaml_auto_accepts_sloping_fill():
     data = cantilever_wall_yaml_template()
     data["suelo_sismo"]["beta_pendiente_relleno_grados"] = 5.0
-    with pytest.raises(ValueError, match="beta=0"):
-        cantilever_wall_inputs_from_yaml(data)
+    parsed = cantilever_wall_inputs_from_yaml(data)
+    assert parsed.soil.wall_backface_angle_deg < 90.
+    assert parsed.soil.backfill_slope_deg == 5.
 
 
 def test_abutment_keeps_vertical_default_and_does_not_enable_auto(monkeypatch):

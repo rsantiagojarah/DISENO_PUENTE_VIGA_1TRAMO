@@ -51,14 +51,13 @@ from bridge_design.domain.interior_girder import (
     _solve_moving_vehicle_case,
     _solve_static_longitudinal_case,
     _spacing_grid,
-    _service_steel_stress_kg_cm2,
     _skin_reinforcement_requirements,
     _steel_depth_cm,
     _steel_stress_from_moment_kg_cm2,
     _truck_spacing_sets,
     cracked_section_properties,
     fatigue_reinforcing_bar_stress_range_limit_kg_cm2,
-    generate_main_bar_placement_options,
+    _verified_main_placement_options,
     t_beam_flexural_steel_area_cm2,
 )
 from bridge_design.domain.crack_control import (
@@ -367,10 +366,14 @@ def combine_exterior_girder_shears(
     geometry: ExteriorGirderGeometry,
     result: ExteriorGirderAnalysisResult,
     parameters: InteriorGirderReinforcementParameters | None = None,
+    *,
+    effective_depth_cm: float | None = None,
 ) -> tuple[ExteriorGirderCombinedShear, ...]:
     """Return Strength I shears at critical sections near both supports."""
     params = parameters or InteriorGirderReinforcementParameters()
-    effective_depth_cm = _effective_depth_cm_for_girder(geometry, params)
+    if effective_depth_cm is None:
+        effective_depth_cm = _effective_depth_cm_for_girder(geometry, params)
+    require_positive(effective_depth_cm, "peralte efectivo para seccion de cortante")
     dv_m = _effective_shear_depth_cm(geometry, effective_depth_cm) / 100.0
     positions = (
         min(max(dv_m, 0.0), geometry.span_length_m),
@@ -456,6 +459,8 @@ def design_exterior_girder_reinforcement(
         required_area_cm2=required_area,
         geometry=geometry,
         parameters=params,
+        moment_tn_m=minimum_moment,
+        materials=materials,
     )
     selected = placement_options.recommended
     adopted_depth_cm = selected.effective_depth_cm if selected is not None else effective_depth_cm
@@ -478,34 +483,6 @@ def design_exterior_girder_reinforcement(
             effective_depth_cm=adopted_depth_cm,
         )
         required_area = max(strength_area, minimum_area)
-        if required_area > placement_options.required_area_cm2 + 1e-9:
-            params, placement_options = _main_placement_options_with_required_layers(
-                label="Acero principal longitudinal exterior",
-                required_area_cm2=required_area,
-                geometry=geometry,
-                parameters=params,
-            )
-            selected = placement_options.recommended
-            adopted_depth_cm = selected.effective_depth_cm if selected is not None else adopted_depth_cm
-        if selected is not None:
-            strength_area, neutral_axis = t_beam_flexural_steel_area_cm2(
-                design_moment_tn_m=minimum_moment,
-                flange_width_cm=flange_width_cm,
-                flange_thickness_cm=flange_thickness_cm,
-                web_width_cm=web_width_cm,
-                effective_depth_cm=adopted_depth_cm,
-                concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
-                steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
-                phi=params.flexural_resistance_factor,
-                steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
-            )
-            minimum_area = _minimum_flexural_area_cm2(
-                concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
-                steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
-                web_width_cm=web_width_cm,
-                effective_depth_cm=adopted_depth_cm,
-            )
-            required_area = max(strength_area, minimum_area)
     spacing_grid = _spacing_grid(params)
     temperature_required = params.shrinkage_temperature_ratio * 100.0 * web_width_cm / 2.0
     extreme_tension_depth_cm = (
@@ -541,6 +518,7 @@ def design_exterior_girder_reinforcement(
             placement_options=placement_options,
             cracking_moment_tn_m=cracking_moment,
             minimum_capacity_moment_tn_m=minimum_moment,
+            flexural_resistance_factor=params.flexural_resistance_factor,
         ),
         temperature=WebTemperatureSteelDesign(
             ratio=params.shrinkage_temperature_ratio,
@@ -583,7 +561,9 @@ def design_exterior_girder_shear(
     """Return sectional shear design for a nonprestressed exterior girder."""
     params = reinforcement.parameters
     controlling = max(
-        combine_exterior_girder_shears(geometry, analysis, params),
+        combine_exterior_girder_shears(
+            geometry, analysis, params, effective_depth_cm=reinforcement.main.effective_depth_cm,
+        ),
         key=lambda item: item.combined_shear_tn,
     )
     effective_shear_depth_cm = _effective_shear_depth_cm(
@@ -643,9 +623,11 @@ def design_exterior_girder_shear(
             dc_factor=controlling.dc_factor,
             dw_shear_tn=controlling.dw_shear_tn,
             dw_factor=controlling.dw_factor,
-            ll_im_shear_tn=controlling.pl_shear_tn + controlling.ll_im_shear_tn,
+            ll_im_shear_tn=controlling.ll_im_shear_tn,
             ll_im_factor=controlling.ll_im_factor,
             combined_shear_tn=controlling.combined_shear_tn,
+            pl_shear_tn=controlling.pl_shear_tn,
+            pl_factor=controlling.pl_factor,
         ),
         effective_shear_depth_cm=effective_shear_depth_cm,
         web_width_cm=web_width_cm,
@@ -678,12 +660,10 @@ def review_exterior_girder_crack_control(
         key=lambda item: item.combined_moment_tn_m,
     )
     dc_cm = reinforcement.parameters.concrete_cover_cm + selected.bar_diameter_cm / 2.0
-    effective_depth_cm = geometry.total_t_section_depth_m * 100.0 - dc_cm
-    steel_stress = _service_steel_stress_kg_cm2(
-        service_moment_tn_m=service_row.combined_moment_tn_m,
-        provided_area_cm2=selected.provided_area_cm2,
-        effective_depth_cm=effective_depth_cm,
+    service = verify_exterior_girder_service_stresses(
+        geometry, materials, analysis, reinforcement, selected,
     )
+    steel_stress = service.steel_tension_kg_cm2
     stress_limit = 0.60 * materials.steel.yield_strength_kg_cm2
     stress_used = min(steel_stress, stress_limit)
     maximum_spacing, beta_s = maximum_crack_control_spacing_m(
@@ -718,6 +698,11 @@ def review_exterior_girder_crack_control(
             stress_status=stress_status,
             spacing_status=spacing_status,
             status=status,
+            effective_depth_cm=_steel_depth_cm(geometry, selected, reinforcement.parameters),
+            section_modular_ratio=service.section.modular_ratio,
+            section_neutral_axis_depth_cm=service.section.neutral_axis_depth_cm,
+            section_inertia_cm4=service.section.inertia_cm4,
+            section_is_cracked=service.section.is_cracked,
         )
     )
 
@@ -744,6 +729,7 @@ def review_exterior_girder_fatigue(
         steel_area_cm2=selected.provided_area_cm2,
         total_moment_tn_m=permanent_moment + FATIGUE_I_LOAD_FACTOR * fatigue_moment,
         parameters=reinforcement.parameters,
+        steel_depth_cm=_steel_depth_cm(geometry, selected, reinforcement.parameters),
     )
     minimum_stress = _steel_stress_from_moment_kg_cm2(
         moment_tn_m=permanent_moment,
@@ -792,6 +778,7 @@ def verify_exterior_girder_service_stresses(
         steel_area_cm2=selected.provided_area_cm2,
         total_moment_tn_m=service_row.combined_moment_tn_m,
         parameters=reinforcement.parameters,
+        steel_depth_cm=_steel_depth_cm(geometry, selected, reinforcement.parameters),
     )
     concrete_compression = _concrete_top_stress_kg_cm2(service_row.combined_moment_tn_m, section)
     steel_tension = _steel_stress_from_moment_kg_cm2(
@@ -837,22 +824,25 @@ def _main_placement_options_with_required_layers(
     required_area_cm2: float,
     geometry: ExteriorGirderGeometry,
     parameters: InteriorGirderReinforcementParameters,
+    *,
+    moment_tn_m: float,
+    materials: MaterialProperties,
 ):
-    placement_options = generate_main_bar_placement_options(
-        label,
-        required_area_cm2,
-        geometry,
-        parameters,
-    )
-    if placement_options.recommended is not None:
+    def checked(params):
+        return _verified_main_placement_options(
+            label, required_area_cm2, geometry, params, moment_tn_m,
+            geometry.tributary_width_m * 100.0, geometry.slab_thickness_m * 100.0,
+            geometry.web_width_m * 100.0, materials)
+
+    placement_options = checked(parameters)
+    if placement_options.recommended is not None or not placement_options.options:
         return parameters, placement_options
 
-    layer_candidates = [
-        option.layers
-        for option in placement_options.options
-        if option.provided_area_cm2 + 1e-9 >= required_area_cm2
-        and option.clear_spacing_cm + 1e-9 >= parameters.minimum_clear_bar_spacing_cm
-    ]
+    # Preserve the existing layer-expansion policy, but only for layouts that
+    # also resist the moment at their actual centroid.
+    expanded = checked(replace(parameters, maximum_main_bar_layers=max(
+        option.layers for option in placement_options.options)))
+    layer_candidates = [option.layers for option in expanded.options if option.is_compliant]
     if not layer_candidates:
         return parameters, placement_options
 
@@ -861,12 +851,7 @@ def _main_placement_options_with_required_layers(
         return parameters, placement_options
 
     adjusted = replace(parameters, maximum_main_bar_layers=required_layers)
-    return adjusted, generate_main_bar_placement_options(
-        label,
-        required_area_cm2,
-        geometry,
-        adjusted,
-    )
+    return adjusted, checked(adjusted)
 
 
 def _dc_uniform_loads_tn_m(

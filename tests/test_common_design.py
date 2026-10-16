@@ -29,10 +29,27 @@ def test_single_selection_and_independent_results(report):
     assert [m.side for m in report.cantilever_family.members] == ['izquierdo', 'derecho']
     for f in report.girder_families:
         for m in f.members:
-            assert m.selected is f.selected
+            # Physical steel is common; requirements and capacities belong to
+            # each member and must be refreshed after the user adopts it.
+            for (_, local), (_, common) in zip(m.selected, f.selected):
+                if hasattr(local, 'bar_count'):
+                    assert (local.bar_label, local.bar_count, local.effective_depth_cm) == (
+                        common.bar_label, common.bar_count, common.effective_depth_cm)
+                    assert local.required_area_cm2 == m.reinforcement.main.required_area_cm2
+                    assert common.required_area_cm2 >= local.required_area_cm2
+                elif hasattr(local, 'legs'):
+                    assert (local.bar_label, local.legs, local.spacing_m) == (
+                        common.bar_label, common.legs, common.spacing_m)
+                    assert local.required_av_cm2_m == m.shear.required_av_cm2_m
+                    assert common.phi_vn_tn <= local.phi_vn_tn
+                else:
+                    assert (local.bar, local.spacing_m) == (common.bar, common.spacing_m)
             validate_girder_selection(f.selected, m.reinforcement, m.shear)
     for m in report.cantilever_groups:
-        assert m.selected is report.cantilever_family.selected
+        for (_, local), (_, common) in zip(m.selected, report.cantilever_family.selected):
+            assert (local.bar, local.spacing_m) == (common.bar, common.spacing_m)
+            assert common.required_area_cm2_m >= local.required_area_cm2_m
+        assert m.result.flexural_steel.required_area_cm2_m == m.selected[0][1].required_area_cm2_m
     left, right = report.cantilever_groups
     delta = left.result.controlling_strength.design_moment_tn_m - right.result.controlling_strength.design_moment_tn_m
     pipe = report.project_inputs.transverse_slab.load_layout.pipe
@@ -112,5 +129,6 @@ def test_right_pipe_selects_right_basis_even_when_minimum_steel_controls(monkeyp
     assert selection.call_count == 1
     assert family.basis.side == 'derecho'
     assert family.reinforcement.controlling_strength == members[1].result.controlling_strength
-    assert members[0].selected is members[1].selected
+    assert [(o.bar, o.spacing_m) for _, o in members[0].selected] == [
+        (o.bar, o.spacing_m) for _, o in members[1].selected]
     assert members[1].result.controlling_strength.design_moment_tn_m == pytest.approx(1.3449093136125)

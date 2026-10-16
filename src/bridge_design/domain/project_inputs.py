@@ -73,7 +73,7 @@ class ProjectInputs:
                 exterior.tributary_width_m,
             )
         object.__setattr__(self, "interior_girder", interior)
-        object.__setattr__(self, "exterior_girder", exterior)
+        object.__setattr__(self, "exterior_girder", exterior.with_distribution_factors(self.live_loads.vehicular))
 
     @property
     def girder_tributaries(self):

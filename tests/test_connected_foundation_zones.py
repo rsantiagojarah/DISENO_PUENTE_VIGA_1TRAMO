@@ -5,17 +5,19 @@ import json
 from dataclasses import replace
 
 import pytest
+from docx import Document
 
 from bridge_design.cli.connected_2_yaml import connected_2_inputs_from_yaml, connected_2_yaml_template
-from bridge_design.cli.connected_selection import collect_connected_selection
+from bridge_design.cli.connected_selection import collect_connected_selection, format_connected_selection
 from bridge_design.domain.connected_design import solve_connected_abutments
 from bridge_design.domain.connected_foundation_zones import foundation_zone_choice
 from bridge_design.domain.connected_options import (
     apply_connected_selections, check_region_choice, choice_from_steel, connected_reinforcement_options,
 )
 from bridge_design.domain.connected_reinforcement import ConnectedBarChoice, ConnectedSteelChoice
-from bridge_design.reporting.connected_cut_report import foundation_cut_rows
+from bridge_design.reporting.connected_cut_report import foundation_cut_rows, write_foundation_cut
 from bridge_design.reporting.connected_export import export_connected_results
+from bridge_design.reporting.deck_docx import _configure_document
 
 TOP = "Zapata combinada - longitudinal superior"
 BOTTOM = "Zapata combinada - longitudinal inferior"
@@ -77,6 +79,71 @@ def test_user_model_stem_continues_one_in_two(zonal):
     assert cut.constructive_cut_height_m == pytest.approx(
         cut.theoretical_cut_height_m + stem.required_straight_anchor_cm / 100)
     assert cut.constructive_cut_height_m < 6.896  # Earlier proposal retaining only one in three.
+    assert stem.anchor_status == "SOLO GANCHO"
+    assert cut.footing_anchorage_m == pytest.approx(stem.required_hook_anchor_cm / 100)
+    assert cut.footing_anchorage_m < stem.available_anchor_cm / 100 < cut.development_extension_m
+    assert cut.lower_cut_bar_length_m == pytest.approx(cut.constructive_cut_height_m+cut.footing_anchorage_m)
+    assert cut.continuous_bar_length_m == pytest.approx(8.03+cut.footing_anchorage_m)
+
+
+def test_word_stem_lengths_match_hooked_anchorage(zonal):
+    from bridge_design.reporting.connected_audit import build_connected_audit
+    from bridge_design.reporting.connected_distribution_report import write_distributed_design
+    document = Document()
+    _configure_document(document)
+    write_distributed_design(document, zonal, zonal.reinforcement, build_connected_audit(zonal))
+    rows = {row.cells[0].text: row.cells[1].text for table in document.tables for row in table.rows[1:]}
+    stem = next(s for s in zonal.reinforcement if s.region == "Pantalla - vertical relleno")
+    cut = stem.stem_reinforcement_cut
+    assert rows["Anclaje en zapata para longitudes"] == f"{stem.required_hook_anchor_cm/100:.3f} m con gancho"
+    assert rows["Prolongación ld"] == f"{stem.required_straight_anchor_cm/100:.3f} m"
+    assert rows["Longitud barras cortadas"] == f"{cut.lower_cut_bar_length_m:.3f} m"
+    assert rows["Longitud barras continuas"] == f"{cut.continuous_bar_length_m:.3f} m"
+
+
+def test_word_summary_uses_local_footing_steel_and_states(zonal):
+    from bridge_design.reporting.connected_docx_layout import connected_summary_and_references
+    document = Document()
+    _configure_document(document)
+    connected_summary_and_references(document, zonal)
+    rows = [tuple(cell.text for cell in row.cells) for row in document.tables[0].rows[1:]]
+    for region in (TOP, BOTTOM):
+        steel = next(s for s in zonal.reinforcement if s.region == region)
+        selected = [row for row in rows if row[0].startswith(region)]
+        assert len(selected) == 3
+        for row, zone in zip(selected, steel.foundation_reinforcement_cut.zones):
+            assert zone.name in row[0]
+            assert f"x={zone.start_m:.3f}–{zone.end_m:.3f} m" in row[0]
+            assert zone.reinforcement in row[1]
+            spacing = .20 if zone.reinforcement == "Solo continuo" else .10
+            assert f'1" @ {spacing:.3f} m' in row[1]
+            assert row[2] == f"{zone.area_cm2_m:.3f}"
+            assert row[3] == zone.status
+    unchanged = next(s for s in zonal.reinforcement if s.region == "Pantalla - vertical relleno")
+    assert (unchanged.region, '1" @ 0.100 m', '50.000', unchanged.status) in rows
+
+
+def test_word_summary_rejected_cut_keeps_uniform_steel(analysis):
+    from bridge_design.reporting.connected_docx_layout import reinforcement_summary_rows
+    steel = check_region_choice(analysis, TOP, foundation_zone_choice(ConnectedBarChoice('3/4"', .2)))
+    assert steel.foundation_reinforcement_cut.status == "NO APLICA"
+    assert tuple(reinforcement_summary_rows(steel)) == ((TOP, '3/4" @ 0.100 m', '28.400', steel.status),)
+
+
+def test_word_summary_nonuniform_continuous_pattern_is_not_uniform_spacing(zonal):
+    from bridge_design.reporting.connected_docx_layout import reinforcement_summary_rows
+    steel = next(s for s in zonal.reinforcement if s.region == TOP)
+    cut = steel.foundation_reinforcement_cut
+    pattern = replace(cut.pattern, cycle_bars=3, continuing_bars=2,
+                      equivalent_spacing_m=.15, remaining_area_cm2_m=100/3)
+    zones = tuple(replace(z, area_cm2_m=100/3) if z.reinforcement == "Solo continuo" else z for z in cut.zones)
+    steel = replace(steel, foundation_reinforcement_cut=replace(cut, pattern=pattern, zones=zones))
+    rows = tuple(reinforcement_summary_rows(steel))
+    assert 'continúan 2 de cada 3' in rows[0][1]
+    assert 'hueco máx. 0.200 m' in rows[0][1]
+    assert '@ 0.150' not in rows[0][1]
+    assert rows[0][2] == '33.333'
+    assert rows[1][2] == '50.000'
 
 
 def test_console_cut_table_and_enter_retain_families(analysis, zonal, monkeypatch):
@@ -121,10 +188,47 @@ def test_failed_full_family_does_not_produce_zones_or_cut(analysis):
     assert steel.foundation_reinforcement_cut.cutoff_left_m is None
 
 
+@pytest.mark.parametrize("accepted", [False, True])
+def test_word_only_calls_verified_cut_families_adopted(analysis, zonal, accepted):
+    steel = (next(s for s in zonal.reinforcement if s.region == TOP) if accepted else
+             check_region_choice(analysis, TOP, foundation_zone_choice(ConnectedBarChoice('3/4"', .2))))
+    assert steel.foundation_reinforcement_cut.status == ("APLICA" if accepted else "NO APLICA")
+    document = Document()
+    _configure_document(document)
+    write_foundation_cut(document, steel)
+    rows = {row.cells[0].text: row.cells[1].text for table in document.tables for row in table.rows[1:]}
+    suffix = "adoptada" if accepted else "solicitada"
+    assert rows["Familia continua " + suffix] == f"{steel.bar_label} @ 0.200 m"
+    assert rows["Familia adicional intercalada " + suffix] == f"{steel.bar_label} @ 0.200 m"
+    if not accepted:
+        assert not any("adoptada" in label for label in rows)
+        assert "sin cortes" in " ".join(p.text for p in document.paragraphs)
+        assert f"{steel.bar_label} @ {steel.spacing_m:.3f} m" in " ".join(p.text for p in document.paragraphs)
+
+
+def test_selected_cut_summary_uses_actual_minor_and_major_spacing(zonal):
+    text = format_connected_selection(zonal)
+    for region in (TOP, BOTTOM):
+        line = next(line for line in text.splitlines() if line.startswith(region + ":"))
+        assert "s menor 0.100 m; s mayor 0.200 m" in line
+        assert "s mayor 0.100" not in line
+    assert not any(line.startswith("Pantalla - vertical relleno:") for line in text.splitlines())
+
+
+def test_interleaved_families_must_respect_spacing_where_they_overlap(analysis):
+    side = replace(analysis.inputs.left, reinforcement=replace(
+        analysis.inputs.left.reinforcement, minimum_spacing_m=.025))
+    result = replace(analysis, inputs=replace(analysis.inputs, left=side, right=side))
+    # Each 0.10 m family fits alone; their 0.05 m combined spacing does not.
+    with pytest.raises(ValueError, match="espacio libre del catalogo"):
+        check_region_choice(result, TOP, foundation_zone_choice(ConnectedBarChoice('1"', .1)))
+
+
 def test_reports_and_reselection_remove_old_zone_checks(zonal, tmp_path):
     export_connected_results(zonal, tmp_path)
     zones = list(csv.DictReader((tmp_path/'zonas_zapata.csv').open(encoding='utf-8-sig')))
     assert len(zones) == 6 and all(z['estado'] == 'OK' for z in zones)
+    assert all(z['uso'] == 'ADOPTADO' for z in zones)
     payload = json.loads((tmp_path/'resultados.json').read_text(encoding='utf-8'))
     assert payload['selected_reinforcement'][TOP]['foundation_continuous']['spacing_m'] == .2
     for steel in zonal.reinforcement:
@@ -138,3 +242,121 @@ def test_reports_and_reselection_remove_old_zone_checks(zonal, tmp_path):
     export_connected_results(updated, tmp_path)
     zones = list(csv.DictReader((tmp_path/'zonas_zapata.csv').open(encoding='utf-8-sig')))
     assert not any(z['distribucion'] == TOP for z in zones)
+
+
+@pytest.mark.parametrize("spacing", [.1, .125])
+def test_dense_uniform_choice_does_not_adopt_automatic_cuts(analysis, spacing):
+    from bridge_design.reporting.connected_docx_layout import reinforcement_summary_rows
+    from bridge_design.domain.connected_distributions import reinforcement_demands
+    from bridge_design.domain.connected_steel_audit import region_audit
+    value = ConnectedBarChoice('1"', spacing, True)
+    steel = check_region_choice(analysis, TOP, ConnectedSteelChoice(value, value))
+    cut = steel.foundation_reinforcement_cut
+    assert cut.status == 'APLICA' and cut.zones  # The useful proposal is retained.
+    assert not cut.is_adopted
+    assert tuple(reinforcement_summary_rows(steel)) == (
+        (TOP, f'1" @ {spacing:.3f} m', f'{5/spacing:.3f}', steel.status),)
+    result = replace(analysis, reinforcement=(steel,))
+    assert not any(line.startswith(TOP + ':') for line in format_connected_selection(result).splitlines())
+    trace = region_audit(result, steel, reinforcement_demands(result.inputs, result.mesh, result.results)[TOP])
+    assert trace['service']['spacing'] == spacing and 'zone' not in trace['service']
+    assert trace['service']['crack_ratio'] == pytest.approx(steel.crack_utilization)
+    document = Document()
+    _configure_document(document)
+    write_foundation_cut(document, steel)
+    cells = ' '.join(c.text for t in document.tables for row in t.rows for c in row.cells)
+    assert 'PROPUESTA NO ADOPTADA' in cells and 'Cortes definitivos' not in cells
+    assert 'sin cortes' in ' '.join(p.text for p in document.paragraphs)
+
+
+def test_reselecting_same_dense_grid_clears_cut_adoption(zonal):
+    from bridge_design.reporting.connected_docx_layout import reinforcement_summary_rows
+    value = ConnectedBarChoice('1"', .1)
+    steel = check_region_choice(zonal, TOP, ConnectedSteelChoice(value, value))
+    assert steel.foundation_reinforcement_cut.status == 'APLICA'
+    assert not steel.foundation_reinforcement_cut.is_adopted
+    assert len(tuple(reinforcement_summary_rows(steel))) == 1
+    assert choice_from_steel(steel).foundation_continuous is None
+
+
+def test_stem_cut_choice_survives_enter_but_not_numeric_or_custom(analysis, monkeypatch):
+    from bridge_design.reporting.connected_docx_layout import reinforcement_summary_rows
+    region = 'Pantalla - vertical relleno'
+    group = next(g for g in connected_reinforcement_options(analysis) if g.region == region)
+    cut = next(c for c in group.cuts if c.bar_label == '1"' and c.heavy_spacing_m == .1)
+    answers = iter(('s', cut.code))
+    monkeypatch.setattr('builtins.input', lambda prompt: next(answers))
+    choice = collect_connected_selection(analysis, (group,))[region]
+    assert choice.stem_cut
+    steel = check_region_choice(analysis, region, choice)
+    assert steel.stem_cut_adopted and choice_from_steel(steel).stem_cut
+    assert len(tuple(reinforcement_summary_rows(steel))) == 2
+    current = replace(group, adopted=steel)
+    answers = iter(('s', ''))
+    assert collect_connected_selection(analysis, (current,))[region].stem_cut
+    item = next(i for i, option in enumerate(group.principal, 1) if option.is_compliant)
+    answers = iter(('s', str(item)))
+    assert not collect_connected_selection(analysis, (current,))[region].stem_cut
+    answers = iter(('s', 'p', '1"', '.1'))
+    uniform = collect_connected_selection(analysis, (current,))[region]
+    assert not uniform.stem_cut
+    revised = check_region_choice(analysis, region, uniform)
+    assert revised.stem_reinforcement_cut is not None and not revised.stem_cut_adopted
+    assert len(tuple(reinforcement_summary_rows(revised))) == 1
+
+
+def test_adopted_cut_service_and_word_use_the_local_governing_zone(analysis):
+    from bridge_design.domain.connected_distributions import reinforcement_demands
+    from bridge_design.domain.connected_steel_audit import region_audit
+    from bridge_design.reporting.connected_distribution_report import write_distributed_design
+    from bridge_design.reporting.connected_design_calculations import developed_steps
+    # A controlled service envelope: smaller end moment, but half the steel there.
+    # Retain every strength case, geometry and cutoff algorithm.
+    def local_moment(row):
+        element = analysis.mesh.frame.elements[row.element]
+        a, b = (analysis.mesh.frame.nodes[n].x for n in (element.start, element.end))
+        x = a + row.station*(b-a)
+        return -40 if x < 2 or x > analysis.inputs.total_length_m-2 else -50
+    result = replace(analysis, results=tuple(replace(case, sections=tuple(
+        replace(row, moment=local_moment(row)) for row in case.sections))
+        if case.limit_state == 'service' else case for case in analysis.results))
+    steel = check_region_choice(result, TOP, foundation_zone_choice(ConnectedBarChoice('1"', .2)))
+    assert steel.foundation_reinforcement_cut.is_adopted
+    zones = steel.foundation_reinforcement_cut.zones
+    worst = max(zones, key=lambda z: z.crack_utilization)
+    assert worst.reinforcement == 'Solo continuo'
+    demands = reinforcement_demands(result.inputs, result.mesh, result.results)[TOP]
+    trace = region_audit(result, steel, demands)
+    service = trace['service']
+    assert service['crack_ratio'] > steel.crack_utilization
+    assert service['zone'] == worst.name
+    assert service['stress'] == pytest.approx(worst.service_stress_kg_cm2)
+    assert service['area'] == 25 and service['maximum_gap'] == .2
+    assert service['spacing_ratio'] == pytest.approx(.2/service['maximum_spacing'])
+    before = dict(worst.service_check)
+    region_audit(result, steel, demands)
+    assert worst.service_check == before and 'x' not in worst.service_check
+    step = next(s for s in developed_steps(steel, trace) if s.title.startswith('Fisuracion y'))
+    assert f'{service["stress"]:.2f}' in step.substitution
+    assert f'0.200/{service["maximum_spacing"]:.3f}' in step.substitution
+    document = Document()
+    _configure_document(document)
+    write_distributed_design(document, result, (steel,), {'steel': {TOP: trace}})
+    table = next(t for t in document.tables if 'Servicio gobernante' in [c.text for c in t.rows[0].cells])
+    cells = [c.text for c in table.rows[1].cells]
+    assert worst.name in cells[1]
+    assert cells[2] == f'{worst.service_stress_kg_cm2:.2f}'
+    assert cells[-1] == 'CUMPLE'
+
+
+def test_automatic_nonuniform_proposal_keeps_real_gap_in_local_trace(analysis):
+    value = ConnectedBarChoice('1"', .125)
+    steel = check_region_choice(analysis, TOP, ConnectedSteelChoice(value, value))
+    cut = steel.foundation_reinforcement_cut
+    assert cut.status == 'APLICA' and cut.pattern.cycle_bars > 2
+    for zone in cut.zones:
+        check = zone.service_check
+        assert check['area'] == pytest.approx(zone.area_cm2_m)
+        assert check['maximum_gap'] == zone.maximum_gap_m
+        assert check['crack_ratio'] == pytest.approx(zone.crack_utilization)
+        assert check['spacing_ratio'] == pytest.approx(zone.maximum_gap_m/check['maximum_spacing'])

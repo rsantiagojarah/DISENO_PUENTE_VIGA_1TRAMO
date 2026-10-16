@@ -141,7 +141,8 @@ def test_h18_collision_uses_capacity_and_adds_axial_steel():
     barrier = design_concrete_barrier(BarrierDesignInputs(), materials)
     result = design_cantilever_slab(_geometry(), materials,
                                    LiveLoads(PedestrianLoad.mtc_sidewalk_default(), VehicleLoadModel.mtc_hl93_default()),
-                                   replace(_layout(), barrier_left_m=0.1), barrier)
+                                   # The sidewalk ends at the outside face of the barrier.
+                                   replace(_layout(), barrier_left_m=0.1, sidewalk_width_m=0.1), barrier)
     collision = result.barrier_collision
     assert collision.transverse_force_tn >= barrier.yield_line.nominal_transverse_resistance_tn
     assert collision.collision_moment_tn_m >= barrier.flexure.mc_tn_m

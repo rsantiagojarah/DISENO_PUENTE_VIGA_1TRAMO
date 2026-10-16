@@ -5,7 +5,9 @@ from bridge_design.cli.ascii_tables import key_value_box
 
 def foundation_cut_rows(steel):
     cut = steel.foundation_reinforcement_cut
-    rows = [("Disposicion", cut.arrangement), ("Estado", cut.status), ("Criterio", cut.reason)]
+    rows = [("Disposicion", cut.arrangement), ("Estado", cut.status),
+            ("Uso del corte", "ADOPTADO" if cut.is_adopted else "PROPUESTA NO ADOPTADA"),
+            ("Criterio", cut.reason)]
     if cut.requested_continuous_spacing_m is not None:
         family = f"{steel.bar_label} @ {cut.requested_continuous_spacing_m:.3f} m"
         rows.extend((("Familia continua solicitada", family), ("Familia adicional intercalada solicitada", family),
@@ -18,12 +20,14 @@ def foundation_cut_rows(steel):
     rows.extend((
         ("Acero continuo en toda la zapata", continuous),
         ("Familia adicional localizada", f"{steel.bar_label} @ {steel.spacing_m*pattern.cycle_bars:.3f} m"),
-        ("Acero elegido en zona reforzada", f"{steel.bar_label} @ {steel.spacing_m:.3f} m"),
+        ("Acero " + ("elegido" if cut.is_adopted else "propuesto") + " en zona reforzada",
+         f"{steel.bar_label} @ {steel.spacing_m:.3f} m"),
         ("Patron de corte", f"Cortar 1 de cada {pattern.cycle_bars}; continuan {pattern.continuing_bars} de cada {pattern.cycle_bars}"),
         ("As continuo / As en zona reforzada", f"{pattern.remaining_area_cm2_m:.3f} / {steel.area_per_face_cm2_m:.3f} cm2/m"),
         ("Separacion maxima real tras el corte", f"{pattern.maximum_gap_m:.3f} m"),
         ("Cortes teoricos x izquierdo / derecho", f"{cut.theoretical_left_m:.3f} / {cut.theoretical_right_m:.3f} m"),
-        ("Cortes definitivos x izquierdo / derecho", f"{cut.cutoff_left_m:.3f} / {cut.cutoff_right_m:.3f} m"),
+        ("Cortes " + ("definitivos" if cut.is_adopted else "propuestos") + " x izquierdo / derecho",
+         f"{cut.cutoff_left_m:.3f} / {cut.cutoff_right_m:.3f} m"),
         ("Distancia de cada cara interior al corte", f"{abs(cut.distance_from_inner_face_m):.3f} m " +
          ("hacia el centro" if cut.distance_from_inner_face_m >= 0 else "hacia el talon exterior")),
         ("ld del calculo existente", f"{cut.development_length_m:.3f} m"),
@@ -62,6 +66,8 @@ def format_foundation_cut(steel):
     if cut.status == "APLICA":
         lines.extend(("Coordenadas x desde el extremo izquierdo de la zapata. Propuesta simetrica para ambos lados.",
                       "Cada zona usa su envolvente local. Se incluyen conservadoramente los elementos completos junto al corte.", cut.notes))
+        if not cut.is_adopted:
+            lines.append(f"Propuesta no adoptada: se conserva {steel.bar_label} @ {steel.spacing_m:.3f} m uniforme, sin cortes.")
     else:
         lines.append("Se conserva el acero elegido continuo; no se coloca un corte sin verificacion.")
     return lines
@@ -74,10 +80,11 @@ def write_foundation_cut(document, steel):
         return
     document.add_heading("Cortes del acero de zapata - " + steel.face.lower(), level=4)
     from bridge_design.reporting.connected_case_groups import case_label
-    rows = tuple((label.replace(" solicitada", " adoptada"), case_label(value))
+    rows = tuple((label.replace(" solicitada", " adoptada") if cut.is_adopted else label, case_label(value))
                  for label, value in foundation_cut_rows(steel))
     _table(document, ("Concepto", "Resultado"), rows, widths=(76, 84))
     if cut.status == "APLICA":
         _body(document, "Las coordenadas x se miden desde el extremo izquierdo de la zapata. " + case_label(cut.notes))
-    else:
-        _body(document, "Se conserva el acero elegido continuo.")
+    if not cut.is_adopted:
+        _body(document, 'Propuesta no adoptada; sus zonas y longitudes no forman parte del armado elegido.')
+        _body(document, f"Se conserva el acero elegido continuo: {steel.bar_label} @ {steel.spacing_m:.3f} m, sin cortes.")

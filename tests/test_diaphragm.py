@@ -333,15 +333,17 @@ def test_diaphragm_reinforcement_selection_uses_recommended_defaults(monkeypatch
 
     selected = collect_diaphragm_reinforcement_selection(reinforcement)
 
-    assert len(selected) == 4
+    assert len(selected) == 5
     assert selected[0][1] == reinforcement.negative.placement_options.recommended
     assert selected[1][1] == reinforcement.positive.placement_options.recommended
     assert selected[2][1] == reinforcement.temperature.spacing_options.recommended
     assert selected[3][1] == reinforcement.shear.recommended
+    assert selected[4][0].startswith("E. Ask")
+    assert selected[4][1] == reinforcement.skin.spacing_options.recommended
     assert "VIGA DIAFRAGMA" in format_diaphragm_reinforcement_selection(selected)
 
 
-def test_diaphragm_reinforcement_selection_accepts_user_items(monkeypatch) -> None:
+def test_diaphragm_reinforcement_selection_accepts_user_items(monkeypatch, capsys) -> None:
     analysis = solve_diaphragm_design(
         geometry=_geometry(),
         materials=_materials(),
@@ -356,15 +358,22 @@ def test_diaphragm_reinforcement_selection_accepts_user_items(monkeypatch) -> No
         materials=_materials(),
         analysis=analysis,
     )
-    answers = iter(("s", "1", "2", "3", "4"))
+    negative = next(option for option in reinforcement.negative.placement_options.options
+                    if option.is_compliant and not option.is_recommended)
+    positive = next(option for option in reinforcement.positive.placement_options.options
+                    if option.is_compliant and not option.is_recommended)
+    rejected = next(option for option in reinforcement.negative.placement_options.options
+                    if not option.is_compliant)
+    answers = iter(("s", str(rejected.item), str(negative.item), str(positive.item), "3", "4", ""))
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
 
     selected = collect_diaphragm_reinforcement_selection(reinforcement)
 
-    assert selected[0][1].item == 1
-    assert selected[1][1].item == 2
+    assert selected[0][1] == negative
+    assert selected[1][1] == positive
     assert selected[2][1].item == 3
     assert selected[3][1].item == 4
+    assert "no es una disposicion admisible" in capsys.readouterr().out
 
 
 def test_diaphragm_reinforcement_selection_accepts_custom_configurations(monkeypatch) -> None:
@@ -405,6 +414,9 @@ def test_diaphragm_reinforcement_selection_accepts_custom_configurations(monkeyp
             '1"',
             "4",
             str(custom_stirrup_spacing),
+            "p",
+            '1/2"',
+            "0.125",
         )
     )
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
@@ -419,4 +431,6 @@ def test_diaphragm_reinforcement_selection_accepts_custom_configurations(monkeyp
     assert selected[3][1].is_custom is True
     assert selected[3][1].legs == 4
     assert selected[3][1].spacing_m == pytest.approx(custom_stirrup_spacing)
+    assert selected[4][1].is_custom is True
+    assert selected[4][1].spacing_m == pytest.approx(0.125)
     assert report.count("P") >= 3

@@ -1,6 +1,7 @@
 """Reinforcement design for transverse concrete bridge slabs."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from math import floor
 
 from bridge_design.codes.mtc_2018 import (
     DEFAULT_FLEXURAL_RESISTANCE_FACTOR,
@@ -25,6 +26,7 @@ from bridge_design.domain.rebar_catalog import (
     DEFAULT_SPACING_STEP_M,
     ReinforcementCaseOptions,
     SpacingGrid,
+    custom_spacing_option,
     generate_spacing_options,
 )
 from bridge_design.domain.transverse_slab import (
@@ -111,6 +113,9 @@ class FlexuralSteelDesign:
     minimum_capacity_moment_tn_m: float = 0.0
     capacity_minimum_area_cm2_m: float = 0.0
     reference: str = FLEXURAL_STRENGTH_REFERENCE
+    bar_diameter_cm: float = 1.59
+    strip_length_m: float = 1.0
+    flexural_resistance_factor: float = DEFAULT_FLEXURAL_RESISTANCE_FACTOR
 
 
 @dataclass(frozen=True)
@@ -211,6 +216,18 @@ def design_transverse_slab_reinforcement(
             spacing_grid,
         ),
     )
+    service_rows = tuple(
+        row for row in combine_transverse_slab_moments(analysis)
+        if row.combination_name == "SERVICIO I"
+    )
+    negative = _with_service_spacing_options(
+        negative, geometry, materials, params,
+        max(abs(row.combined_moment_tn_m) for row in service_rows if row.direction == "M-"),
+    )
+    positive = _with_service_spacing_options(
+        positive, geometry, materials, params,
+        max(abs(row.combined_moment_tn_m) for row in service_rows if row.direction == "M+"),
+    )
     distribution = _design_distribution_steel(geometry, positive, spacing_grid)
     return TransverseSlabReinforcementDesign(
         negative=negative,
@@ -219,6 +236,79 @@ def design_transverse_slab_reinforcement(
         distribution=distribution,
         parameters=params,
     )
+
+
+def _with_service_spacing_options(
+    steel: FlexuralSteelDesign,
+    geometry: TransverseSlabGeometry,
+    materials: MaterialProperties,
+    params: SlabReinforcementParameters,
+    service_moment: float,
+) -> FlexuralSteelDesign:
+    """Size each diameter using its own depth and refine spacing for Service I.
+
+    The recommendation covers flexural area, constructive spacing and cracking;
+    it does not substitute for the remaining slab checks or user adoption.
+    """
+    # Local import avoids the review module's type dependency on this module.
+    from bridge_design.domain.crack_control import review_slab_spacing_crack_control
+
+    grid = _spacing_grid(params)
+    options = []
+    strengths = {}
+    for original in steel.spacing_options.options:
+        depth = (
+            geometry.slab_thickness_m * 100.0
+            - params.concrete_cover_cm - original.bar.diameter_cm / 2.0
+        )
+        strength = flexural_steel_area_cm2(
+            steel.minimum_capacity_moment_tn_m, geometry.strip_length_m * 100.0,
+            depth, materials.concrete.compressive_strength_kg_cm2,
+            materials.steel.yield_strength_kg_cm2, params.flexural_resistance_factor,
+            materials.steel.elastic_modulus_kg_cm2,
+        ) / geometry.strip_length_m
+        required = max(strength, steel.minimum_area_cm2_m)
+        case = generate_spacing_options(steel.label, required, grid)
+        candidate = next(
+            option for option in case.options
+            if option.bar == original.bar
+        )
+        while True:
+            check = review_slab_spacing_crack_control(
+                geometry, materials, service_moment, params.concrete_cover_cm, candidate,
+            )
+            if check.is_compliant or not candidate.is_compliant:
+                break
+            next_spacing = round((floor(candidate.spacing_m / grid.step_m + 1e-9) - 1) * grid.step_m, 6)
+            if next_spacing < grid.minimum_m - 1e-9:
+                break
+            try:
+                custom_spacing_option(case, candidate.bar.label, next_spacing)
+            except ValueError:
+                break
+            candidate = replace(
+                candidate, spacing_m=next_spacing,
+                provided_area_cm2_m=candidate.bar.area_cm2 / next_spacing,
+            )
+        options.append(replace(candidate, is_recommended=False, crack_control_status=check.status))
+        strengths[candidate.item] = (depth, strength)
+    eligible = [option for option in options if option.is_compliant and option.crack_control_status == "CUMPLE"]
+    recommended = min(
+        eligible, key=lambda option: (option.provided_area_cm2_m - option.required_area_cm2_m, -option.spacing_m),
+        default=None,
+    )
+    if recommended is not None:
+        depth, strength = strengths[recommended.item]
+        steel = replace(
+            steel, effective_depth_cm=depth, strength_area_cm2_m=strength,
+            capacity_minimum_area_cm2_m=strength,
+            required_area_cm2_m=recommended.required_area_cm2_m,
+            bar_diameter_cm=recommended.bar.diameter_cm,
+        )
+        options = [replace(option, is_recommended=option.item == recommended.item) for option in options]
+    return replace(steel, spacing_options=ReinforcementCaseOptions(
+        steel.label, steel.required_area_cm2_m, tuple(options), grid.minimum_m, grid.maximum_m,
+    ))
 
 
 def flexural_steel_area_cm2(
@@ -317,6 +407,9 @@ def _design_flexural_steel(
         cracking_moment_tn_m=cracking_moment,
         minimum_capacity_moment_tn_m=minimum_moment,
         capacity_minimum_area_cm2_m=strength_area,
+        bar_diameter_cm=selected.bar.diameter_cm if selected is not None else params.main_bar_diameter_cm,
+        strip_length_m=strip_length_m,
+        flexural_resistance_factor=phi,
     )
 
 

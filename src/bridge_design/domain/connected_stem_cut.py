@@ -13,26 +13,50 @@ from bridge_design.domain.rebar_catalog import SpacingGrid, reinforcing_bar_by_l
 # Command 2 cuts exactly one of every two lower bars. The original command is unchanged.
 
 
-def connected_stem_reinforcement_cut(data, mesh, steel, demands):
-    """Adapt FRAME envelopes by face to the individual-abutment cutoff engine.
-
-    Retain whole elements at a proposed cut. Check every recovered extremum at
-    the thinnest section of its element, so the search cannot discard a peak or
-    rely on monotone bending. Heights stop at the transition to the cajuela.
-    """
-    if steel.region != "Pantalla - vertical relleno" or steel.status != "OK":
-        return None
-    bar = reinforcing_bar_by_label(steel.bar_label)
+def stem_cut_records(data, mesh, demands):
+    """Same conservative whole-element sections for cutoff search and its audit."""
     records = []
     for demand in demands:
         element = mesh.frame.elements[demand.element]
         first, last = (mesh.frame.nodes[n] for n in (element.start, element.end))
         side = data.right if element.region.endswith("derecha") else data.left
         start, end = sorted((first.y, last.y))
-        # One-sided geometric values retain the correct thickness at steps.
         depth = 100 * min(_stem_thickness_at_height_m(side, y)
                           for y in (start + 1e-8, end - 1e-8))
         records.append((end, side, replace(demand, depth_cm=depth)))
+    return records
+
+
+def adopted_stem_service_checks(data, mesh, steel, demands):
+    """Audit the selected cut with the existing section and whole-element checks."""
+    cut = steel.stem_reinforcement_cut
+    bar = reinforcing_bar_by_label(steel.bar_label)
+    service = [d for d in demands if d.limit_state == "service"]
+    rows = []
+    for original, (end, side, reduced) in zip(service, stem_cut_records(data, mesh, service)):
+        element = mesh.frame.elements[original.element]
+        start = min(mesh.frame.nodes[n].y for n in (element.start, element.end))
+        cover = side.reinforcement.stem_cover_cm
+        if start <= cut.constructive_cut_height_m + 1e-9:
+            rows.append(dict(section_check(original, side, cover, bar, cut.lower_spacing_m), zone="Pantalla inferior"))
+        if end > cut.constructive_cut_height_m + 1e-9:
+            rows.append(dict(section_check(reduced, side, cover, bar, cut.upper_spacing_m), zone="Pantalla superior"))
+    return rows
+
+
+def connected_stem_reinforcement_cut(data, mesh, steel, demands, *, footing_anchorage_m=None):
+    """Adapt FRAME envelopes by face to the individual-abutment cutoff engine.
+
+    Retain whole elements at a proposed cut. Check every recovered extremum at
+    the thinnest section of its element, so the search cannot discard a peak or
+    rely on monotone bending. Heights stop at the transition to the cajuela.
+    The adopted footing anchorage affects bar lengths, never the straight
+    development extension above the theoretical cutoff. Option probes may omit it.
+    """
+    if steel.region != "Pantalla - vertical relleno" or steel.status != "OK":
+        return None
+    bar = reinforcing_bar_by_label(steel.bar_label)
+    records = stem_cut_records(data, mesh, demands)
     if not records:
         return None
     height = min(max(end for end, side, _ in records if side is inputs)
@@ -85,6 +109,7 @@ def connected_stem_reinforcement_cut(data, mesh, steel, demands):
         steel.temperature_cm2_m, steel.required_straight_anchor_cm / 100.0,
         height, satisfies, design_at_height, maximum_spacing_m=maximum_spacing,
         resistance_at_height=lambda y, area, diameter: governing(y, area)[3]["capacity"],
+        footing_anchorage_m=footing_anchorage_m,
     )
     if cut is None:
         return None

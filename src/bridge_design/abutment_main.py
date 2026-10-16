@@ -32,6 +32,7 @@ from bridge_design.domain.abutment import (
     AbutmentInputs,
     AbutmentKeyInputs,
     AbutmentLoadInputs,
+    StabilityStateResult,
     rankine_passive_coefficient,
     solve_abutment_design,
 )
@@ -162,13 +163,24 @@ def _consider_key_when_sliding_fails(
         print("Aumente sus dimensiones o cambie la geometria del muro.")
 
 
+def _sliding_states(result: AbutmentDesignResult) -> tuple[StabilityStateResult, ...]:
+    """Include both bridge conditions and both seismic alternatives.
+
+    The summary seismic state can govern bearing rather than sliding, so it
+    must not replace the explicit seismic pair in this check.
+    """
+    states = result.with_bridge + result.extreme_seismic_with_bridge
+    if not result.inputs.is_pure_wall:
+        states += result.without_bridge + result.extreme_seismic_without_bridge
+    return states
+
+
 def _has_sliding_failure(result: AbutmentDesignResult) -> bool:
-    states = result.with_bridge if result.inputs.is_pure_wall else result.without_bridge
-    return any(state.sliding_status == "NO" for state in states)
+    return any(state.sliding_status == "NO" for state in _sliding_states(result))
 
 
 def _has_effective_sliding_failure(result: AbutmentDesignResult) -> bool:
-    states = result.with_bridge if result.inputs.is_pure_wall else result.without_bridge
+    states = _sliding_states(result)
     if result.key is None:
         return any(state.sliding_status == "NO" for state in states)
     return any(state.sliding_with_key_status != "OK" for state in states)
@@ -176,7 +188,7 @@ def _has_effective_sliding_failure(result: AbutmentDesignResult) -> bool:
 
 def _recommended_key_height_m(inputs: AbutmentInputs, result: AbutmentDesignResult) -> float:
     """Return a practical key height that covers the controlling sliding deficit."""
-    states = result.with_bridge if inputs.is_pure_wall else result.without_bridge
+    states = _sliding_states(result)
     required_passive_tn_m = max(
         (state.hu_tn_m - state.friction_resistance_tn_m for state in states),
         default=0.0,

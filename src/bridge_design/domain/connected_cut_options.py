@@ -9,7 +9,9 @@ steel pass in every zone.
 from dataclasses import dataclass
 
 from bridge_design.domain.connected_2_inputs import is_connected_2
-from bridge_design.domain.rebar_catalog import REINFORCING_BAR_CATALOG, reinforcing_bar_by_label
+from bridge_design.domain.rebar_catalog import (
+    REINFORCING_BAR_CATALOG, _minimum_center_spacing_m, reinforcing_bar_by_label,
+)
 
 
 STEM_REGION = "Pantalla - vertical relleno"
@@ -78,12 +80,15 @@ def _verified_cut_alternatives(result, region):
             confinement_factor=inputs.reinforcement.development_confinement_factor,
             excess_reinforcement_factor=1.0)[0]
         for heavy, light in spacing_pairs(grid):
+            if heavy + 1e-9 < _minimum_center_spacing_m(bar, grid.minimum_m):
+                continue
             area = bar.area_cm2 / heavy
             ratios = evaluate_option(demands, inputs, cover, bar, heavy)
             if max(*ratios[:3], temperature / area) > 1 + 1e-8:
                 continue
             if region == STEM_REGION:
-                choice = ConnectedSteelChoice(ConnectedBarChoice(bar.label, heavy), ConnectedBarChoice(bar.label, heavy))
+                choice = ConnectedSteelChoice(ConnectedBarChoice(bar.label, heavy),
+                                              ConnectedBarChoice(bar.label, heavy), stem_cut=True)
                 probed = SimpleNamespace(region=region, status="OK", bar_label=bar.label, spacing_m=heavy,
                     area_per_face_cm2_m=area, temperature_cm2_m=temperature, required_straight_anchor_cm=anchor)
                 cut = connected_stem_reinforcement_cut(result.inputs, result.mesh, probed, demands)

@@ -131,9 +131,8 @@ def test_incompatible_angle_rejected(theta):
         wall(theta)
 
 
-def test_sloping_fill_rejected_and_rough_interface_supported():
-    with pytest.raises(ValueError,match="beta=0"):
-        a.AbutmentSoilInputs(wall_backface_angle_deg=88,backfill_slope_deg=5)
+def test_sloping_fill_and_rough_interface_supported():
+    assert a.AbutmentSoilInputs(wall_backface_angle_deg=88,backfill_slope_deg=5).backfill_slope_deg == 5
     assert a.AbutmentSoilInputs(wall_backface_angle_deg=88,wall_soil_friction_deg=5).wall_soil_friction_deg == 5
     with pytest.raises(ValueError,match="diseno-muros"):
         replace(wall(),is_pure_wall=False)
@@ -166,12 +165,14 @@ def test_yaml_and_report_distinguish_face_from_global_plane(tmp_path):
     assert path.stat().st_size>1000
 
 
-def test_inclined_wall_word_report_uses_real_face_and_heel_transfer(tmp_path):
+@pytest.mark.parametrize('beta', [0., 10.])
+def test_inclined_wall_word_report_uses_real_face_and_heel_transfer(tmp_path, beta):
     from zipfile import ZipFile
     from xml.etree import ElementTree
     from bridge_design.reporting.abutment_docx import generate_abutment_docx
 
-    result = a.solve_abutment_design(wall())
+    data = wall()
+    result = a.solve_abutment_design(replace(data, soil=replace(data.soil, backfill_slope_deg=beta)))
     path = generate_abutment_docx(result, tmp_path / "inclined-wall.docx")
     with ZipFile(path) as archive:
         # Calculation boxes contain nested tables and mathematical text nodes.
@@ -181,3 +182,7 @@ def test_inclined_wall_word_report_uses_real_face_and_heel_transfer(tmp_path):
     assert "85.426" in text
     assert "eh_vertical" in text
     assert "Transferencia del relleno sobre trasdos" in text
+    if beta > 0.:
+        compact = ''.join(text.split())
+        assert f'{a.virtual_retained_height_m(result.inputs):.6f}' in compact
+        assert 'H0=Hp+b·tanβ' in compact

@@ -1,6 +1,6 @@
 """Concrete deck overhang cantilever design."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -129,6 +129,15 @@ class CantileverCombinedMoment:
 
 
 @dataclass(frozen=True)
+class CantileverFlexuralCase:
+    """Compatible moment and axial tension at the same root section."""
+
+    combination_name: str
+    moment_tn_m: float
+    axial_tension_tn_m: float = 0.0
+
+
+@dataclass(frozen=True)
 class CantileverFlexuralSteelDesign:
     """Top transverse flexural steel for the deck overhang."""
 
@@ -142,6 +151,11 @@ class CantileverFlexuralSteelDesign:
     cracking_moment_tn_m: float = 0.0
     minimum_capacity_moment_tn_m: float = 0.0
     reference: str = FLEXURAL_STRENGTH_REFERENCE
+    bar_diameter_cm: float = 1.59
+    strip_length_m: float = 1.0
+    flexural_resistance_factor: float = DEFAULT_FLEXURAL_RESISTANCE_FACTOR
+    axial_area_cm2_m: float = 0.0
+    load_cases: tuple[CantileverFlexuralCase, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -378,7 +392,8 @@ def design_cantilever_slab(
     )
     flexural = design_flexural_steel(geometry, materials, params, controlling, collision)
     temperature = design_temperature_steel(geometry, params)
-    shear = design_shear(geometry, materials, params, effects)
+    shear = design_shear(geometry, materials,
+                         replace(params, main_bar_diameter_cm=flexural.bar_diameter_cm), effects)
     crack_control = review_crack_control(geometry, materials, params, combinations, flexural)
     development = design_development(geometry, materials, params, flexural)
     return CantileverSlabDesignResult(

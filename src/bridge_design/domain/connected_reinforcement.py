@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, replace
 from math import isfinite
-from bridge_design.domain.anchorage_status import anchorage_status
+from bridge_design.domain.anchorage_status import SOLO_GANCHO, anchorage_status
 from bridge_design.codes.mtc_2018 import mtc_tension_development_length_cm
 from bridge_design.domain.abutment import (
     AbutmentStemReinforcementCut,
@@ -15,7 +15,9 @@ from bridge_design.domain.connected_foundation_cut import FoundationReinforcemen
 from bridge_design.domain.connected_2_inputs import is_connected_2
 from bridge_design.domain.connected_section_checks import section_check
 from bridge_design.domain.connected_steel_audit import area_requirements
-from bridge_design.domain.rebar_catalog import REINFORCING_BAR_CATALOG, SpacingGrid, reinforcing_bar_by_label
+from bridge_design.domain.rebar_catalog import (
+    REINFORCING_BAR_CATALOG, SpacingGrid, _minimum_center_spacing_m, reinforcing_bar_by_label,
+)
 
 
 DESIGN_SCOPE_NOTE = (
@@ -37,6 +39,7 @@ class ConnectedSteelChoice:
     principal: ConnectedBarChoice
     transverse: ConnectedBarChoice
     foundation_continuous: ConnectedBarChoice | None = None
+    stem_cut: bool = False
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,12 @@ class ConnectedSteel:
     part: str = ""
     stem_reinforcement_cut: AbutmentStemReinforcementCut | None = None
     foundation_reinforcement_cut: FoundationReinforcementCut | None = None
+    stem_cut_selected: bool = False
+
+    @property
+    def stem_cut_adopted(self):
+        return (self.stem_cut_selected and self.stem_reinforcement_cut is not None
+                and self.stem_reinforcement_cut.status == "OK")
 
 
 def region_inputs(data, region):
@@ -111,29 +120,35 @@ def region_inputs(data, region):
         if region.startswith("Parapeto") else side.geometry.stem_height_above_footing_m)
 
 
+def section_demand(data, mesh, result, row):
+    """Use one section/centroid transformation for design and report diagrams."""
+    element = mesh.frame.elements[row.element]
+    first, last = mesh.frame.nodes[element.start], mesh.frame.nodes[element.end]
+    # Retain the one-sided section at geometric boundaries.
+    fraction = min(max(row.station, 1e-8), 1 - 1e-8)
+    if first.y == last.y:
+        position = first.x + fraction * (last.x - first.x)
+        depth = foundation_section(data, position)[0]
+        real_offset = -depth / 2
+    else:
+        side_index = 0 if element.region.endswith("izquierda") else 1
+        side = (data.left, data.right)[side_index]
+        height = first.y + fraction * (last.y - first.y)
+        depth = _stem_thickness_at_height_m(side, height)
+        real_offset = first.x - stem_centroid(data, side_index, height)
+    moment = row.moment
+    if data.section_offsets:
+        moment += (real_offset - element.offset) * row.axial
+    return SectionDemand(result.name, result.limit_state, round(100 * depth, 5),
+                         row.axial, row.shear, moment, row.element, row.station)
+
+
 def section_demands(data, mesh, results):
     grouped = {}
     for result in results:
         for row in result.sections:
-            element = mesh.frame.elements[row.element]
-            first, last = mesh.frame.nodes[element.start], mesh.frame.nodes[element.end]
-            fraction = min(max(row.station, 1e-8), 1 - 1e-8)
-            if first.y == last.y:
-                position = first.x + fraction * (last.x - first.x)
-                depth = foundation_section(data, position)[0]
-                real_offset = -depth / 2
-            else:
-                side_index = 0 if element.region.endswith("izquierda") else 1
-                side = (data.left, data.right)[side_index]
-                height = first.y + fraction * (last.y - first.y)
-                depth = _stem_thickness_at_height_m(side, height)
-                real_offset = first.x - stem_centroid(data, side_index, height)
-            moment = row.moment
-            if data.section_offsets:
-                moment += (real_offset - element.offset) * row.axial
-            grouped.setdefault(element.region, []).append(SectionDemand(
-                result.name, result.limit_state, round(100 * depth, 5), row.axial, row.shear, moment,
-                row.element, row.station))
+            region = mesh.frame.elements[row.element].region
+            grouped.setdefault(region, []).append(section_demand(data, mesh, result, row))
     return grouped
 
 
@@ -164,6 +179,7 @@ def region_setup(data, region, demands):
     spacings.append(grid.minimum_m)
     candidates = sorted(((bar.area_cm2 / spacing, bar, spacing) for bar in REINFORCING_BAR_CATALOG
                          if bar.diameter_cm >= 1.27 for spacing in sorted(set(spacings))
+                         if spacing + 1e-9 >= _minimum_center_spacing_m(bar, grid.minimum_m)
                          if bar.area_cm2 / spacing >= temperature), key=lambda row: (row[0], row[1].diameter_cm))
     if not candidates:
         raise ValueError(f"No existen opciones de acero compatibles con la malla de separaciones: {region}.")
@@ -187,6 +203,10 @@ def validate_choice(choice, grid, cover, demands, *, principal=True):
         raise ValueError("La separacion debe ser numerica y finita.")
     if not grid.minimum_m - 1e-9 <= spacing <= grid.maximum_m + 1e-9:
         raise ValueError(f"La separacion debe estar entre {grid.minimum_m:g} y {grid.maximum_m:g} m.")
+    minimum_spacing = _minimum_center_spacing_m(bar, grid.minimum_m)
+    if spacing < minimum_spacing - 1e-9:
+        raise ValueError(f"La separacion entre ejes para la barra {bar.label} no puede ser menor que "
+                         f"{minimum_spacing:.6f} m, incluido el espacio libre del catalogo.")
     if principal and bar.diameter_cm < 1.27:
         raise ValueError('La armadura principal de este modelo utiliza barras desde 1/2".')
     if min(demand.depth_cm for demand in demands) <= 2 * (cover + bar.diameter_cm / 2):
@@ -202,19 +222,26 @@ def design_region(data, mesh, region, demands, selection=None, *, distribution=N
     if not region_has_reinforcement_design(region):
         raise ValueError(f"Region excluida del diseno de acero: {region}.")
     inputs, cover, grid, temperature, candidates = region_setup(data, region, demands)
+    if selection is not None and selection.stem_cut:
+        if not is_connected_2(data) or region != "Pantalla - vertical relleno":
+            raise ValueError("La seleccion de corte de pantalla solo corresponde al relleno del comando 2.")
     if selection is not None and selection.foundation_continuous is not None:
         from bridge_design.domain.connected_foundation_zones import validate_foundation_zone_choice
         validate_foundation_zone_choice(data, region, selection, grid, cover, demands)
     reinforcement = inputs.reinforcement
     selected = candidates[-1]
     if distribution is not None and selection is None:
-        # Recommendations check required area only; final shear/service/anchor
+        # Recommendations check required area and constructive spacing; final shear/service/anchor
         # checks consume the distribution selected by the user.
         from bridge_design.domain.connected_options import area_options
         options = area_options(data, region, demands)
-        compliant = [o for o in options if o.is_compliant]
+        constructible = [o for o in options if o.spacing_m + 1e-9 >= _minimum_center_spacing_m(
+            reinforcing_bar_by_label(o.bar_label), grid.minimum_m)]
+        if not constructible:
+            raise ValueError(f"No existen barras compatibles con las separaciones y recubrimientos: {region}.")
+        compliant = [o for o in constructible if o.is_compliant]
         option = min(compliant, key=lambda o: (o.area_per_face_cm2_m/o.required_as_cm2_m-1,
-                     reinforcing_bar_by_label(o.bar_label).diameter_cm)) if compliant else options[-1]
+                     reinforcing_bar_by_label(o.bar_label).diameter_cm)) if compliant else constructible[-1]
         selected = (option.area_per_face_cm2_m, reinforcing_bar_by_label(option.bar_label), option.spacing_m)
     elif selection is None:
         for candidate in candidates:
@@ -304,7 +331,10 @@ def design_region(data, mesh, region, demands, selection=None, *, distribution=N
                 available_anchor_cm=None, anchor_status="NO APLICA",
                 anchor_source="Acero minimo de temperatura/distribucion", anchor_geometry_note="")
     if mesh is not None and steel.region == "Pantalla - vertical relleno" and steel.role == "primary":
-        steel = replace(steel, stem_reinforcement_cut=connected_stem_reinforcement_cut(data, mesh, steel, demands))
+        footing_anchor = hooked if anchor == SOLO_GANCHO else straight
+        steel = replace(steel, stem_reinforcement_cut=connected_stem_reinforcement_cut(
+            data, mesh, steel, demands, footing_anchorage_m=footing_anchor / 100.0),
+            stem_cut_selected=bool(selection and selection.stem_cut))
     if mesh is not None and is_connected_2(data) and steel.base_region == "Zapata combinada" and steel.role == "primary":
         continuous = selection.foundation_continuous if selection else None
         steel = replace(steel, foundation_reinforcement_cut=connected_foundation_reinforcement_cut(

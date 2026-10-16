@@ -816,10 +816,12 @@ def test_abutment_report_includes_stem_reinforcement_cut() -> None:
     report = format_abutment_design_result(solve_abutment_design())
 
     assert "CORTE DE ACERO PRINCIPAL DE PANTALLA" in report
-    assert "Altura teorica de corte" in report
-    assert "Altura constructiva de corte" in report
-    assert "Acero continuo superior" in report
-    assert "Continua 1 de cada 2 barras inferiores" in report
+    assert "NO CONVIENE" in report
+    assert "Sin corte; todas las barras principales continuan" in report
+    assert "Altura teorica de corte" not in report
+    assert "Altura constructiva de corte" not in report
+    assert "Acero continuo superior" not in report
+    assert "Continua 1 de cada 2 barras inferiores" not in report
 
 
 def test_abutment_report_can_omit_stem_reinforcement_cut() -> None:

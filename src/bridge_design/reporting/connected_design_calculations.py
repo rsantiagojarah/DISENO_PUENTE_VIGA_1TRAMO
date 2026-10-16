@@ -163,7 +163,7 @@ def developed_steps(steel, trace):
                    'h: espesor en cm; dc: distancia del eje de barra a la cara en cm; d: peralte efectivo en cm; '
                    'As: acero elegido en cm²/m; fy: fluencia en kgf/cm²; fs: tensión del acero en kgf/cm²; '
                    'fs_lim: límite de tensión en kgf/cm²; fs_usado: tensión usada en la ecuación de separación; '
-                   'beta_s: factor geométrico; s y smax: separaciones en m; '
+                   'beta_s: factor geométrico; s: separación máxima real de las barras locales; smax: límite en m; '
                    'eta_s: mayor índice entre tensión y separación, admisible hasta 1.',
             substitution=f'dc = {service["cover"]:.2f}+{service["diameter"]:.2f}/2 = {dc:.2f} cm\n'
                          f'd = {sh:.2f}-{dc:.2f} = {sd:.2f} cm\n'
@@ -173,7 +173,7 @@ def developed_steps(steel, trace):
                          f'beta_s = 1+{dc:.2f}/(0.7*({sh:.2f}-{dc:.2f})) = {service["beta_service"]:.3f}\n'
                          f'smax = max(0,(123000/({service["beta_service"]:.3f}*{service["stress_used"]:.2f}*0.0980665)-20*{dc:.2f})/1000) = {service["maximum_spacing"]:.3f} m\n'
                          f'eta_s = max({service["stress"]:.2f}/{service["stress_limit"]:.2f},'
-                         f'{steel.spacing_m:.3f}/{service["maximum_spacing"]:.3f}) = {service["crack_ratio"]:.3f}',
+                         f'{service.get("maximum_gap", service["spacing"]):.3f}/{service["maximum_spacing"]:.3f}) = {service["crack_ratio"]:.3f}',
             result=f'Índice de servicio={service["crack_ratio"]:.3f}: {status(service["crack_ratio"])}.',
             comment='Se comprueba tanto la tensión calculada como la separación adoptada; '
                     'El índice de servicio combina fs/fs_lim y s/smax.')
@@ -213,19 +213,22 @@ def write_checks(document, steel, trace, source, *, service=False):
     if not service:
         _body(document, 'Secciones gobernantes independientes de flexión, cortante y servicio, considerando ambos estribos.')
         _body(document, 'Sección gobernante de flexión: ' + source(trace['flexure']))
-        _body(document, f'N={steel.governing_axial:.3f} tn, incluido en beta de cortante.')
     for step in developed_steps(steel, trace):
         is_service = step.title.startswith(('Fisuracion', 'Desarrollo'))
         if service != is_service or step.title.startswith('Temperatura'):
             continue
         if step.title.startswith(('Cortante', 'Verificación de cortante')):
             _body(document, 'Sección gobernante de cortante: ' + source(trace['shear']))
+            _body(document, f'N={trace["shear"]["demand"]["axial"]:.3f} tn/m, '
+                  'correspondiente a esta sección e incluido en beta de cortante.')
         elif step.title.startswith('Fisuracion'):
             _body(document, 'Sección gobernante de servicio: ' + source(trace['service']))
         write_block(document, step)
     if not service:
         _body(document, f'Estado del acero elegido: {steel.status}. Índices: flexión {steel.flexural_utilization:.3f}; '
-              f'cortante {steel.shear_utilization:.3f}; servicio {steel.crack_utilization:.3f}; mínimo {steel.minimum_utilization:.3f}.')
+              f'cortante {steel.shear_utilization:.3f}; servicio '
+              f'{trace["service"]["crack_ratio"] if trace["service"] else steel.crack_utilization:.3f}; '
+              f'mínimo {steel.minimum_utilization:.3f}.')
 
 
 def write_temperature(document, records, audit):

@@ -18,6 +18,7 @@ from bridge_design.domain.abutment import (
     StabilityStateResult,
     StructuralDesignCase,
     wall_backface_setback_m,
+    virtual_retained_height_m,
 )
 from bridge_design.domain.rebar_catalog import REINFORCING_BAR_CATALOG
 from bridge_design.reporting.abutment_docx_charts import (
@@ -26,6 +27,7 @@ from bridge_design.reporting.abutment_docx_charts import (
 )
 from bridge_design.reporting.abutment_docx_detail import (
     allowable_bearing_trace,
+    comparison_symbol,
     component_factor_rows,
     concrete_geometry_rows,
     coulomb_ka_trace,
@@ -34,6 +36,7 @@ from bridge_design.reporting.abutment_docx_detail import (
     development_trace,
     eccentricity_limit_trace,
     effective_depth_trace,
+    flexural_resistance_trace,
     factors_for_state,
     heel_envelope_table_rows,
     heel_toe_demand_trace,
@@ -53,6 +56,7 @@ from bridge_design.reporting.abutment_docx_detail import (
     stem_demand_trace,
     surcharge_height_trace,
     toe_envelope_table_rows,
+    wall_backfill_geometry_trace,
 )
 from bridge_design.reporting.deck_docx import (
     GRAY,
@@ -464,7 +468,7 @@ def _weights(document: Document, result: AbutmentDesignResult, labels: _ReportLa
         f"La descomposición mantiene cada volumen (pantalla, zapata y componentes asociados) en su posición física.",
         REF_STABILITY,
     )
-    document.add_heading("2.2 Peso del relleno sobre el talón", level=2)
+    document.add_heading("2.2 Peso del relleno", level=2)
     soil_rows = tuple(
         (
             component.name,
@@ -493,6 +497,7 @@ def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
     data = result.inputs
     g = data.geometry
     p = result.pressures
+    virtual_height = virtual_retained_height_m(data)
     gamma = data.materials.soil_unit_weight_kg_m3 / 1000.0
     effective_heel = g.heel_length_m - g.backfill_step_width_m
     if data.is_pure_wall:
@@ -500,6 +505,11 @@ def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
     document.add_heading("3. Empujes de suelo, sobrecargas y sismo", level=1)
     _comment(document, "Estabilidad global: muro y relleno sobre talón, con plano virtual vertical en su extremo. "
              "Las fuerzas sobre el trasdós real son internas a este conjunto y se usan por separado al diseñar la pantalla.")
+    if data.is_pure_wall and data.soil.backfill_slope_deg > 0.0:
+        _calc(document, "Geometría del relleno y altura del plano virtual", *wall_backfill_geometry_trace(result), REF_EARTH)
+    elif data.is_pure_wall:
+        _comment(document, f"Relleno horizontal: Hv = H = {virtual_height:.3f} m en el plano virtual; "
+                 f"la altura real de pantalla sobre zapata es Hp = H−D = {g.stem_height_above_footing_m:.3f} m.")
     if data.is_pure_wall or data.soil.wall_soil_friction_deg > 0.0:
         face_label = "trasdós real de pantalla" if data.is_pure_wall else "cara vertical equivalente del estribo"
         _calc(document, f"Coulomb sobre {face_label}", *coulomb_ka_trace(result, stem_face=True), REF_EARTH)
@@ -509,11 +519,11 @@ def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
     _calc(
         document,
         "Sobrecarga vehicular equivalente",
-        "LSy = Lt,ef·h'·γs ; LSx = Ka·h'·γs·H",
-        "LSy: componente vertical; LSx: empuje horizontal uniforme; Lt,ef: talón efectivo; h': altura equivalente; γs: peso específico; H: altura retenida.",
+        "LSy = Lt,ef·h'·γs ; LSx = Ka·h'·γs·Hv",
+        "LSy: componente vertical; LSx: empuje horizontal uniforme; Lt,ef: talón efectivo; h': altura equivalente; γs: peso específico; Hv: altura retenida en el plano virtual.",
         f"Lt,ef = {effective_heel:.3f} m; h' = {p.live_surcharge_height_m:.3f} m\n"
         f"LSy = {effective_heel:.3f}·{p.live_surcharge_height_m:.3f}·{gamma:.3f} = {p.lsy_tn_m:.3f} Tn/m\n"
-        f"LSx = {p.ka:.5f}·{p.live_surcharge_height_m:.3f}·{gamma:.3f}·{g.retained_height_m:.3f} = {p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m",
+        f"LSx = {p.ka:.5f}·{p.live_surcharge_height_m:.3f}·{gamma:.3f}·{virtual_height:.6f} = {p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m",
         f"La sobrecarga vehicular produce LSy = {p.lsy_tn_m:.3f} Tn/m y LSx = {p.lsx_tn_m - p.pedestrian_lsx_tn_m:.3f} Tn/m.",
         "La altura equivalente se aplica como presión uniforme sobre toda la altura activa.",
         REF_EARTH,
@@ -521,11 +531,11 @@ def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
     _calc(
         document,
         "Empuje estático del relleno",
-        "EH = 0.5·Ka·γs·H²",
-        "EH: empuje activo resultante; Ka: coeficiente activo; γs: peso específico del suelo; H: altura retenida.",
-        f"EH = 0.5·{p.ka:.5f}·{gamma:.3f}·{g.retained_height_m:.3f}² = {p.eh_tn_m:.3f} Tn/m",
+        "EH = 0.5·Ka·γs·Hv²",
+        "EH: empuje activo resultante; Ka: coeficiente activo; γs: peso específico del suelo; Hv: altura retenida en el plano virtual.",
+        f"EH = 0.5·{p.ka:.5f}·{gamma:.3f}·{virtual_height:.6f}² = {p.eh_tn_m:.3f} Tn/m",
         f"El empuje estático resultante es EH = {p.eh_tn_m:.3f} Tn/m.",
-        "La distribución es triangular y su resultante actúa a H/3 desde la base del diagrama.",
+        "La distribución es triangular y su resultante actúa a Hv/3 desde la base del diagrama.",
         REF_EARTH,
     )
     _calc(document, "Brazos de las acciones horizontales", *pressure_arms_trace(result), REF_EARTH)
@@ -534,9 +544,9 @@ def _earth_pressures(document: Document, result: AbutmentDesignResult) -> None:
     _calc(
         document,
         "Incremento sísmico de empuje",
-        "PAE = 0.5·kAE·γs·H² ; EQterr = PAE − EH",
+        "PAE = 0.5·kAE·γs·Hv² ; EQterr = PAE − EH",
         "PAE: empuje activo sísmico total; kAE: coeficiente Mononobe-Okabe; EQterr: incremento sísmico respecto del empuje estático.",
-        f"PAE = 0.5·{p.k_ae:.5f}·{gamma:.3f}·{g.retained_height_m:.3f}² = {p.pae_tn_m:.3f} Tn/m\n"
+        f"PAE = 0.5·{p.k_ae:.5f}·{gamma:.3f}·{virtual_height:.6f}² = {p.pae_tn_m:.3f} Tn/m\n"
         f"EQterr = {p.pae_tn_m:.3f} − {p.eh_tn_m:.3f} = {p.eq_terr_tn_m:.3f} Tn/m",
         f"Se obtiene PAE = {p.pae_tn_m:.3f} Tn/m y EQterr = {p.eq_terr_tn_m:.3f} Tn/m.",
         "El incremento EQ se combina únicamente en el estado de Evento Extremo I.",
@@ -712,7 +722,8 @@ def _stability_state_calculations(
         "Ff: resistencia por fricción de la base; δb: fricción suelo-cimentación; φep·Rep: resistencia pasiva factorizada; Hu: demanda horizontal.",
         f"Ff = {state.vu_tn_m:.3f}·tan({phi:.3f}°) = {state.friction_resistance_tn_m:.3f} Tn/m\n"
         f"Rdes = {state.friction_resistance_tn_m:.3f} + {passive_contribution:.3f} = {total_resistance:.3f} Tn/m\n"
-        f"{total_resistance:.3f} ≥ {state.hu_tn_m:.3f}",
+        f"{total_resistance:.3f} "
+        f"{comparison_symbol(total_resistance, state.hu_tn_m, at_least=True)} {state.hu_tn_m:.3f}",
         f"El estado de deslizamiento es {sliding_status}.",
         _status_comment(sliding_status, "La fricción y la resistencia pasiva movilizable cubren la demanda horizontal."),
         REF_STABILITY,
@@ -813,10 +824,6 @@ def _structural_design(document: Document, result: AbutmentDesignResult) -> None
 def _structural_case(document: Document, result: AbutmentDesignResult, case: StructuralDesignCase) -> None:
     data = result.inputs
     gross_depth = _gross_depth_cm(result, case.name)
-    phi = case.applied_flexural_phi
-    rho = case.strength_as_cm2_m / (100.0 * case.effective_depth_cm) if case.effective_depth_cm else 0.0
-    omega = rho * data.materials.steel_yield_kg_cm2 / data.materials.concrete_strength_kg_cm2
-    bar_area = _bar_area_cm2(case.selected_bar_label)
     if case.name == "Pantalla":
         _calc(document, "Origen de Mu y Vu de pantalla", *stem_demand_trace(result), REF_FLEXURE)
     else:
@@ -864,15 +871,23 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
             REF_FLEXURE,
         )
     else:
+        phi_limit = (data.reinforcement.flexural_phi if case.name == "Pantalla"
+                     else data.reinforcement.footing_design_phi_for_as)
         _calc(
             document,
             "Acero por resistencia a flexión",
-            "ω = [1 − √(1 − 4·0.59·Mu/(φ·f'c·b·d²))]/(2·0.59) ; ρ = ω·f'c/fy ; As = ρ·b·d",
-            "ω: índice mecánico; Mu: momento último; φ: factor de resistencia; b: ancho unitario; d: peralte efectivo; ρ: cuantía; As: acero requerido.",
-            f"Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; φ = {phi:.3f}; b = 100 cm; d = {case.effective_depth_cm:.2f} cm\n"
-            f"ω = {omega:.6f}; ρ = {rho:.6f}; As = {case.strength_as_cm2_m:.3f} cm²/m",
+            "Mr(As) = φ(εt)·As·fs·(d − a/2)/100000 ; As,flex = min{As | Mr(As) ≥ Mu}",
+            "Mu: momento último; As: acero por metro; fs y a: esfuerzo y bloque de compresión por equilibrio y compatibilidad; "
+            "φ(εt): factor por deformación, limitado por φ,lím del estado; b = 100 cm; d: peralte efectivo.",
+            f"Mu = {case.controlling_moment_tn_m_m:.3f} Tn·m/m; "
+            f"φ,lím = {phi_limit:.3f}; "
+            f"b = 100 cm; d = {case.effective_depth_cm:.2f} cm\n"
+            f"f'c = {data.materials.concrete_strength_kg_cm2:.3f} kg/cm²; "
+            f"fy = {data.materials.steel_yield_kg_cm2:.3f} kg/cm²\n"
+            f"As,flex = {case.strength_as_cm2_m:.3f} cm²/m",
             f"El acero por resistencia es As,flex = {case.strength_as_cm2_m:.3f} cm²/m.",
-            "La expresión corresponde a una sección rectangular con bloque equivalente de compresión.",
+            "El acero requerido se obtiene invirtiendo numéricamente la misma resistencia por equilibrio y compatibilidad "
+            "desarrollada para el refuerzo adoptado, sin suponer la fluencia del acero.",
             REF_FLEXURE,
         )
     _calc(
@@ -881,30 +896,10 @@ def _structural_case(document: Document, result: AbutmentDesignResult, case: Str
         *cracking_and_temperature_trace(result, case, gross_depth),
         REF_FLEXURE,
     )
-    a_cm = case.provided_as_cm2_m * data.materials.steel_yield_kg_cm2 / (0.85 * data.materials.concrete_strength_kg_cm2 * 100.0)
     _calc(
         document,
         "Refuerzo adoptado y momento resistente",
-        "As,prov = Ab/s ; a = As,prov·fy/(0.85·f'c·b) ; Mr = φ·As,prov·fy·(d − a/2)",
-        "Ab: área de una barra; s: espaciamiento; a: profundidad del bloque equivalente; Mr: momento resistente.",
-        (
-            f"As,prov = {bar_area:.3f}/{case.selected_spacing_m:.3f} = {case.provided_as_cm2_m:.3f} cm²/m\n"
-            f"a = {a_cm:.3f} cm; φ = {case.applied_flexural_phi:.2f}; Mr = {case.moment_resistance_tn_m_m:.3f} Tn·m/m"
-            + (
-                f"\nφ,R = {case.strength_phi:.2f}; Mr,R = {case.strength_moment_resistance_tn_m_m:.3f} Tn·m/m "
-                f"({'OK' if case.strength_moment_status == 'OK' else 'NO'} frente a Mu,R = {case.strength_limit_mu_tn_m_m:.3f})\n"
-                f"φ,E = {case.extreme_phi:.2f}; Mr,E = {case.extreme_moment_resistance_tn_m_m:.3f} Tn·m/m "
-                f"({'OK' if case.extreme_moment_status == 'OK' else 'NO'} frente a Mu,E = {case.extreme_limit_mu_tn_m_m:.3f})"
-                if case.name == "Pantalla" and case.strength_limit_mu_tn_m_m
-                else ""
-            )
-        ),
-        f"Se adopta {case.selected_bar_label} @ {case.selected_spacing_m:.3f} m, "
-        f"con estado a flexión {case.moment_status}.",
-        _status_comment(
-            case.moment_status,
-            "El momento resistente cubre la demanda de cada estado límite y la capacidad mínima aplicable.",
-        ),
+        *flexural_resistance_trace(result, case),
         REF_FLEXURE,
     )
     _calc(document, "Verificación de cortante", *shear_beta_trace(result, case), REF_SHEAR)
@@ -932,8 +927,10 @@ def _service_and_detailing(document: Document, result: AbutmentDesignResult) -> 
         )
     document.add_heading("7.3 Corte del acero principal de pantalla", level=2)
     cut = result.stem_reinforcement_cut
-    if cut is None:
+    if cut is None or cut.status != "OK":
         _body(document, "Se adopta el acero principal continuo en toda la altura de la pantalla.")
+        if cut is not None:
+            _comment(document, f"Estado del corte evaluado: {cut.status}. {cut.notes} El corte no se adopta.")
     else:
         _calc(
             document,
@@ -1003,8 +1000,10 @@ def _summary(document: Document, result: AbutmentDesignResult) -> None:
     if cut is not None and cut.status == "OK":
         _comment(
             document,
-            "La pantalla principal figura en dos filas: barras cortadas y barras que continúan "
-            f"1 de cada {cut.continuous_every_n_bars} hasta la coronación. "
+            f"La pantalla principal se desglosa en {cut.continuous_every_n_bars - 1} familia(s) de barras cortadas "
+            f"y una familia continua hasta la coronación, cada una separada {cut.upper_spacing_m:.3f} m. "
+            f"Se intercalan cada {cut.lower_spacing_m:.3f} m en el tramo inferior, "
+            f"conservando As = {cut.lower_provided_as_cm2_m:.3f} cm²/m. "
             "Las longitudes y el anclaje corresponden a la franja de diseño.",
         )
     else:

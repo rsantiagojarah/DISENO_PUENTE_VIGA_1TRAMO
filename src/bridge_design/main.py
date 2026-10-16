@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from bridge_design.cli.ascii_output import (
     format_barrier_design_result,
     format_cantilever_slab_design_result,
+    format_common_cantilever_reinforcement_options,
     format_crack_control_review,
     format_diaphragm_design_result,
+    format_diaphragm_dependent_reinforcement_options,
     format_exterior_girder_analysis_result,
     format_abutment_reaction_summary,
     format_girder_detailing_result,
+    format_common_girder_reinforcement_options,
+    format_girder_dependent_reinforcement_options,
     format_interior_girder_analysis_result,
     format_interior_girder_crack_control_review,
     format_input_summary,
+    format_slab_distribution_reinforcement_options,
     format_transverse_load_location_schemes,
     format_transverse_analysis_result,
 )
@@ -56,6 +62,7 @@ from bridge_design.domain.girder_detailing import (
 )
 from bridge_design.domain.interior_girder import (
     InteriorGirderReinforcementDesign,
+    NoAdmissibleMainReinforcementError,
     LongitudinalBarPlacementOption,
     ShearStirrupOption,
     custom_main_bar_placement_option,
@@ -64,6 +71,7 @@ from bridge_design.domain.interior_girder import (
     design_interior_girder_shear,
     review_interior_girder_crack_control,
     review_interior_girder_fatigue,
+    require_admissible_main_placement,
     solve_interior_girder_design,
     verify_interior_girder_service_stresses,
 )
@@ -162,8 +170,43 @@ def _run_deck_command(args: list[str]) -> None:
 
 def run_bridge_design(project_inputs=None) -> None:
     """Run the full slab, girder, barrier and diaphragm design workflow."""
-    if project_inputs is None:
-        project_inputs = collect_project_inputs()
+    while True:
+        if project_inputs is None:
+            project_inputs = collect_project_inputs()
+        try:
+            _run_bridge_design_once(project_inputs)
+            return
+        except NoAdmissibleMainReinforcementError as exc:
+            print(f"\nDISENO PENDIENTE: {exc}")
+            print("No se genera una memoria completa con una seleccion de acero inexistente.")
+            project_inputs = _revised_deck_inputs()
+            if project_inputs is None:
+                print("Calculo cancelado por el usuario; no se modificaron los datos ni el armado.")
+                return
+
+
+def _revised_deck_inputs():
+    """Keep the terminal workflow available for an explicit input correction."""
+    while True:
+        try:
+            action = input("Revisar datos: Y=cargar YAML corregido, I=ingresar datos, S=cancelar [S]: ").strip().lower()
+            if action in ("", "s"):
+                return None
+            if action == "i":
+                return collect_project_inputs()
+            if action == "y":
+                path = input("Ruta del YAML corregido (Enter para seleccionar archivo): ").strip().strip('"')
+                path = Path(path) if path else select_yaml_open_path("Seleccionar YAML de tablero corregido")
+                return project_inputs_from_yaml(load_yaml_file(path))
+            print("Ingrese Y, I o S.")
+        except (YamlModeError, ValueError, OSError) as exc:
+            print(f"No se pudieron cargar los datos revisados: {exc}")
+        except EOFError:
+            return None
+
+
+def _run_bridge_design_once(project_inputs) -> None:
+    """Calculate one explicitly supplied input set; never substitute a layout."""
     from bridge_design.domain.transverse_patterns import TransverseLaneGeometryError, validate_lane_geometry
     layout = project_inputs.transverse_slab.load_layout
     vehicle = project_inputs.live_loads.vehicular
@@ -192,7 +235,19 @@ def run_bridge_design(project_inputs=None) -> None:
         materials=project_inputs.materials,
         analysis=result,
     )
-    selected = collect_reinforcement_spacing_selection(reinforcement)
+    from bridge_design.domain.adopted_reinforcement import (
+        adopt_slab_reinforcement, adopt_diaphragm_reinforcement,
+    )
+    selected = collect_reinforcement_spacing_selection(
+        reinforcement,
+        refresh_for_main=lambda chosen: adopt_slab_reinforcement(
+            project_inputs.transverse_slab.geometry, project_inputs.materials,
+            reinforcement, chosen,
+        )[0],
+    )
+    reinforcement, selected = adopt_slab_reinforcement(
+        project_inputs.transverse_slab.geometry, project_inputs.materials, reinforcement, selected,
+    )
     slab_selection_report = format_reinforcement_spacing_selection(selected)
     print(slab_selection_report)
     crack_review = review_transverse_slab_crack_control(
@@ -247,6 +302,14 @@ def run_bridge_design(project_inputs=None) -> None:
     )
     diaphragm_selected = collect_diaphragm_reinforcement_selection(
         diaphragm_reinforcement,
+        refresh_for_main=lambda chosen: adopt_diaphragm_reinforcement(
+            project_inputs.diaphragm, project_inputs.materials, diaphragm_result,
+            diaphragm_reinforcement, chosen,
+        )[0],
+    )
+    diaphragm_reinforcement, diaphragm_selected = adopt_diaphragm_reinforcement(
+        project_inputs.diaphragm, project_inputs.materials, diaphragm_result,
+        diaphragm_reinforcement, diaphragm_selected,
     )
     diaphragm_selection_report = format_diaphragm_reinforcement_selection(
         diaphragm_selected
@@ -279,6 +342,14 @@ def run_bridge_design(project_inputs=None) -> None:
         end_diaphragm_selected = collect_diaphragm_reinforcement_selection(
             end_diaphragm_reinforcement,
             element_name="diafragma de extremo",
+            refresh_for_main=lambda chosen: adopt_diaphragm_reinforcement(
+                project_inputs.end_diaphragm, project_inputs.materials, end_diaphragm_result,
+                end_diaphragm_reinforcement, chosen,
+            )[0],
+        )
+        end_diaphragm_reinforcement, end_diaphragm_selected = adopt_diaphragm_reinforcement(
+            project_inputs.end_diaphragm, project_inputs.materials, end_diaphragm_result,
+            end_diaphragm_reinforcement, end_diaphragm_selected,
         )
         end_diaphragm_selection_report = format_diaphragm_reinforcement_selection(
             end_diaphragm_selected,
@@ -387,29 +458,19 @@ def _run_cantilever(project_inputs, barrier_result, side="", *, prepared=None, s
     cantilever_report = format_cantilever_slab_design_result(cantilever_result)
     print(cantilever_report)
     cantilever_selected = selected if selected is not None else collect_cantilever_reinforcement_selection(cantilever_result)
+    from bridge_design.domain.adopted_reinforcement import adopt_cantilever_reinforcement
+    cantilever_result, cantilever_selected = adopt_cantilever_reinforcement(
+        project_inputs.transverse_slab.geometry, project_inputs.materials,
+        cantilever_result, cantilever_selected,
+    )
+    # The audit/report snapshot must also describe the adopted section.
+    cantilever_report = format_cantilever_slab_design_result(cantilever_result)
     cantilever_selection_report = format_cantilever_reinforcement_selection(
         cantilever_selected
     )
     print(cantilever_selection_report)
-    from bridge_design.domain._cantilever_slab_calculations import design_development
-    from bridge_design.domain._cantilever_slab_checks import review_crack_control
-
-    selected_cantilever_flexural = _selected_spacing(cantilever_selected, "A.")
-    cantilever_development = design_development(
-        geometry=project_inputs.transverse_slab.geometry,
-        materials=project_inputs.materials,
-        params=cantilever_result.parameters,
-        flexural=cantilever_result.flexural_steel,
-        selected_spacing=selected_cantilever_flexural,
-    )
-    cantilever_crack = review_crack_control(
-        geometry=project_inputs.transverse_slab.geometry,
-        materials=project_inputs.materials,
-        params=cantilever_result.parameters,
-        combinations=cantilever_result.combinations,
-        flexural=cantilever_result.flexural_steel,
-        selected_spacing=selected_cantilever_flexural,
-    )
+    cantilever_development = cantilever_result.development
+    cantilever_crack = cantilever_result.crack_control
     cantilever_review_report = format_cantilever_selected_reviews(
         geometry=project_inputs.transverse_slab.geometry,
         materials=project_inputs.materials,
@@ -424,14 +485,28 @@ def _run_cantilever(project_inputs, barrier_result, side="", *, prepared=None, s
 
 
 def _run_interior_girder(project_inputs, *, prepared=None, selected=None):
-    from bridge_design.cli.common_design import prepare_girder
+    from bridge_design.cli.common_design import prepare_girder, refresh_girder_for_main
     import sys
     girder_result, girder_reinforcement, girder_shear = prepared or prepare_girder(
         sys.modules[__name__], project_inputs, False)
     interior_analysis_report = format_interior_girder_analysis_result(girder_result, project_inputs)
     print(interior_analysis_report)
     girder_selected = selected if selected is not None else collect_interior_girder_reinforcement_selection(
-        girder_reinforcement, girder_shear)
+        girder_reinforcement, girder_shear,
+        refresh_for_main=lambda main: refresh_girder_for_main(
+            sys.modules[__name__], project_inputs, False,
+            (girder_result, girder_reinforcement, girder_shear), main)[1:])
+    from bridge_design.domain.adopted_reinforcement import adopt_girder_reinforcement, refresh_girder_selection
+    girder_reinforcement = adopt_girder_reinforcement(
+        project_inputs.interior_girder, project_inputs.materials, girder_reinforcement,
+        _selected_main_placement(girder_selected),
+    )
+    girder_shear = design_interior_girder_shear(
+        project_inputs.interior_girder, project_inputs.materials, girder_result, girder_reinforcement,
+    )
+    girder_selected = refresh_girder_selection(
+        girder_selected, girder_reinforcement, girder_shear, project_inputs.materials,
+    )
     interior_selection_report = format_interior_girder_reinforcement_selection(
         girder_selected
     )
@@ -487,14 +562,28 @@ def _run_interior_girder(project_inputs, *, prepared=None, selected=None):
 
 
 def _run_exterior_girder(project_inputs, *, prepared=None, selected=None):
-    from bridge_design.cli.common_design import prepare_girder
+    from bridge_design.cli.common_design import prepare_girder, refresh_girder_for_main
     import sys
     exterior_result, exterior_reinforcement, exterior_shear = prepared or prepare_girder(
         sys.modules[__name__], project_inputs, True)
     exterior_analysis_report = format_exterior_girder_analysis_result(exterior_result, project_inputs)
     print(exterior_analysis_report)
     exterior_selected = selected if selected is not None else collect_exterior_girder_reinforcement_selection(
-        exterior_reinforcement, exterior_shear)
+        exterior_reinforcement, exterior_shear,
+        refresh_for_main=lambda main: refresh_girder_for_main(
+            sys.modules[__name__], project_inputs, True,
+            (exterior_result, exterior_reinforcement, exterior_shear), main)[1:])
+    from bridge_design.domain.adopted_reinforcement import adopt_girder_reinforcement, refresh_girder_selection
+    exterior_reinforcement = adopt_girder_reinforcement(
+        project_inputs.exterior_girder, project_inputs.materials, exterior_reinforcement,
+        _selected_main_placement(exterior_selected),
+    )
+    exterior_shear = design_exterior_girder_shear(
+        project_inputs.exterior_girder, project_inputs.materials, exterior_result, exterior_reinforcement,
+    )
+    exterior_selected = refresh_girder_selection(
+        exterior_selected, exterior_reinforcement, exterior_shear, project_inputs.materials,
+    )
     exterior_selection_report = format_exterior_girder_reinforcement_selection(
         exterior_selected
     )
@@ -546,29 +635,40 @@ def _run_exterior_girder(project_inputs, *, prepared=None, selected=None):
     return (exterior_result, exterior_reinforcement, exterior_shear, exterior_selected, exterior_detail, exterior_crack_review, exterior_fatigue_review, exterior_service_stresses, exterior_analysis_report, exterior_selection_report, exterior_service_report, exterior_detail_report)
 
 
-def collect_reinforcement_spacing_selection(reinforcement) -> tuple[
+def collect_reinforcement_spacing_selection(reinforcement, *, refresh_for_main=None) -> tuple[
     tuple[str, ReinforcementSpacingOption],
     ...,
 ]:
-    """Allow the user to keep or change recommended reinforcement spacing."""
-    cases = (
+    """Choose main steel, then refresh distribution before offering its choices."""
+    main_cases = (
         ("A", reinforcement.negative.spacing_options),
         ("B", reinforcement.positive.spacing_options),
-        ("C", reinforcement.temperature.spacing_options),
-        ("D", reinforcement.distribution.spacing_options),
     )
     answer = input(
         "\nDesea seleccionar o cambiar las distribuciones recomendadas? [s/N]: "
     ).strip().lower()
-    if answer not in ("s", "si", "y", "yes"):
-        return _default_reinforcement_spacing_selection(cases)
-
-    selected: list[tuple[str, ReinforcementSpacingOption]] = []
-    for code, case_options in cases:
-        if case_options is None:
-            continue
-        selected.append((f"{code}. {case_options.label}", _prompt_spacing_option(case_options)))
-    return tuple(selected)
+    interactive = answer in ("s", "si", "y", "yes")
+    if interactive:
+        selected = tuple(
+            (f"{code}. {case.label}", _prompt_spacing_option(case))
+            for code, case in main_cases if case is not None
+        )
+    else:
+        selected = _default_reinforcement_spacing_selection(main_cases)
+    if refresh_for_main is not None:
+        reinforcement = refresh_for_main(selected)
+        if interactive:
+            print(format_slab_distribution_reinforcement_options(reinforcement))
+    dependent_cases = (
+        ("C", reinforcement.temperature.spacing_options),
+        ("D", reinforcement.distribution.spacing_options),
+    )
+    if interactive:
+        return selected + tuple(
+            (f"{code}. {case.label}", _prompt_spacing_option(case))
+            for code, case in dependent_cases if case is not None
+        )
+    return selected + _default_reinforcement_spacing_selection(dependent_cases)
 
 
 def _default_reinforcement_spacing_selection(
@@ -660,23 +760,33 @@ def format_reinforcement_spacing_selection(
 def collect_interior_girder_reinforcement_selection(
     reinforcement: InteriorGirderReinforcementDesign,
     shear,
+    *,
+    refresh_for_main=None,
 ) -> tuple[
     tuple[str, LongitudinalBarPlacementOption | ReinforcementSpacingOption | ShearStirrupOption],
     ...,
 ]:
     """Allow the user to keep or change recommended girder reinforcement."""
+    recommended_main = require_admissible_main_placement(reinforcement.main.placement_options)
     answer = input(
         "\nDesea seleccionar o cambiar las opciones recomendadas de la viga interior? [s/N]: "
     ).strip().lower()
+    interactive = answer in ("s", "si", "y", "yes")
+    chosen_main = (_prompt_main_placement_option(reinforcement.main.placement_options)
+                   if interactive else recommended_main)
+    if refresh_for_main is not None:
+        reinforcement, shear = refresh_for_main(chosen_main)
+        if interactive:
+            print(format_girder_dependent_reinforcement_options(reinforcement, shear, chosen_main))
     cases = (
         ("A. Acero principal longitudinal", reinforcement.main.placement_options),
         ("B. Temperatura caras laterales", reinforcement.temperature.spacing_options),
         ("C. Ask longitudinal por cara", reinforcement.skin.spacing_options),
     )
-    if answer not in ("s", "si", "y", "yes"):
+    if not interactive:
         recommended_shear = _recommended_shear_option_or_raise(shear)
-        selected = []
-        for label, case_options in cases:
+        selected = [(cases[0][0], chosen_main)]
+        for label, case_options in cases[1:]:
             recommended = case_options.recommended
             if recommended is None:
                 raise ValueError(f"Sin solucion para {case_options.label} con el catalogo y la geometria actuales.")
@@ -684,13 +794,7 @@ def collect_interior_girder_reinforcement_selection(
         selected.append(("D. Estribos por corte interior", recommended_shear))
         return tuple(selected)
 
-    selected: list[tuple[str, LongitudinalBarPlacementOption | ReinforcementSpacingOption]] = []
-    selected.append(
-        (
-            cases[0][0],
-            _prompt_main_placement_option(reinforcement.main.placement_options),
-        )
-    )
+    selected = [(cases[0][0], chosen_main)]
     for label, case_options in cases[1:]:
         selected.append((label, _prompt_spacing_option(case_options)))
     selected.append(("D. Estribos por corte interior", _prompt_shear_stirrup_option(shear)))
@@ -698,9 +802,9 @@ def collect_interior_girder_reinforcement_selection(
 
 
 def _prompt_main_placement_option(case_options) -> LongitudinalBarPlacementOption:
-    recommended = case_options.recommended
-    default_item = recommended.item if recommended is not None else case_options.options[-1].item
-    valid_items = {option.item: option for option in case_options.options}
+    recommended = require_admissible_main_placement(case_options)
+    default_item = recommended.item
+    valid_items = {option.item: option for option in case_options.options if option.is_compliant}
     while True:
         raw_value = input(
             f"{case_options.label} - elija item [{default_item}] (P=personalizado): "
@@ -715,13 +819,13 @@ def _prompt_main_placement_option(case_options) -> LongitudinalBarPlacementOptio
             print("Ingrese un item numerico de la tabla.")
             continue
         if item not in valid_items:
-            print("El item no existe para este caso.")
+            print("El item no es una disposicion admisible; seleccione una opcion OK de la tabla.")
             continue
         return valid_items[item]
 
 
 def _prompt_custom_main_placement(case_options) -> LongitudinalBarPlacementOption:
-    recommended = case_options.recommended or case_options.options[-1]
+    recommended = require_admissible_main_placement(case_options)
     labels = ", ".join(bar.label for bar in REINFORCING_BAR_CATALOG if bar.diameter_cm >= 1.27)
     print(f"Barras principales disponibles: {labels}")
     while True:
@@ -742,8 +846,8 @@ def _prompt_shear_stirrup_option(
     design,
 ) -> ShearStirrupOption:
     options = design.options
-    recommended = next((option for option in options if option.is_recommended), None)
-    default_item = recommended.item if recommended is not None else options[-1].item
+    recommended = _recommended_shear_option_or_raise(design)
+    default_item = recommended.item
     valid_items = {option.item: option for option in options}
     while True:
         raw_value = input(
@@ -912,6 +1016,8 @@ def format_interior_girder_selected_main_reviews(
 def collect_diaphragm_reinforcement_selection(
     reinforcement: DiaphragmReinforcementDesign,
     element_name: str = "diafragma",
+    *,
+    refresh_for_main=None,
 ) -> tuple[
     tuple[
         str,
@@ -921,39 +1027,46 @@ def collect_diaphragm_reinforcement_selection(
     ],
     ...,
 ]:
-    """Allow the user to keep or change recommended diaphragm reinforcement."""
+    """Choose both main layers before refreshing shear and skin options."""
+    recommended_negative = require_admissible_main_placement(reinforcement.negative.placement_options)
+    recommended_positive = require_admissible_main_placement(reinforcement.positive.placement_options)
     answer = input(
         f"\nDesea seleccionar o cambiar el acero del {element_name}? [s/N]: "
     ).strip().lower()
-    recommended_negative = (
-        reinforcement.negative.placement_options.recommended
-        or reinforcement.negative.placement_options.options[-1]
+    interactive = answer in ("s", "si", "y", "yes")
+    selected = (
+        (
+            f"A. Acero principal negativo {element_name}",
+            _prompt_main_placement_option(reinforcement.negative.placement_options)
+            if interactive else recommended_negative,
+        ),
+        (
+            f"B. Acero principal positivo {element_name}",
+            _prompt_main_placement_option(reinforcement.positive.placement_options)
+            if interactive else recommended_positive,
+        ),
     )
-    recommended_positive = (
-        reinforcement.positive.placement_options.recommended
-        or reinforcement.positive.placement_options.options[-1]
-    )
+    if refresh_for_main is not None:
+        reinforcement = refresh_for_main(selected)
+        if interactive:
+            print(format_diaphragm_dependent_reinforcement_options(reinforcement, element_name))
     recommended_temperature = (
         reinforcement.temperature.spacing_options.recommended
         or reinforcement.temperature.spacing_options.options[-1]
     )
-    if answer not in ("s", "si", "y", "yes"):
+    if not interactive:
         recommended_shear = _recommended_shear_option_or_raise(reinforcement.shear)
-        return (
-            (f"A. Acero principal negativo {element_name}", recommended_negative),
-            (f"B. Acero principal positivo {element_name}", recommended_positive),
+        selected += (
             (f"C. Temperatura caras laterales {element_name}", recommended_temperature),
             (f"D. Estribos por corte {element_name}", recommended_shear),
         )
-    return (
-        (
-            f"A. Acero principal negativo {element_name}",
-            _prompt_main_placement_option(reinforcement.negative.placement_options),
-        ),
-        (
-            f"B. Acero principal positivo {element_name}",
-            _prompt_main_placement_option(reinforcement.positive.placement_options),
-        ),
+        if reinforcement.skin.required_area_cm2_m_per_face > 0.0:
+            skin = reinforcement.skin.spacing_options.recommended
+            if skin is None:
+                raise ValueError(f"Sin solucion de acero Ask para {element_name}.")
+            selected += ((f"E. Ask longitudinal por cara {element_name}", skin),)
+        return selected
+    selected += (
         (
             f"C. Temperatura caras laterales {element_name}",
             _prompt_spacing_option(reinforcement.temperature.spacing_options),
@@ -963,6 +1076,10 @@ def collect_diaphragm_reinforcement_selection(
             _prompt_shear_stirrup_option(reinforcement.shear),
         ),
     )
+    if reinforcement.skin.required_area_cm2_m_per_face > 0.0:
+        selected += ((f"E. Ask longitudinal por cara {element_name}",
+                      _prompt_spacing_option(reinforcement.skin.spacing_options)),)
+    return selected
 
 
 def format_diaphragm_reinforcement_selection(
@@ -1028,29 +1145,32 @@ def format_cantilever_selected_reviews(
     crack_review=None,
 ) -> str:
     """Return development and crack checks using selected overhang top steel."""
-    from bridge_design.domain._cantilever_slab_calculations import design_development
-    from bridge_design.domain._cantilever_slab_checks import review_crack_control
-
+    from bridge_design.domain.adopted_reinforcement import adopt_cantilever_reinforcement, flexural_capacity
+    cantilever, selected = adopt_cantilever_reinforcement(geometry, materials, cantilever, selected)
     selected_flexural = _selected_spacing(selected, "A.")
-    development = development_review or design_development(
-        geometry=geometry,
-        materials=materials,
-        params=cantilever.parameters,
-        flexural=cantilever.flexural_steel,
-        selected_spacing=selected_flexural,
-    )
-    crack = crack_review or review_crack_control(
-        geometry=geometry,
-        materials=materials,
-        params=cantilever.parameters,
-        combinations=cantilever.combinations,
-        flexural=cantilever.flexural_steel,
-        selected_spacing=selected_flexural,
-    )
+    development = development_review or cantilever.development
+    crack = crack_review or cantilever.crack_control
+    flexural = cantilever.flexural_steel
+    capacity = flexural_capacity(flexural, selected_flexural.provided_area_cm2_m,
+                                materials.concrete, materials.steel)
     return "\n".join(
         [""] + boxed_table(
             ("Verificacion", "Parametro", "Demanda", "Limite/Longitud", "Estado"),
             (
+                (
+                    "Flexion",
+                    f"d = {flexural.effective_depth_cm:.3f} cm",
+                    f"M req = {flexural.minimum_capacity_moment_tn_m / flexural.strip_length_m:.3f} Tn.m/m",
+                    f"Mr = {capacity:.3f} Tn.m/m",
+                    "CUMPLE" if selected_flexural.is_compliant else "NO CUMPLE",
+                ),
+                (
+                    "Cortante",
+                    f"dv = {cantilever.shear.effective_shear_depth_cm:.3f} cm",
+                    f"Vu = {cantilever.shear.combined_shear_tn:.3f} Tn",
+                    f"phiVc = {cantilever.shear.phi_vc_tn:.3f} Tn",
+                    cantilever.shear.status,
+                ),
                 (
                     "Desarrollo",
                     development.bar_label,
@@ -1075,17 +1195,24 @@ def format_cantilever_selected_reviews(
 def collect_exterior_girder_reinforcement_selection(
     reinforcement: InteriorGirderReinforcementDesign,
     shear,
+    *,
+    refresh_for_main=None,
 ) -> tuple[
     tuple[str, LongitudinalBarPlacementOption | ReinforcementSpacingOption | ShearStirrupOption],
     ...,
 ]:
     """Allow the user to keep or change exterior girder reinforcement."""
+    recommended_main = require_admissible_main_placement(reinforcement.main.placement_options)
     answer = input(
         "\nDesea seleccionar o cambiar el acero de la viga exterior? [s/N]: "
     ).strip().lower()
-    recommended_main = reinforcement.main.placement_options.recommended
-    if recommended_main is None:
-        recommended_main = reinforcement.main.placement_options.options[-1]
+    interactive = answer in ("s", "si", "y", "yes")
+    chosen_main = (_prompt_main_placement_option(reinforcement.main.placement_options)
+                   if interactive else recommended_main)
+    if refresh_for_main is not None:
+        reinforcement, shear = refresh_for_main(chosen_main)
+        if interactive:
+            print(format_girder_dependent_reinforcement_options(reinforcement, shear, chosen_main))
     recommended_temperature = (
         reinforcement.temperature.spacing_options.recommended
         or reinforcement.temperature.spacing_options.options[-1]
@@ -1094,10 +1221,10 @@ def collect_exterior_girder_reinforcement_selection(
         reinforcement.skin.spacing_options.recommended
         or reinforcement.skin.spacing_options.options[-1]
     )
-    if answer not in ("s", "si", "y", "yes"):
+    if not interactive:
         recommended_shear = _recommended_shear_option_or_raise(shear)
         return (
-            ("A. Acero principal longitudinal exterior", recommended_main),
+            ("A. Acero principal longitudinal exterior", chosen_main),
             ("B. Temperatura caras laterales exterior", recommended_temperature),
             ("C. Ask longitudinal exterior por cara", recommended_skin),
             ("D. Estribos por corte exterior", recommended_shear),
@@ -1105,7 +1232,7 @@ def collect_exterior_girder_reinforcement_selection(
     return (
         (
             "A. Acero principal longitudinal exterior",
-            _prompt_main_placement_option(reinforcement.main.placement_options),
+            chosen_main,
         ),
         (
             "B. Temperatura caras laterales exterior",

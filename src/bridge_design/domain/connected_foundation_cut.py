@@ -48,6 +48,11 @@ class FoundationReinforcementCut:
     requested_continuous_spacing_m: float | None = None
     zones: tuple[FoundationZoneCheck, ...] = ()
 
+    @property
+    def is_adopted(self):
+        """A feasible automatic proposal is not an explicit reinforcement choice."""
+        return self.requested_continuous_spacing_m is not None and self.status == "APLICA" and bool(self.zones)
+
 
 def _ratios(values, pattern):
     # section_check computes stresses/capacities with the actual remaining area.

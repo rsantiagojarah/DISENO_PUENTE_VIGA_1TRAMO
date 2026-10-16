@@ -30,7 +30,7 @@ from bridge_design.domain.interior_girder import (
 from bridge_design.domain.load_combinations import combine_transverse_slab_moments
 from bridge_design.reporting.deck_docx_charts import save_strength_chart
 from bridge_design.reporting import deck_docx_detail as detail
-from bridge_design.reporting.models import DeckReportData, selected_option
+from bridge_design.reporting.models import DeckReportData, diaphragm_selection_with_skin, selected_option
 from bridge_design.reporting.deck_report_notes import formal_cantilever_notes, formal_interior_collision_notes
 
 NAVY = "173746"
@@ -626,8 +626,11 @@ def _transverse_slab(document: Document, data: DeckReportData, chart_dir: Path) 
     _picture(document, moment_path, "Figura 2.1. Envolventes factorizadas de momento empleadas en el diseño de la losa.")
     _body(
         document,
-        "Para la losa transversal el diseño principal se basa en flexión. Las reacciones "
-        "de apoyo del modelo se utilizan para la transferencia de cargas a las vigas."
+        "Para la losa transversal el diseño principal se basa en flexión. Las cargas "
+        "superficiales DC, DW y PL de las vigas se asignan por intersección con sus franjas "
+        "tributarias; LL+IM se distribuye con factores g. Las reacciones de esta franja "
+        "transversal no sustituyen ese reparto. La tubería, cuando existe, utiliza su "
+        "propio reparto transversal de reacciones."
     )
 
 
@@ -656,13 +659,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         (row for row in moment_rows if row.limit_state == "Resistencia"),
         key=lambda row: row.combined_moment_tn_m,
     )
-    shear_rows = (
-        combine_exterior_girder_shears(geometry, analysis, reinforcement.parameters)
-        if exterior else combine_interior_girder_shears(geometry, analysis, reinforcement.parameters)
-    )
-    critical_shear = max(shear_rows, key=lambda row: row.combined_shear_tn)
-    if family is not None:
-        critical_shear = shear.controlling_shear
+    critical_shear = shear.controlling_shear
     document.add_heading(f"{number}. {label}", level=1)
     if family is not None:
         from bridge_design.reporting.common_design_tables import word_family_summary
@@ -701,7 +698,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         "h = hbajo + tlosa; d = h − rec − db/2",
         "hbajo: altura de concreto de la viga bajo la losa; tlosa: espesor de losa monolítica; "
         "rec: recubrimiento; db: diámetro supuesto de la barra principal; "
-        "d: peralte efectivo inicial.",
+        "d: peralte efectivo inicial. El centroide adoptado se pondera con ni barras por capa: ycg = Σ(ni·yi)/Σni.",
         f"h = {geometry.girder_total_height_m:.3f} + {geometry.slab_thickness_m:.3f} = "
         f"{geometry.total_t_section_depth_m:.3f} m\n"
         f"d = {geometry.total_t_section_depth_m * 100.0:.2f} − "
@@ -709,7 +706,9 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         f"{reinforcement.parameters.main_bar_diameter_cm:.3f}/2 = "
         f"{initial_effective_depth_cm:.2f} cm.",
         f"El peralte efectivo inicial es d={initial_effective_depth_cm:.2f} cm. "
-        f"Con el centroide de las capas adoptadas se utiliza d={reinforcement.main.effective_depth_cm:.2f} cm.",
+        f"Con el centroide ponderado de las capas adoptadas, "
+        f"ycg={geometry.total_t_section_depth_m * 100.0 - reinforcement.main.effective_depth_cm:.3f} cm, "
+        f"se utiliza d=h−ycg={reinforcement.main.effective_depth_cm:.3f} cm.",
         "El peso propio del alma usa hbajo; el peso de la losa se contabiliza separadamente.",
         REF_FLEX,
     )
@@ -910,6 +909,7 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         reinforcement.skin,
         _option_text(skin),
         _compliance_comment(skin, "Este acero controla la fisuración lateral asociada a la altura del alma."),
+        is_compliant=skin is not None and skin.is_compliant,
     )
     _calc(
         document,
@@ -1129,8 +1129,11 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
     geometry = data.project_inputs.transverse_slab.geometry
     flex = result.flexural_steel
     option = selected_option(data.cantilever_selected, "A.")
+    from bridge_design.domain.adopted_reinforcement import flexural_design_for_option
+    flex = flexural_design_for_option(flex, option,
+        data.project_inputs.materials.concrete, data.project_inputs.materials.steel)
     temperature = selected_option(data.cantilever_selected, "B.")
-    family = data.active_cantilever_family
+    family = getattr(data, "active_cantilever_family", None)
     document.add_heading("6. Losa en voladizo" + (" — armado comun para ambos lados" if family else ""), level=1)
     if family is not None:
         from bridge_design.reporting.common_design_tables import word_family_summary
@@ -1184,13 +1187,16 @@ def _cantilever(document: Document, data: DeckReportData) -> None:
     if has_collision:
         document.add_heading("6.2 Colisión y transferencia de la barrera", level=2)
     if collision is not None:
-        _comment(document, f"N simultanea={collision.axial_tension_tn_m:.3f} Tn/m; As incluye N/(phi*fy). {collision.status}: {collision.scope_note}")
+        _comment(document, f"Interfaz A-A: N = {collision.axial_tension_tn_m:.3f} Tn/m. "
+                 "La raíz B-B se dimensiona con su propio par simultáneo M–N, detallado a continuación. "
+                 f"{collision.status}: {collision.scope_note}")
         _table(document, ("Caso", "M Tn.m/m", "N Tn/m", "V Tn/m", "Estado"),
                tuple((case.name, f"{case.moment_tn_m:.3f}", f"{case.axial_tension_tn_m:.3f}", f"{case.vertical_force_tn_m:.3f}", case.status) for case in collision.cases),
                widths=(75, 30, 30, 30, 25))
         col_formula, col_legend, col_sub, col_result, col_comment = detail.cantilever_collision_trace(
             collision,
             control,
+            flex,
         )
         _calc(
             document,
@@ -1345,7 +1351,9 @@ def _interior_collision_docx(document: Document, collision) -> None:
         "β: factor del procedimiento general con tracción; b=100 cm; dv: peralte efectivo de corte.",
         f"Vu={collision.shear_demand_tn_m:.3f} Tn/m; β={collision.shear_beta:.3f}; "
         f"φVc={collision.shear_capacity_tn_m:.3f} Tn/m.",
-        f"Vu={collision.shear_demand_tn_m:.3f} Tn/m ≤ φVc={collision.shear_capacity_tn_m:.3f} Tn/m: "
+        f"Vu={collision.shear_demand_tn_m:.3f} Tn/m "
+        f"{detail.upper_limit_symbol(collision.shear_demand_tn_m, collision.shear_capacity_tn_m)} "
+        f"φVc={collision.shear_capacity_tn_m:.3f} Tn/m: "
         f"{collision.shear_status}.",
         _status_comment(collision.shear_status, "La franja interior satisface el control de cortante sin estribos."),
         "Manual de Puentes MTC 2018, Art. 2.9.1.5.6.",
@@ -1461,8 +1469,10 @@ def _write_diaphragm_section(
     _calc(
         document,
         "Peralte resistente del diafragma",
-        "h = hbajo + tlosa; d = h − rec − db/2",
-        "hbajo: altura de concreto del diafragma bajo la losa; tlosa: espesor de losa monolítica; d: peralte efectivo inicial.",
+        "h = hbajo + tlosa; ycg = Σ(ni·yi)/Σni; d = h − ycg",
+        "hbajo: altura de concreto del diafragma bajo la losa; tlosa: espesor de losa monolítica; "
+        "ni: barras por capa; yi: distancia desde la cara traccionada; ycg: centroide ponderado. "
+        "El d presentado corresponde al armado positivo adoptado.",
         f"h = {geometry.height_m:.3f} + {geometry.slab_thickness_m:.3f} = "
         f"{geometry.total_depth_m:.3f} m; d = {reinforcement.positive.effective_depth_cm:.2f} cm.",
         f"Se adopta una sección resistente rectangular de b={geometry.thickness_m:.3f} m y "
@@ -1488,14 +1498,15 @@ def _write_diaphragm_section(
         _compliance_comment(temp, "La cuantía adoptada controla la fisuración por cambios volumétricos."),
         REF_TEMP,
     )
-    skin_option = reinforcement.skin.spacing_options.recommended
+    skin_option = selected_option(selected, "E.") or reinforcement.skin.spacing_options.recommended
     if reinforcement.skin.required_area_cm2_m_per_face > 0.0:
         _calc(
             document,
             "Acero longitudinal superficial Ask del diafragma",
-            "Ask = min(0.012·(d_l − 30 in), As/flexión/4); s ≤ min(d_l/6, 300 mm)",
+            "Ask,0 = 0.1·(d_l − 76.2); hz = d_l/200; Ask = min(Ask,0; As,flexión/(4·hz)); s ≤ min(d_l/600; 0.30)",
             "Ask se distribuye por cada cara lateral dentro de d_l/2 desde la cara traccionada. "
-            "La exigencia aplica cuando d_l > 900 mm.",
+            "La exigencia aplica cuando d_l > 900 mm. En estas expresiones d_l está en cm, "
+            "hz y s en m, As,flexión en cm² y Ask en cm²/m por cara.",
             f"d_l = {reinforcement.skin.effective_depth_cm:.2f} cm; "
             f"d_l/2 = {reinforcement.skin.distribution_height_m:.3f} m; "
             f"Ask req = {reinforcement.skin.required_area_cm2_m_per_face:.3f} cm²/m por cara; "
@@ -1630,9 +1641,9 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
     for label, option in data.slab_selected:
         status = _option_status(option)
         if label.startswith("A."):
-            status = data.slab_crack.negative_main.status
+            status = data.slab_crack.negative_main.status if option.is_compliant else "NO CUMPLE"
         elif label.startswith("B."):
-            status = data.slab_crack.positive_main.status
+            status = data.slab_crack.positive_main.status if option.is_compliant else "NO CUMPLE"
         rows.append(("Losa transversal", label.split(".", 1)[-1].strip(), _option_text(option), status))
     selections = [("Viga interior", data.interior_selected), ("Viga exterior", data.exterior_selected)]
     if data.girder_families:
@@ -1696,9 +1707,9 @@ def _conclusions(document: Document, data: DeckReportData) -> None:
             for face in interior_right.faces:
                 rows.append(("Losa interior, lado derecho", f"Minimo por colision, cara {face.face}",
                              _option_text(face.option), face.status))
-    for label, option in data.diaphragm_selected:
+    for label, option in diaphragm_selection_with_skin(data.diaphragm_reinforcement, data.diaphragm_selected):
         rows.append(("Diafragma interior" if data.end_diaphragm_result is not None else "Diafragma", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
-    for label, option in data.end_diaphragm_selected:
+    for label, option in diaphragm_selection_with_skin(data.end_diaphragm_reinforcement, data.end_diaphragm_selected):
         rows.append(("Diafragma extremo", label.split(".", 1)[-1].strip(), _option_text(option), _option_status(option)))
     _table(document, ("Elemento", "Función", "Refuerzo adoptado", "Estado"), tuple(rows), widths=(32, 62, 48, 25), font_size=7.6)
     _comment(
@@ -1720,6 +1731,8 @@ def _references(document: Document) -> None:
 
 
 def _flexural_calc(document, title, design, option, concrete, steel, *, strip: bool) -> None:
+    from bridge_design.domain.adopted_reinforcement import flexural_design_for_option
+    design = flexural_design_for_option(design, option, concrete, steel)
     provided_area = None
     if option is not None:
         provided_area = getattr(
@@ -2328,6 +2341,9 @@ def _moment_row_values(row, *, include_pl: bool):
 
 
 def _sectional_shear_calc_fields(shear, stirrup) -> tuple[str, str, str, str, str]:
+    from bridge_design.domain.adopted_reinforcement import refresh_stirrup_option
+    if stirrup is not None:
+        stirrup = refresh_stirrup_option(stirrup, shear)
     vu = shear.controlling_shear.combined_shear_tn
     vn_max = shear.nominal_shear_limit_tn
     phi_vn_max = shear.phi * vn_max
@@ -2335,7 +2351,7 @@ def _sectional_shear_calc_fields(shear, stirrup) -> tuple[str, str, str, str, st
     limit_ok = phi_vn_max + 1e-9 >= vu
     limit_status = "CUMPLE" if limit_ok else "NO CUMPLE"
     comment = (
-        "La sección crítica se toma a una distancia dv desde el apoyo. "
+        f"La sección crítica del modelo está en x={shear.controlling_shear.position_m:.3f} m. "
         "Vu no supera φVn,max, por lo que el alma puede resistir el cortante con la armadura transversal adoptada."
         if limit_ok
         else (
@@ -2347,6 +2363,22 @@ def _sectional_shear_calc_fields(shear, stirrup) -> tuple[str, str, str, str, st
         option_comment = comment
     else:
         option_comment = _compliance_comment(stirrup, comment)
+    threshold = 0.5 * phi_vc
+    minimum_note = (
+        "Se requiere armadura transversal y se exige Av/s mínimo."
+        if shear.transverse_required else
+        "La baja demanda no activa el mínimo de armadura transversal por cortante "
+        "en este modelo no pretensado; no se ha evaluado torsión."
+    )
+    option_comment += " " + minimum_note
+    adopted_result = ""
+    if stirrup is not None:
+        capacity_ok = stirrup.phi_vn_tn + 1e-9 >= vu
+        adopted_result = (
+            f" Vu = {vu:.3f} Tn {'≤' if capacity_ok else '>'} φVn,prov = {stirrup.phi_vn_tn:.3f} Tn: "
+            f"{'CUMPLE' if capacity_ok else 'NO CUMPLE'} por resistencia. "
+            f"Armado adoptado (resistencia, cuantía y separación): {'CUMPLE' if stirrup.is_compliant else 'NO CUMPLE'}."
+        )
     return (
         "Vu ≤ φVn  ;  Vn = min(Vc + Vs; Vn,max)  ;  Vn,max = 0.25 f'c bv dv  ;  Vs,req = max[0; Vu/φ − Vc]",
         (
@@ -2354,18 +2386,23 @@ def _sectional_shear_calc_fields(shear, stirrup) -> tuple[str, str, str, str, st
             "Vs: aporte de estribos; Vn,max: límite superior del modelo seccional; φ: factor de resistencia."
         ),
         (
+            f"Estación crítica del modelo: x = {shear.controlling_shear.position_m:.3f} m\n"
+            f"bv = {shear.web_width_cm:.2f} cm; dv = {shear.effective_shear_depth_cm:.2f} cm\n"
             f"Vu = {vu:.3f} Tn\n"
             f"Vc = {shear.vc_tn:.3f} Tn\n"
             f"φ = {shear.phi:.3f}\n"
             f"φVc = {phi_vc:.3f} Tn\n"
+            f"Umbral de armadura transversal: 0.5·φVc = {threshold:.3f} Tn; "
+            f"Vu {'>' if shear.transverse_required else '≤'} umbral\n"
             f"Vs,req = {shear.required_vs_tn:.3f} Tn\n"
             f"Vn,max = 0.25 f'c bv dv = {vn_max:.3f} Tn\n"
             f"φVn,max = {shear.phi:.3f}·{vn_max:.3f} = {phi_vn_max:.3f} Tn"
         ),
         (
-            f"Vu = {vu:.3f} Tn ≤ φVn,max = {phi_vn_max:.3f} Tn: {limit_status}. "
+            f"Vu = {vu:.3f} Tn {'≤' if limit_ok else '>'} φVn,max = {phi_vn_max:.3f} Tn: {limit_status}. "
             f"Av,req = {shear.required_av_cm2_m:.3f} cm²/m; Av,min = {shear.minimum_av_cm2_m:.3f} cm²/m; "
             f"smax = {shear.maximum_spacing_m:.3f} m; se adopta {_option_text(stirrup)}."
+            + adopted_result
         ),
         option_comment,
     )

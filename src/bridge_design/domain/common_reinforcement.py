@@ -6,7 +6,7 @@ from bridge_design.domain.interior_girder import (
     custom_main_bar_placement_option, custom_shear_stirrup_option,
 )
 from bridge_design.domain.rebar_catalog import (
-    SpacingGrid, custom_spacing_option, generate_spacing_options,
+    SpacingGrid, custom_spacing_option, _spacing_option_for_bar, _recommended_option,
 )
 
 
@@ -14,12 +14,21 @@ def common_spacing(cases):
     cases = tuple(cases)
     if all(case == cases[0] for case in cases):
         return cases[0]
-    return generate_spacing_options(
-        cases[0].label, max(case.required_area_cm2_m for case in cases),
-        SpacingGrid(minimum_m=max(case.minimum_spacing_m for case in cases),
-                    maximum_m=min(case.maximum_spacing_m for case in cases)),
-        first_item=cases[0].options[0].item,
-    )
+    grid = SpacingGrid(minimum_m=max(case.minimum_spacing_m for case in cases),
+                       maximum_m=min(case.maximum_spacing_m for case in cases))
+    # Keep diameter-specific demands when intersecting the two overhangs.
+    options = tuple(_spacing_option_for_bar(
+        original.item, original.bar,
+        max(next(o.required_area_cm2_m for o in case.options if o.bar == original.bar)
+            for case in cases), grid,
+    ) for original in cases[0].options)
+    options = tuple(replace(option, is_compliant=option.is_compliant and all(
+        next(o.is_compliant for o in case.options if o.bar == option.bar) for case in cases
+    )) for option in options)
+    recommended = _recommended_option(options, grid)
+    return replace(cases[0], required_area_cm2_m=max(case.required_area_cm2_m for case in cases),
+        options=tuple(replace(o, is_recommended=recommended is not None and o.item == recommended.item)
+                      for o in options), minimum_spacing_m=grid.minimum_m, maximum_spacing_m=grid.maximum_m)
 
 
 def common_girder_reinforcement(designs):
@@ -41,8 +50,10 @@ def common_girder_reinforcement(designs):
     recommended = next((o for o in admissible if preferred is not None and o.item == preferred.item), None)
     if recommended is None and admissible:
         recommended = min(admissible, key=lambda o: (o.provided_area_cm2, o.layers, o.bar_count))
-    case = replace(base.main.placement_options, options=tuple(
-        replace(o, is_recommended=recommended is not None and o.item == recommended.item) for o in options))
+    case = replace(base.main.placement_options,
+        required_area_cm2=recommended.required_area_cm2 if recommended else base.main.placement_options.required_area_cm2,
+        options=tuple(
+            replace(o, is_recommended=recommended is not None and o.item == recommended.item) for o in options))
     temperature = max(designs, key=lambda d: d.temperature.required_area_cm2_m_per_face).temperature
     skin = max(designs, key=lambda d: d.skin.required_area_cm2_m_per_face).skin
     return replace(base, main=replace(base.main, placement_options=case),
@@ -119,9 +130,14 @@ def common_girder_detail(members, label):
     )
     details = [m.detail for m in members]
     base = details[0]
+    def main_key(option):
+        return (option.bar_label, option.bar_count, option.layers, option.bars_per_layer,
+                option.effective_depth_cm, option.clear_spacing_cm)
+    def stirrup_key(option):
+        return option.bar_label, option.legs, option.spacing_m
     if any(d.span_length_m != base.span_length_m or
-           d.selected_main_bar != base.selected_main_bar or
-           d.selected_stirrup != base.selected_stirrup for d in details):
+           main_key(d.selected_main_bar) != main_key(base.selected_main_bar) or
+           stirrup_key(d.selected_stirrup) != stirrup_key(base.selected_stirrup) for d in details):
         raise ValueError("El detalle comun requiere igual luz y armado en toda la familia.")
     positions = sorted({s.x_m for d in details for s in d.envelope})
     envelopes = [_girder_envelope(

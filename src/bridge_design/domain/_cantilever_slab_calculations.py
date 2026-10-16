@@ -12,6 +12,7 @@ from bridge_design.codes.mtc_2018 import (
 from bridge_design.domain.cantilever_slab import (
     CantileverCombinedMoment,
     CantileverDevelopmentDesign,
+    CantileverFlexuralCase,
     CantileverFlexuralSteelDesign,
     CantileverLoadEffect,
     CantileverSlabParameters,
@@ -24,8 +25,12 @@ from bridge_design.domain.load_combinations import (
 )
 from bridge_design.domain.materials import MaterialProperties
 from bridge_design.domain.rebar_catalog import (
+    REINFORCING_BAR_CATALOG,
+    ReinforcementCaseOptions,
     ReinforcementSpacingOption,
     SpacingGrid,
+    _recommended_option,
+    _spacing_option_for_bar,
     generate_spacing_options,
 )
 from bridge_design.domain.reinforcement import (
@@ -93,7 +98,59 @@ def design_flexural_steel(
         demand = replace(collision, design_moment_tn_m=case.moment_tn_m,
                          axial_tension_tn_m=case.axial_tension_tn_m)
         candidates.append(_design_flexural_case(geometry, materials, params, compatible, demand))
-    return max(candidates, key=lambda c: c.required_area_cm2_m)
+    base = max(candidates, key=lambda c: c.required_area_cm2_m)
+    base = replace(base, load_cases=tuple(case for c in candidates for case in c.load_cases))
+    grid = _spacing_grid(params)
+    designs, options = {}, []
+    from bridge_design.domain.adopted_reinforcement import flexural_capacity
+    for item, bar in enumerate(REINFORCING_BAR_CATALOG, 1):
+        try:
+            design = cantilever_flexural_for_bar(base, bar, materials.concrete, materials.steel)
+        except ValueError:
+            # An infeasible diameter must not hide other feasible alternatives.
+            options.append(_spacing_option_for_bar(item, bar, float("inf"), grid))
+            continue
+        designs[bar.label] = design
+        option = _spacing_option_for_bar(item, bar, design.required_area_cm2_m, grid)
+        capacity = flexural_capacity(design, option.provided_area_cm2_m, materials.concrete, materials.steel)
+        options.append(replace(option, is_compliant=option.is_compliant and
+            capacity + 1e-9 >= design.minimum_capacity_moment_tn_m / design.strip_length_m))
+    recommended = _recommended_option(tuple(options), grid)
+    chosen = designs[recommended.bar.label] if recommended is not None else base
+    return replace(chosen, spacing_options=ReinforcementCaseOptions(
+        base.spacing_options.label, chosen.required_area_cm2_m,
+        tuple(replace(o, is_recommended=recommended is not None and o.item == recommended.item)
+              for o in options), grid.minimum_m, grid.maximum_m,
+    ))
+
+
+def cantilever_flexural_for_bar(design, bar, concrete, steel):
+    """Recheck every compatible load case at this diameter, without changing steel."""
+    depth = design.effective_depth_cm + (design.bar_diameter_cm - bar.diameter_cm) / 2.0
+    require_positive(depth, "peralte efectivo adoptado")
+    cases = design.load_cases or (CantileverFlexuralCase(
+        design.controlling_combination_name, design.design_moment_tn_m,
+        design.axial_area_cm2_m * design.flexural_resistance_factor * steel.yield_strength_kg_cm2 / 1000,
+    ),)
+    candidates = []
+    for case in cases:
+        minimum_moment = mtc_minimum_flexural_moment_tn_m(case.moment_tn_m, design.cracking_moment_tn_m)
+        axial_area = case.axial_tension_tn_m * 1000 / (
+            design.flexural_resistance_factor * steel.yield_strength_kg_cm2)
+        strength = flexural_steel_area_cm2(
+            minimum_moment, 100 * design.strip_length_m, depth,
+            concrete.compressive_strength_kg_cm2, steel.yield_strength_kg_cm2,
+            design.flexural_resistance_factor, steel.elastic_modulus_kg_cm2,
+        ) / design.strip_length_m + axial_area
+        required = max(strength, design.minimum_area_cm2_m)
+        candidates.append(replace(
+            design, controlling_combination_name=case.combination_name,
+            design_moment_tn_m=case.moment_tn_m, minimum_capacity_moment_tn_m=minimum_moment,
+            effective_depth_cm=depth, bar_diameter_cm=bar.diameter_cm,
+            strength_area_cm2_m=strength, required_area_cm2_m=required, axial_area_cm2_m=axial_area,
+            spacing_options=replace(design.spacing_options, required_area_cm2_m=required),
+        ))
+    return max(candidates, key=lambda c: (c.required_area_cm2_m, c.strength_area_cm2_m))
 
 
 def _design_flexural_case(
@@ -128,32 +185,13 @@ def _design_flexural_case(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
         steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         phi=params.flexural_resistance_factor,
+        steel_elastic_modulus_kg_cm2=materials.steel.elastic_modulus_kg_cm2,
     ) / geometry.strip_length_m + axial_area
     minimum_area = minimum_temperature_area_cm2_m(geometry, params)
     required = max(strength_area, minimum_area)
     spacing_options = generate_spacing_options(
         "Acero superior voladizo", required, _spacing_grid(params)
     )
-    selected = spacing_options.recommended
-    if selected is not None:
-        effective_depth = geometry.slab_thickness_m * 100.0 - params.concrete_cover_cm - selected.bar.diameter_cm / 2.0
-        require_positive(effective_depth, "peralte efectivo adoptado")
-        strength_area = flexural_steel_area_cm2(
-            design_moment_tn_m=minimum_moment,
-            strip_width_cm=geometry.strip_length_m * 100.0,
-            effective_depth_cm=effective_depth,
-            concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
-            steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
-            phi=params.flexural_resistance_factor,
-        ) / geometry.strip_length_m + axial_area
-        required = max(strength_area, minimum_area)
-        if required > spacing_options.required_area_cm2_m + 1e-9:
-            spacing_options = generate_spacing_options(
-                "Acero superior voladizo", required, _spacing_grid(params)
-            )
-            selected = spacing_options.recommended
-            if selected is not None:
-                effective_depth = geometry.slab_thickness_m * 100.0 - params.concrete_cover_cm - selected.bar.diameter_cm / 2.0
     return CantileverFlexuralSteelDesign(
         controlling_combination_name=controlling_name,
         design_moment_tn_m=strength_moment,
@@ -165,6 +203,12 @@ def _design_flexural_case(
         cracking_moment_tn_m=cracking_moment,
         minimum_capacity_moment_tn_m=minimum_moment,
         reference=FLEXURAL_STRENGTH_REFERENCE,
+        bar_diameter_cm=params.main_bar_diameter_cm,
+        strip_length_m=geometry.strip_length_m,
+        flexural_resistance_factor=params.flexural_resistance_factor,
+        axial_area_cm2_m=axial_area,
+        load_cases=(CantileverFlexuralCase(controlling_name, strength_moment,
+                    collision.axial_tension_tn_m if collision is not None else 0.0),),
     )
 
 

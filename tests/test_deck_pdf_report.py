@@ -104,19 +104,22 @@ def test_deck_command_generates_detailed_word_memory_automatically(tmp_path) -> 
         "".join(paragraph.xpath(".//m:t/text()", namespaces=namespaces))
         for paragraph in root.xpath("//w:p[m:oMath]", namespaces=namespaces)
     ]
-    assert "E₊ = 0.660 + 0.55·S" in equation_lines
-    assert "E₋ = 1.220 + 0.25·S" in equation_lines
-    assert equation_lines.count("h = 1.200 + 0.200 = 1.400 m") >= 2
-    assert sum(line.startswith("d = 140.00 − 5.00 − 2.540") and line.endswith("= 133.73 cm") for line in equation_lines) >= 2
-    assert any(line.startswith("E₊ = 0.660 + 0.55·2.100") for line in equation_lines)
-    assert any(line.startswith("E₋ = 1.220 + 0.25·2.100") for line in equation_lines)
+    # OMML introduces spacing around operators; compare mathematical content,
+    # not those typographical spaces, without discarding symbols or numbers.
+    compact = ["".join(line.split()) for line in equation_lines]
+    assert "E₊=0.660+0.55·S" in compact
+    assert "E₋=1.220+0.25·S" in compact
+    assert compact.count("h=1.200+0.200=1.400m") >= 2
+    assert sum(line.startswith("d=140.00−5.00−2.540") and line.endswith("=133.73cm") for line in compact) >= 2
+    assert any(line.startswith("E₊=0.660+0.55·2.100") for line in compact)
+    assert any(line.startswith("E₋=1.220+0.25·2.100") for line in compact)
     assert not any("E₊" in line and "E₋" in line for line in equation_lines)
-    assert any("min[67; 3840/" in line for line in equation_lines)
-    assert "Rw = 2·[k·Mb + k·Mw + Mc·Lc²/H](2·Lc − Lt)" in equation_lines
-    assert any(line.startswith("Rw = 2·[8·") and line.endswith("= 28.232 Tn") for line in equation_lines)
-    assert any(line.startswith("Mcr = γ3·γ1·fr·S") for line in equation_lines)
-    assert any(line.startswith("1.33·Mu = 1.33·") for line in equation_lines)
-    assert any(line.startswith("εy = 4200 ÷ 2000000") for line in equation_lines)
+    assert any("min[67;3840/" in line for line in compact)
+    assert "Rw=2·[k·Mb+k·Mw+Mc·Lc²/H](2·Lc−Lt)" in compact
+    assert any(line.startswith("Rw=2·[8·") and line.endswith("=28.232Tn") for line in compact)
+    assert any(line.startswith("Mcr=γ3·γ1·fr·S") for line in compact)
+    assert any(line.startswith("1.33·Mu=1.33·") for line in compact)
+    assert any(line.startswith("εy=4200÷2000000") for line in compact)
     assert any("εs,prov" in line and "FLUYE" in line for line in equation_lines)
 
 

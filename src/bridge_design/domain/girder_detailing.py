@@ -154,6 +154,8 @@ def _detail_girder(
     include_pedestrian_load: bool,
 ) -> GirderDetailingResult:
     main_bar = selected_main_bar or _default_main_bar(reinforcement)
+    from bridge_design.domain.adopted_reinforcement import adopt_girder_reinforcement
+    reinforcement = adopt_girder_reinforcement(geometry, materials, reinforcement, main_bar)
     stirrup = selected_stirrup or _default_stirrup(geometry, materials, analysis, reinforcement, include_pedestrian_load)
     envelope = _girder_envelope(
         geometry=geometry,
@@ -213,7 +215,7 @@ def _girder_envelope(
         concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
         steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
         web_width_cm=reinforcement.main.web_width_cm,
-        effective_depth_cm=reinforcement.main.effective_depth_cm,
+        effective_depth_cm=main_bar.effective_depth_cm,
     )
     for x_m in (_analysis_positions(analysis) if positions is None else positions):
         dc_m = _moment_at(analysis.dc.moment_samples_tn_m, x_m)
@@ -231,7 +233,7 @@ def _girder_envelope(
             flange_width_cm=reinforcement.main.flange_width_cm,
             flange_thickness_cm=reinforcement.main.flange_thickness_cm,
             web_width_cm=reinforcement.main.web_width_cm,
-            effective_depth_cm=reinforcement.main.effective_depth_cm,
+            effective_depth_cm=main_bar.effective_depth_cm,
             concrete_strength_kg_cm2=materials.concrete.compressive_strength_kg_cm2,
             steel_yield_kg_cm2=materials.steel.yield_strength_kg_cm2,
             phi=reinforcement.parameters.flexural_resistance_factor,

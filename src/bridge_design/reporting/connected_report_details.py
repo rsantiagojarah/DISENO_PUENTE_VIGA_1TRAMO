@@ -58,6 +58,13 @@ def write_model_description(document, result):
           f"{len(mesh.frame.nodes)} nudos y {len(mesh.frame.elements)} elementos Euler Bernoulli. "
           "Cada nudo tiene desplazamientos horizontal y vertical y un giro. Las uniones transmiten axial, cortante y momento. "
           f"Los offsets de sección están {'activados' if data.section_offsets else 'desactivados'}.")
+    if data.section_offsets:
+        _add_native_equation(document, "M_seccion = M_elemento + (e_seccion-e_elemento)*N")
+        _body(document, "Con offsets activados, tanto los diagramas de momento como el diseño utilizan el momento "
+              "trasladado al centroide local de cada sección. M_elemento es el momento recuperado del elemento "
+              "discretizado; e_seccion y e_elemento son sus excentricidades con signo en m, y N es el axial "
+              "simultáneo en tn, positivo en tracción. El traslado conserva el mismo caso y posición; "
+              "no se aplica una segunda vez durante el diseño. N y V no cambian por esta presentación.")
     _body(document, "Se emplean secciones brutas elásticas: b es el ancho de franja, t el espesor y Ec el módulo "
           "de elasticidad del concreto. Los espesores variables se discretizan por tramos. Las propiedades son:")
     for formula in ("A = b*t", "I = b*t^3/12", "EI = Ec*I"):

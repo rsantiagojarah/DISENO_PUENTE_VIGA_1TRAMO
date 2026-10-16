@@ -14,6 +14,17 @@ if TYPE_CHECKING:
     from bridge_design.domain.abutment import AbutmentInputs, SoilPressureResult
 
 
+def surcharge_geometry_factor(inputs: "AbutmentInputs") -> float:
+    """Uniform vertical surcharge per horizontal area on the real sloping face.
+
+    For any Coulomb wedge, its soil area is h*(1+s*tan(beta))/2 times
+    the horizontal loaded width; s=tan(90-theta). Thus Pq=Ka*q*h/(1+s*tan(beta)).
+    This reduces to Ka*q*h for a vertical backface or horizontal backfill.
+    """
+    s = tan(radians(90.0 - inputs.soil.wall_backface_angle_deg))
+    return 1.0 / (1.0 + s * tan(radians(inputs.soil.backfill_slope_deg)))
+
+
 def stem_actions(inputs: "AbutmentInputs", pressures: "SoilPressureResult", cut_m: float = 0.0) -> dict[str, float]:
     """Integrate loads above a horizontal cut; moments about its section centre.
 
@@ -32,7 +43,7 @@ def stem_actions(inputs: "AbutmentInputs", pressures: "SoilPressureResult", cut_
     gamma_c = inputs.materials.concrete_unit_weight_kg_m3 / 1000.0
     q = gamma_s * pressures.live_surcharge_height_m + inputs.soil.pedestrian_surcharge_tn_m2
     ka, kae = pressures.stem_ka, pressures.stem_k_ae
-    ls = ka * q * h
+    ls = ka * q * h * surcharge_geometry_factor(inputs)
     eh = 0.5 * ka * gamma_s * h * h
     pae = 0.5 * kae * gamma_s * h * h
     eq = pae - eh
@@ -73,12 +84,20 @@ def stem_actions(inputs: "AbutmentInputs", pressures: "SoilPressureResult", cut_
 
 
 def heel_transfer(inputs: "AbutmentInputs", state) -> tuple[float, float]:
-    """Additional heel load from equilibrium of the soil above an inclined stem.
+    """Incremental heel load relative to the established vertical smooth-face model."""
+    parts = heel_transfer_breakdown(inputs, state)
+    return parts["vertical"], parts["moment"]
 
-Return vertical force and moment about the back of the stem base, positive down.
-Subtract the real stem reaction, retain the virtual-plane force, and include soil
-inertia. This prevents counting wedge weight and the stem vertical thrust twice.
-"""
+
+def heel_transfer_breakdown(inputs: "AbutmentInputs", state) -> dict[str, float]:
+    """Correction about the heel root, positive vertical force downward.
+
+    Compare the real face with a vertical smooth reference at the heel root,
+    reaching the SAME fill surface (h0=h+b*tan(beta)). Common virtual-plane
+    forces and heel-soil inertia cancel. Only the additional soil above the
+    battered face contributes incremental inertia. This preserves the existing
+    vertical-wall heel model and makes the theta -> 90 limit continuous.
+    """
     from bridge_design.domain.abutment import _soil_pressures, SEISMIC_PAPIR_COMBO_B
     g, soil, f = inputs.geometry, inputs.soil, state.load_factors
     p = _soil_pressures(inputs, 0.0, 0.0, 0.0, 0.0)
@@ -86,35 +105,44 @@ inertia. This prevents counting wedge weight and the stem vertical thrust twice.
     alpha = radians(p.stem_force_angle_deg)
     slope = tan(radians(90.0 - soil.wall_backface_angle_deg))
     setback = h * slope
+    fill_slope = tan(radians(soil.backfill_slope_deg))
+    reference_height = h + setback * fill_slope
     gamma = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
     q = gamma * p.live_surcharge_height_m + soil.pedestrian_surcharge_tn_m2
     wedge = gamma * setback * h / 2.0
-    vertical = f.ev * wedge + f.ls_vertical * q * setback
-    moment = -f.ev * wedge * setback / 3.0 - f.ls_vertical * q * setback**2 / 2.0
+    slope_wedge = gamma * setback**2 * fill_slope / 2.0
+    soil_vertical = f.ev * (wedge + slope_wedge)
+    surcharge_vertical = f.ls_vertical * q * setback
+    soil_moment = -soil_vertical * setback / 3.0
+    surcharge_moment = -surcharge_vertical * setback / 2.0
+    face_vertical = face_moment = 0.0
 
-    def transfer(actual: float, virtual: float, y: float, factor: float) -> None:
-        nonlocal vertical, moment
-        vertical -= factor * actual * sin(alpha)
-        moment += factor * ((actual * cos(alpha) - virtual) * y + actual * sin(alpha) * slope * y)
+    def transfer(actual: float, reference: float, y: float, reference_y: float, factor: float) -> None:
+        nonlocal face_vertical, face_moment
+        face_vertical -= factor * actual * sin(alpha)
+        face_moment += factor * (actual * (cos(alpha) + sin(alpha) * slope) * y - reference * reference_y)
 
-    transfer(p.stem_ka * q * h, p.ka * q * h, h / 2.0, f.ls_horizontal)
+    transfer(p.stem_ka * q * h * surcharge_geometry_factor(inputs), p.ka * q * reference_height,
+             h / 2.0, reference_height / 2.0, f.ls_horizontal)
     eh, pae = 0.5 * p.stem_ka * gamma * h**2, 0.5 * p.stem_k_ae * gamma * h**2
-    vh, vae = 0.5 * p.ka * gamma * h**2, 0.5 * p.k_ae * gamma * h**2
+    vh, vae = 0.5 * p.ka * gamma * reference_height**2, 0.5 * p.k_ae * gamma * reference_height**2
     if state.seismic_papir_combination == SEISMIC_PAPIR_COMBO_B:
         actual, virtual = max(0.5 * pae, eh), max(0.5 * vae, vh)
         ay = h / 3.0 if actual <= eh + 1e-12 else h / 2.0
-        vy = h / 3.0 if virtual <= vh + 1e-12 else h / 2.0
-        vertical -= actual * sin(alpha)
-        moment += actual * (cos(alpha) + sin(alpha) * slope) * ay - virtual * vy
+        vy = reference_height / 3.0 if virtual <= vh + 1e-12 else reference_height / 2.0
+        transfer(actual, virtual, ay, vy, 1.0)
         inertia_factor = 1.0
     else:
-        transfer(eh, vh, h / 3.0, f.eh)
-        transfer(pae - eh, vae - vh, h / 2.0, f.eq)
+        transfer(eh, vh, h / 3.0, reference_height / 3.0, f.eh)
+        transfer(pae - eh, vae - vh, h / 2.0, reference_height / 2.0, f.eq)
         inertia_factor = 0.5
-    soil_first_y = gamma * g.heel_length_m * h**2 / 2.0 + wedge * 2.0 * h / 3.0
-    # The vertical-face reference already uses its established heel model.
-    # For that geometry this routine transfers only the change in face loads;
-    # do not introduce a delta-independent inertia jump at delta -> 0.
-    if soil.wall_backface_angle_deg < 90.0 - 1e-9:
-        moment -= f.eq * inertia_factor * 0.5 * soil.fpga * soil.pga * soil_first_y
-    return vertical, moment
+    soil_first_y = wedge * 2.0 * h / 3.0 + slope_wedge * (h + setback * fill_slope / 3.0)
+    inertia_moment = -f.eq * inertia_factor * 0.5 * soil.fpga * soil.pga * soil_first_y
+    return {
+        "reference_height": reference_height, "wedge_weight": wedge, "slope_wedge_weight": slope_wedge,
+        "soil_vertical": soil_vertical, "surcharge_vertical": surcharge_vertical, "face_vertical": face_vertical,
+        "soil_moment": soil_moment, "surcharge_moment": surcharge_moment,
+        "face_moment": face_moment, "inertia_moment": inertia_moment,
+        "vertical": soil_vertical + surcharge_vertical + face_vertical,
+        "moment": soil_moment + surcharge_moment + face_moment + inertia_moment,
+    }

@@ -70,17 +70,18 @@ def export_connected_results(result, directory):
     if cuts:
         write_csv(destination / "cortes_zapata.csv", ("distribucion", "estado", "criterio", "x_teorico_izq_m", "x_teorico_der_m",
             "x_corte_izq_m", "x_corte_der_m", "distancia_cara_interior_m", "ld_m", "prolongacion_m", "continuas", "cada_n",
-            "As_remanente_cm2_m", "separacion_maxima_real_m", "tramos_adicionales_x_m"),
+            "As_remanente_cm2_m", "separacion_maxima_real_m", "tramos_adicionales_x_m", "uso"),
             ((region, c.status, c.reason, c.theoretical_left_m, c.theoretical_right_m, c.cutoff_left_m, c.cutoff_right_m,
               c.distance_from_inner_face_m, c.development_length_m, c.adopted_extension_m,
               c.pattern.continuing_bars if c.pattern else None, c.pattern.cycle_bars if c.pattern else None,
               c.pattern.remaining_area_cm2_m if c.pattern else None, c.pattern.maximum_gap_m if c.pattern else None,
-              c.additional_intervals_m) for region, c in cuts))
+              c.additional_intervals_m, "ADOPTADO" if c.is_adopted else "PROPUESTA NO ADOPTADA") for region, c in cuts))
         write_csv(destination / "zonas_zapata.csv", ("distribucion", "zona", "x_inicio_m", "x_fin_m", "armado", "As_cm2_m",
             "separacion_real_m", "Ms_local_Tn_m_m", "fs_kg_cm2", "fs_limite_kg_cm2", "s_fisuracion_limite_m",
-            "indice_flexion", "indice_corte", "indice_fisuracion", "indice_minimo", "caso_servicio", "x_servicio_m", "estado"),
+            "indice_flexion", "indice_corte", "indice_fisuracion", "indice_minimo", "caso_servicio", "x_servicio_m", "estado", "uso"),
             ((region, z.name, z.start_m, z.end_m, z.reinforcement, z.area_cm2_m, z.maximum_gap_m,
               z.service_moment_tn_m_m, z.service_stress_kg_cm2, z.service_stress_limit_kg_cm2, z.crack_spacing_limit_m,
               z.flexural_utilization, z.shear_utilization, z.crack_utilization, z.minimum_utilization,
-              z.service_case, z.service_x_m, z.status) for region, c in cuts for z in c.zones))
+              z.service_case, z.service_x_m, z.status, "ADOPTADO" if c.is_adopted else "PROPUESTA NO ADOPTADA")
+             for region, c in cuts for z in c.zones))
     return destination

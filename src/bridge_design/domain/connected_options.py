@@ -30,7 +30,9 @@ def area_options(data, region, demands):
         area = _area_option(demands, inputs, cover, bar, grid.maximum_m, temperature)
         candidate = next(o for o in generate_spacing_options(region, area.required_as_cm2_m, grid).options
                          if o.bar == bar)
-        options.append(_area_option(demands, inputs, cover, bar, candidate.spacing_m, temperature))
+        options.append(replace(area, spacing_m=candidate.spacing_m,
+                               area_per_face_cm2_m=candidate.provided_area_cm2_m,
+                               is_compliant=candidate.is_compliant))
     if not options:
         raise ValueError(f"El espesor y recubrimiento no admiten barras del catalogo: {region}.")
     return tuple(options)
@@ -66,7 +68,8 @@ def choice_from_steel(steel):
     continuous = (ConnectedBarChoice(steel.bar_label, cut.requested_continuous_spacing_m)
                   if cut and cut.requested_continuous_spacing_m is not None else None)
     return ConnectedSteelChoice(ConnectedBarChoice(steel.bar_label, steel.spacing_m),
-                                ConnectedBarChoice(steel.transverse_bar_label, steel.transverse_spacing_m), continuous)
+                                ConnectedBarChoice(steel.transverse_bar_label, steel.transverse_spacing_m),
+                                continuous, steel.stem_cut_selected)
 
 
 def connected_reinforcement_options(result):

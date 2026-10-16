@@ -1,5 +1,7 @@
 """ASCII output helpers for terminal summaries."""
 
+from math import isclose
+
 from bridge_design.cli.ascii_tables import audit_block_title, audit_subtitle, boxed_table
 from bridge_design.domain.barrier import (
     BarrierDesignResult,
@@ -941,13 +943,14 @@ def _format_diaphragm_shear_design_lines(shear: InteriorGirderShearDesign) -> li
     ]
     lines.extend(
         boxed_table(
-            ("x", "Vu", "DC", "DW", "PL+LL", "dv", "Vc", "Vs req", "Av/s req", "s max"),
+            ("x", "Vu", "DC", "DW", "PL", "LL+IM", "dv", "Vc", "Vs req", "Av/s req", "s max"),
             (
                 (
                     f"{row.position_m:.3f}",
                     f"{row.combined_shear_tn:.3f}",
                     f"{row.dc_shear_tn:.3f}",
                     f"{row.dw_shear_tn:.3f}",
+                    f"{row.pl_shear_tn:.3f}",
                     f"{row.ll_im_shear_tn:.3f}",
                     f"{shear.effective_shear_depth_cm:.2f}",
                     f"{shear.vc_tn:.3f}",
@@ -956,7 +959,7 @@ def _format_diaphragm_shear_design_lines(shear: InteriorGirderShearDesign) -> li
                     f"{shear.maximum_spacing_m:.3f}",
                 ),
             ),
-            aligns=("right",) * 10,
+            aligns=("right",) * 11,
             title="Demanda y resistencia por corte",
         )
     )
@@ -967,6 +970,9 @@ def _format_diaphragm_shear_design_lines(shear: InteriorGirderShearDesign) -> li
             f"Armadura transversal requerida: {'SI' if shear.transverse_required else 'NO'}. "
             f"Av/s minimo={shear.minimum_av_cm2_m:.3f} cm2/m; phi={shear.phi:.2f}."
         ),
+        f"Umbral por cortante: 0.5*phi*Vc={0.5 * shear.phi * shear.vc_tn:.3f} Tn. "
+        + ("Se exige el minimo transversal." if shear.transverse_required else
+           "La baja demanda no exige el minimo en este modelo no pretensado; torsion no evaluada."),
         ]
     )
     lines.extend(_format_shear_option_table(shear.options))
@@ -1148,6 +1154,44 @@ def format_transverse_analysis_result(
             "=" * 88,
         ]
     )
+    return "\n".join(lines)
+
+
+def format_common_cantilever_reinforcement_options(
+    reinforcement: CantileverSlabDesignResult,
+    member_designs,
+) -> str:
+    """Show common selectable steel and its governing sides before selection."""
+    members = tuple(member_designs)
+    if not members:
+        raise ValueError("Se requiere al menos un volado para mostrar el armado comun.")
+    flexural_sources = _governing_members(
+        members, lambda member: member[1].flexural_steel.required_area_cm2_m,
+    )
+    temperature_sources = _governing_members(
+        members, lambda member: member[1].temperature_steel.required_area_cm2_m,
+    )
+    lines = [
+        "-" * 96,
+        "TABLAS DE RECOMENDACION DE ARMADO COMUN - VOLADOS",
+        "Opciones comunes de area y separacion para ambos volados; acero por franja de 1.0 m.",
+    ]
+    for label, result in flexural_sources:
+        flexural = result.flexural_steel
+        lines.append(
+            f"Flexion (As requerido): {label} | {flexural.controlling_combination_name} | "
+            f"Mu={flexural.design_moment_tn_m:.3f} Tn.m/m | "
+            f"As req={flexural.required_area_cm2_m:.3f} cm2/m."
+        )
+    lines.extend([
+        (
+            f"Temperatura: {', '.join(member[0] for member in temperature_sources)} | "
+            f"As req={reinforcement.temperature_steel.required_area_cm2_m:.3f} cm2/m."
+        ),
+        "REC: alternativa recomendada dentro de las opciones comunes admisibles.",
+    ])
+    lines.extend(_format_spacing_case_table(reinforcement.flexural_steel.spacing_options))
+    lines.extend(_format_spacing_case_table(reinforcement.temperature_steel.spacing_options))
     return "\n".join(lines)
 
 
@@ -1638,6 +1682,8 @@ def _format_reinforcement_spacing_tables(
             "Separacion calculada con s=Abarra/As req y redondeada hacia abajo "
             f"cada {reinforcement.parameters.spacing_step_m:.3f} m."
         ),
+        "Acero principal: As req se recalcula por diametro; s se reduce si lo exige Servicio I.",
+        "REC principal verifica area, separacion constructiva y fisuracion; no implica cumplimiento global.",
     ]
     for case_options in _reinforcement_case_options(reinforcement):
         lines.extend(_format_spacing_case_table(case_options))
@@ -1660,6 +1706,10 @@ def _reinforcement_case_options(
 
 
 def _format_spacing_case_table(case_options: ReinforcementCaseOptions) -> list[str]:
+    has_cracking = any(option.crack_control_status is not None for option in case_options.options)
+    per_diameter = any(abs(option.required_area_cm2_m - case_options.required_area_cm2_m) > 1e-9
+                       for option in case_options.options)
+    show_required = has_cracking or per_diameter
     rows = (
         (
             option.item,
@@ -1670,15 +1720,19 @@ def _format_spacing_case_table(case_options: ReinforcementCaseOptions) -> list[s
             f"{option.excess_percent:.1f}%",
             "OK" if option.is_compliant else "NO",
             "REC" if option.is_recommended else "",
-        )
+        ) + ((f"{option.required_area_cm2_m:.3f}",) if show_required else ())
+        + ((option.crack_control_status or "--",) if has_cracking else ())
         for option in case_options.options
         if option.is_compliant
     )
     return boxed_table(
-        ("Item", "Diam", "Abar", "s (m)", "As prov", "Exceso", "Estado", "Uso"),
+        ("Item", "Diam", "Abar", "s (m)", "As prov", "Exceso", "Area" if has_cracking else "Estado", "Uso")
+        + (("As req",) if show_required else ()) + (("Fisuracion",) if has_cracking else ()),
         rows,
-        aligns=("right", "right", "right", "right", "right", "right", "center", "center"),
-        title=f"{case_options.label} | As req = {case_options.required_area_cm2_m:.3f} cm2/m",
+        aligns=("right", "right", "right", "right", "right", "right", "center", "center")
+        + (("right",) if show_required else ()) + (("center",) if has_cracking else ()),
+        title=(f"{case_options.label} | As req por diametro (cm2/m)" if per_diameter
+               else f"{case_options.label} | As req = {case_options.required_area_cm2_m:.3f} cm2/m"),
     )
 
 
@@ -2002,7 +2056,8 @@ def format_exterior_girder_analysis_result(
         reinforcement=reinforcement,
     )
     exterior_shear = max(
-        combine_exterior_girder_shears(geometry, result, reinforcement.parameters),
+        combine_exterior_girder_shears(geometry, result, reinforcement.parameters,
+                                     effective_depth_cm=reinforcement.main.effective_depth_cm),
         key=lambda item: item.combined_shear_tn,
     )
     initial_effective_depth_cm = (
@@ -2464,6 +2519,136 @@ def _format_interior_reinforcement_option_tables(
     return lines
 
 
+def _governing_members(members, key, *, minimum=False):
+    """Keep all tied governors, allowing only numerical round-off differences."""
+    governing_value = (min if minimum else max)(key(member) for member in members)
+    return tuple(
+        member for member in members
+        if isclose(key(member), governing_value, rel_tol=1e-10, abs_tol=1e-12)
+    )
+
+
+def format_common_girder_reinforcement_options(
+    reinforcement: InteriorGirderReinforcementDesign,
+    shear: InteriorGirderShearDesign,
+    member_designs,
+) -> str:
+    """Format selectable common girder steel and identify each governing member.
+
+    ``member_designs`` contains ``(label, reinforcement, shear)`` for every
+    independently analysed member in the construction family.  The options
+    passed in ``reinforcement`` and ``shear`` have already been filtered to
+    comply with all of them.
+    """
+    members = tuple(member_designs)
+    if not members:
+        raise ValueError("Se requiere al menos una viga para mostrar el armado comun.")
+
+    main_sources = _governing_members(
+        members, lambda member: member[1].main.required_area_cm2,
+    )
+    temperature_sources = _governing_members(
+        members, lambda member: member[1].temperature.required_area_cm2_m_per_face,
+    )
+    skin_sources = _governing_members(
+        members, lambda member: member[1].skin.required_area_cm2_m_per_face,
+    )
+    shear_demand_sources = _governing_members(
+        members, lambda member: member[2].required_av_cm2_m,
+    )
+    shear_spacing_sources = _governing_members(
+        members, lambda member: member[2].maximum_spacing_m, minimum=True,
+    )
+
+    lines = [
+        "-" * 96,
+        "TABLAS DE RECOMENDACION DE ARMADO COMUN",
+        "Las opciones mostradas cumplen simultaneamente para todas las vigas de esta familia.",
+        "Acero principal: As req y d se calculan para cada disposicion. OK verifica flexion y colocacion; "
+        "servicio y fatiga se revisan con el armado adoptado.",
+        "Piel y estribos corresponden al principal recomendado; sus tablas se actualizan al elegir el armado longitudinal.",
+    ]
+    for label, steel, _shear in main_sources:
+        main = steel.main
+        lines.append(
+            f"Flexion principal: {label} | {main.controlling_combination_name} | "
+            f"x={main.position_m:.3f} m | Mu={main.design_moment_tn_m:.3f} Tn.m | "
+            f"As req={main.required_area_cm2:.3f} cm2."
+        )
+    lines.extend([
+        (
+            f"Temperatura lateral: {', '.join(member[0] for member in temperature_sources)} | "
+            f"As req={reinforcement.temperature.required_area_cm2_m_per_face:.3f} cm2/m por cara."
+        ),
+        (
+            f"Ask longitudinal por cara: {', '.join(member[0] for member in skin_sources)} | "
+            f"As req={reinforcement.skin.required_area_cm2_m_per_face:.3f} cm2/m por cara."
+        ),
+    ])
+    for label, _steel, member_shear in shear_demand_sources:
+        controlling_shear = member_shear.controlling_shear
+        lines.append(
+            f"Corte/estribos (Av/s): {label} | {controlling_shear.combination_name} | "
+            f"x={controlling_shear.position_m:.3f} m | Vu={controlling_shear.combined_shear_tn:.3f} Tn | "
+            f"Av/s req={member_shear.required_av_cm2_m:.3f} cm2/m."
+        )
+    lines.extend([
+        (
+            f"Limite de separacion de estribos: {', '.join(member[0] for member in shear_spacing_sources)} | "
+            f"s max={shear.maximum_spacing_m:.3f} m."
+        ),
+        "REC: alternativa recomendada dentro de las opciones comunes admisibles.",
+    ])
+    lines.extend(_format_main_placement_table(reinforcement.main.placement_options))
+    lines.extend(_format_spacing_case_table(reinforcement.temperature.spacing_options))
+    lines.extend(_format_spacing_case_table(reinforcement.skin.spacing_options))
+    lines.extend(_format_shear_option_table(shear.options))
+    return "\n".join(lines)
+
+
+def format_girder_dependent_reinforcement_options(reinforcement, shear, main) -> str:
+    """Show only the choices that depend on the adopted longitudinal steel."""
+    lines = [
+        "TABLAS ACTUALIZADAS CON EL ARMADO LONGITUDINAL ELEGIDO",
+        f"{main.bar_count} barras {main.bar_label}; d = {main.effective_depth_cm:.3f} cm.",
+        "Estas tablas sustituyen las opciones previas de temperatura, piel y estribos.",
+        f"Av/s req = {shear.required_av_cm2_m:.3f} cm2/m; s max = {shear.maximum_spacing_m:.3f} m.",
+    ]
+    lines.extend(_format_spacing_case_table(reinforcement.temperature.spacing_options))
+    lines.extend(_format_spacing_case_table(reinforcement.skin.spacing_options))
+    lines.extend(_format_shear_option_table(shear.options))
+    return "\n".join(lines)
+
+
+def format_slab_distribution_reinforcement_options(reinforcement) -> str:
+    """Show distribution choices using the positive reinforcement just chosen."""
+    lines = [
+        "TABLA ACTUALIZADA DE DISTRIBUCION CON EL ACERO POSITIVO ELEGIDO",
+        f"d positivo = {reinforcement.positive.effective_depth_cm:.3f} cm; "
+        f"As positivo req = {reinforcement.positive.required_area_cm2_m:.3f} cm2/m.",
+        "Esta tabla sustituye las opciones previas de acero de distribucion.",
+    ]
+    lines.extend(_format_spacing_case_table(reinforcement.distribution.spacing_options))
+    return "\n".join(lines)
+
+
+def format_diaphragm_dependent_reinforcement_options(reinforcement, element_name) -> str:
+    """Show dependent catalogs after adopting both diaphragm main selections."""
+    shear = reinforcement.shear
+    lines = [
+        f"TABLAS ACTUALIZADAS CON EL ARMADO PRINCIPAL ELEGIDO - {element_name.upper()}",
+        f"d negativo = {reinforcement.negative.effective_depth_cm:.3f} cm; "
+        f"d positivo = {reinforcement.positive.effective_depth_cm:.3f} cm.",
+        "Estas tablas sustituyen las opciones previas de temperatura, piel y estribos.",
+        f"Av/s req = {shear.required_av_cm2_m:.3f} cm2/m; s max = {shear.maximum_spacing_m:.3f} m.",
+    ]
+    lines.extend(_format_spacing_case_table(reinforcement.temperature.spacing_options))
+    lines.extend(_format_shear_option_table(shear.options))
+    if reinforcement.skin.required_area_cm2_m_per_face > 0.0:
+        lines.extend(_format_spacing_case_table(reinforcement.skin.spacing_options))
+    return "\n".join(lines)
+
+
 def _format_main_placement_table(case_options) -> list[str]:
     rows = []
     for option in case_options.options:
@@ -2474,6 +2659,8 @@ def _format_main_placement_table(case_options) -> list[str]:
                     option.bar_label,
                     option.bar_count,
                     option.layers,
+                    f"{option.effective_depth_cm:.2f}",
+                    f"{option.required_area_cm2:.3f}",
                     f"{option.provided_area_cm2:.3f}",
                     f"{option.excess_percent:.1f}%",
                     f"{option.clear_spacing_cm:.2f}",
@@ -2481,11 +2668,14 @@ def _format_main_placement_table(case_options) -> list[str]:
                     "REC" if option.is_recommended else "",
                 )
             )
+    if not rows:
+        return [f"{case_options.label}: No hay disposicion admisible con el catalogo y la geometria actuales. "
+                "Revise la seccion, el recubrimiento y la disposicion del armado."]
     return boxed_table(
-        ("Item", "Diam", "N", "Capas", "As prov", "Exceso", "s libre", "Estado", "Uso"),
+        ("Item", "Diam", "N", "Capas", "d (cm)", "As req", "As prov", "Exceso", "s libre", "Estado", "Uso"),
         rows,
-        aligns=("right", "right", "right", "right", "right", "right", "right", "center", "center"),
-        title=f"{case_options.label} | As req = {case_options.required_area_cm2:.3f} cm2",
+        aligns=("right", "right", "right", "right", "right", "right", "right", "right", "right", "center", "center"),
+        title=f"{case_options.label} | As req por disposicion (cm2)",
     )
 
 

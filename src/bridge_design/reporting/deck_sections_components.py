@@ -270,10 +270,11 @@ def _interior_collision_story(collision, styles) -> list:
     return story
 
 
-def diaphragm_story(data: DeckReportData, styles, *, geometry=None, result=None, reinforcement=None, title: str = "7. Diafragmas") -> list:
+def diaphragm_story(data: DeckReportData, styles, *, geometry=None, result=None, reinforcement=None, selected=None, title: str = "7. Diafragmas") -> list:
     geometry = data.project_inputs.diaphragm if geometry is None else geometry
     result = data.diaphragm_result if result is None else result
     reinforcement = data.diaphragm_reinforcement if reinforcement is None else reinforcement
+    selected = data.diaphragm_selected if selected is None else selected
     rows = combine_diaphragm_moments(result)
     strength = [row for row in rows if row.combination_name == "RESISTENCIA I"]
     positive = max((row for row in strength if row.direction == "M+"), key=lambda row: row.combined_moment_tn_m)
@@ -329,6 +330,12 @@ def diaphragm_story(data: DeckReportData, styles, *, geometry=None, result=None,
         )
     )
     if reinforcement.skin.required_area_cm2_m_per_face > 0.0:
+        skin_option = selected_option(selected, "E.") or reinforcement.skin.spacing_options.recommended
+        skin_adoption = (
+            f"Adoptado: {skin_option.bar.label} @ {skin_option.spacing_m:.3f} m; "
+            f"Ask prov={skin_option.provided_area_cm2_m:.3f} cm2/m por cara. "
+            if skin_option is not None else "Sin armado Ask adoptado. "
+        )
         story.append(
             formula_card(
                 "Acero longitudinal superficial Ask del diafragma",
@@ -338,7 +345,7 @@ def diaphragm_story(data: DeckReportData, styles, *, geometry=None, result=None,
                 f"d_l/2={reinforcement.skin.distribution_height_m:.3f} m; "
                 f"s max={reinforcement.skin.maximum_spacing_m:.3f} m",
                 f"Ask req={reinforcement.skin.required_area_cm2_m_per_face:.3f} cm2/m por cara",
-                "La armadura principal lateral solo se cuenta como Ask si se verifica explicitamente su ubicacion y compatibilidad.",
+                skin_adoption + "La armadura principal lateral solo se cuenta como Ask si se verifica explicitamente su ubicacion y compatibilidad.",
                 "MTC 2018 Art. 2.9.1.4.4.3; AASHTO LRFD 5.7.3.4.",
                 styles,
             )
@@ -356,10 +363,16 @@ def diaphragm_story(data: DeckReportData, styles, *, geometry=None, result=None,
         formula_card(
             "Cortante del diafragma",
             "phi(Vc+Vs) >= Vu; Vs = Av fy dv/s",
-            "Vu es la maxima envolvente absoluta de Resistencia I; Av/s se compara con el minimo.",
-            f"Vu={reinforcement.shear.controlling_shear.combined_shear_tn:.3f} Tn; Vc={reinforcement.shear.vc_tn:.3f} Tn; dv={reinforcement.shear.effective_shear_depth_cm:.2f} cm",
+            "Vu es la maxima envolvente absoluta de Resistencia I en las estaciones analizadas, incluidos los apoyos.",
+            f"x={reinforcement.shear.controlling_shear.position_m:.3f} m; "
+            f"Vu={reinforcement.shear.controlling_shear.combined_shear_tn:.3f} Tn; Vc={reinforcement.shear.vc_tn:.3f} Tn; dv={reinforcement.shear.effective_shear_depth_cm:.2f} cm; "
+            f"0.5 phi Vc={0.5 * reinforcement.shear.phi * reinforcement.shear.vc_tn:.3f} Tn",
             f"Av/s req={reinforcement.shear.required_av_cm2_m:.3f} cm2/m; s max={reinforcement.shear.maximum_spacing_m:.3f} m",
-            "Los estribos se eligen en la grilla del proyecto y su separacion se redondea hacia abajo.",
+            ("Vu > 0.5 phi Vc: se exige el minimo transversal. "
+             if reinforcement.shear.transverse_required else
+             "Vu <= 0.5 phi Vc: no se exige el minimo por demanda de cortante en este modelo sin preesfuerzo. "
+             "La torsion no se evalua en esta comprobacion. ")
+            + f"Av/s min={reinforcement.shear.minimum_av_cm2_m:.3f} cm2/m.",
             "MTC 2018 2.9.5; AASHTO LRFD 5.8.",
             styles,
         )

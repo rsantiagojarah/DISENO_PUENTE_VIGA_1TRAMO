@@ -29,6 +29,7 @@ class FoundationZoneCheck:
     service_case: str
     service_x_m: float
     status: str
+    service_check: dict | None = None
 
 
 def foundation_zone_choice(continuous):
@@ -73,8 +74,10 @@ def foundation_zone_checks(data, mesh, steel, demands, cut):
             if max(a, b) < start-1e-8 or min(a, b) > end+1e-8:
                 continue
             values = section_check(demand, data.left, cover, bar, spacing)
+            values["maximum_gap"] = gap
             if values.get("service_tension", False):
-                values["crack_ratio"] = max(values["crack_ratio"], gap/max(values["maximum_spacing"], 1e-12))
+                values["spacing_ratio"] = gap/max(values["maximum_spacing"], 1e-12)
+                values["crack_ratio"] = max(values["stress_ratio"], values["spacing_ratio"])
             checks.append((values, a+demand.station*(b-a)))
         ratios = [max(v[key] for v, _ in checks) for key in ("flexure_ratio", "shear_ratio", "crack_ratio")]
         service = [(v, x) for v, x in checks if "stress" in v]
@@ -86,5 +89,6 @@ def foundation_zone_checks(data, mesh, steel, demands, cut):
             *ratios, minimum, trace.get("demand", {}).get("moment", 0.0), trace.get("stress", 0.0),
             .6*data.left.materials.steel_yield_kg_cm2, trace.get("maximum_spacing", 0.0),
             trace.get("demand", {}).get("case", "Sin caso de servicio"), x,
-            "OK" if max(*ratios, minimum) <= 1+1e-8 else "NO CUMPLE"))
+            "OK" if max(*ratios, minimum) <= 1+1e-8 else "NO CUMPLE",
+            dict(trace, zone=name) if trace else None))
     return tuple(zones)

@@ -49,9 +49,16 @@ def region_audit(result, steel, demands):
     checks = [section_check(demand, inputs, cover, bar, steel.spacing_m) for demand in demands]
     strength = [row for row in checks if row["demand"]["limit_state"] != "service"]
     service = [row for row in checks if row["demand"]["limit_state"] == "service"]
+    cut = steel.foundation_reinforcement_cut
+    if cut is not None and cut.is_adopted:
+        # Reuse the actual local check, including the real gap of a reduced pattern.
+        service = [dict(zone.service_check) for zone in cut.zones if zone.service_check is not None]
+    elif steel.stem_cut_adopted:
+        from bridge_design.domain.connected_stem_cut import adopted_stem_service_checks
+        service = adopted_stem_service_checks(result.inputs, result.mesh, steel, demands)
     flexure = max(strength, key=lambda row: row["flexure_ratio"])
     shear = max(strength, key=lambda row: row["shear_ratio"])
-    crack = max(service, key=lambda row: row["crack_ratio"]) if service else None
+    crack = max(service, key=lambda row: (row["crack_ratio"], abs(row["demand"]["moment"]))) if service else None
     areas = area_requirements(demands, inputs, cover, bar)
     for row in (flexure, shear, crack, *areas):
         if row is None:

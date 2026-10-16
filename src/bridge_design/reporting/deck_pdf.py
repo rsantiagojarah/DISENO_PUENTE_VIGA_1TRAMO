@@ -80,6 +80,7 @@ def generate_deck_pdf(data: DeckReportData, output_path: str | Path) -> Path:
             geometry=data.project_inputs.end_diaphragm,
             result=data.end_diaphragm_result,
             reinforcement=data.end_diaphragm_reinforcement,
+            selected=data.end_diaphragm_selected,
             title="7B. Diafragma de extremo",
         ))
     story.extend(reactions_story(data, styles))

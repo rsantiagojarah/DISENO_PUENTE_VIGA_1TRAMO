@@ -45,6 +45,8 @@ def foundation_cut_chart(result, path):
                         f" Prolongacion {cut.adopted_extension_m:.2f} m.")
         else:
             note = "Acero continuo, sin cortes. " + cut.reason
+        note = ("CORTE ADOPTADO. " if cut.is_adopted else
+                "PROPUESTA NO ADOPTADA: se conserva el acero uniforme. ") + note
         for line, text in enumerate(wrap(note, 122)):
             draw.text((90, y+235+line*34), text, fill=GRAY, font=font(25))
     draw.text((80, 1260), "Longitudes horizontales calculadas del refuerzo continuo y adicional.",

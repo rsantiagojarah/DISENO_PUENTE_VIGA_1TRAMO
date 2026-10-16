@@ -118,3 +118,77 @@ def test_full_geometry_preserves_mirrored_seats_and_abrupt_thickness_change(anal
     asymmetric = analyze_connected_abutments(data)
     frame_envelope_chart(asymmetric, "moment", tmp_path / "asimetrico.png")
     assert (tmp_path / "asimetrico.png").exists()
+
+
+@pytest.fixture(scope="module", params=[1, 2])
+def offset_analysis(request):
+    if request.param == 1:
+        data = ConnectedInputs(FoundationSoil(3000, .50, 26.7), mesh_size_m=1.0,
+                               include_without_bridge=False, section_offsets=True)
+    else:
+        from bridge_design.cli.connected_2_yaml import connected_2_inputs_from_yaml, connected_2_yaml_template
+        data = connected_2_inputs_from_yaml(connected_2_yaml_template(example=True))
+        data = replace(data, foundation_node_count=21, include_without_bridge=False, section_offsets=True)
+    return analyze_connected_abutments(data)
+
+
+def test_offset_diagrams_use_design_moments_and_simultaneous_axials(offset_analysis):
+    from bridge_design.domain.connected_reinforcement import section_demands
+    result = offset_analysis
+    changed = False
+    for case in result.results:
+        demands = {(d.element, d.station): d for rows in
+                   section_demands(result.inputs, result.mesh, (case,)).values() for d in rows}
+        points = {(p.element, p.station): p for rows in frame_envelope(result, "moment", (case.name,)) for p in rows}
+        for raw in case.sections:
+            demand = demands[raw.element, raw.station]
+            point = points[raw.element, raw.station]
+            assert point.minimum == pytest.approx(demand.moment, abs=1e-9)
+            assert point.maximum == pytest.approx(demand.moment, abs=1e-9)
+            assert point.minimum_case == point.maximum_case == case_label(case.name)
+            changed |= abs(raw.moment-demand.moment) > .1
+    assert changed  # Covers variable-depth stems or foundation transitions, not only zero corrections.
+
+
+@pytest.mark.parametrize("field", ["axial", "shear"])
+def test_offset_diagrams_do_not_transform_n_or_v(offset_analysis, field):
+    names = tuple(c.name for c in offset_analysis.results)
+    diagrams = frame_envelope(offset_analysis, field, names)
+    points = {(p.element, p.station): p for rows in diagrams for p in rows}
+    for case in offset_analysis.results:
+        for raw in case.sections:
+            point = points[raw.element, raw.station]
+            assert point.minimum-1e-8 <= getattr(raw, field) <= point.maximum+1e-8
+    assert min(p.minimum for p in points.values()) == pytest.approx(
+        min(getattr(raw, field) for case in offset_analysis.results for raw in case.sections))
+    assert max(p.maximum for p in points.values()) == pytest.approx(
+        max(getattr(raw, field) for case in offset_analysis.results for raw in case.sections))
+
+
+def test_offset_transition_regression_matches_83471_design_moment(analysis):
+    result = analyze_connected_abutments(replace(analysis.inputs, section_offsets=True))
+    name = "Par simultaneo ingresado / Evento Extremo I A EQ-1"
+    case = next(c for c in result.results if c.name == name)
+    raw = next(s for s in case.sections if s.element == 17 and s.station == 1.0)
+    assert raw.moment == pytest.approx(71.80128518375716)
+    point = next(p for p in frame_envelope(result, "moment", (name,))[17] if p.station == 1.0)
+    assert point.maximum == pytest.approx(83.47145421999423)
+    all_names = tuple(c.name for c in result.results)
+    general = next(p for p in frame_envelope(result, "moment", all_names)[17] if p.station == 1.0)
+    assert general.maximum == pytest.approx(point.maximum)
+
+
+@pytest.mark.parametrize("offsets", [False, True])
+def test_word_describes_centroid_transfer_only_when_active(analysis, offsets):
+    from docx import Document
+    from bridge_design.reporting.connected_report_details import write_model_description
+    from bridge_design.reporting.deck_docx import _configure_document
+    data = replace(analysis.inputs, section_offsets=offsets)
+    result = replace(analysis, inputs=data, mesh=build_connected_mesh(data))
+    document = Document()
+    _configure_document(document)
+    write_model_description(document, result)
+    text = " ".join(p.text for p in document.paragraphs)
+    equations = "".join(document.element.xpath(".//m:t/text()")).replace(" ", "")
+    assert ("momento trasladado al centroide local" in text) == offsets
+    assert ("M_seccion=M_elemento+(e_seccion-e_elemento)*N" in equations) == offsets

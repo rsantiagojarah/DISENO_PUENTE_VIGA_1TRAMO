@@ -75,7 +75,7 @@ def test_terminal_contains_shared_formulas_substitutions_and_governing_sources(a
     output = format_connected_audit(analysis, audit)
     assert "4. DESARROLLO DEL DISENO DEL ACERO ADOPTADO" in output
     assert "secciones gobernantes independientes" in output
-    assert "Se compara la longitud recta disponible con ld" in " ".join(output.replace("|", " ").split())
+    assert "Se compara la longitud disponible por separado con ld recto y ld gancho" in " ".join(output.replace("|", " ").split())
     assert "Mcr = 1.072*2.01" in output
     assert "N se incluye en beta" in output
     assert "0.5*N" in output
