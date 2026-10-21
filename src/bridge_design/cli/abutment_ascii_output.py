@@ -368,6 +368,7 @@ def _format_input_summary(result: AbutmentDesignResult) -> list[str]:
         ("Altura frontal", f"{g.front_soil_depth_m:.3f} m"),
     ]
     if not data.is_pure_wall:
+        values.insert(0, ("Tipo de estribo", f"Modelo {g.abutment_type}"))
         values.extend(
             [
                 ("t1 transicion frontal superior", f"{g.small_batter_width_m:.3f} m"),
@@ -391,6 +392,13 @@ def _format_input_summary(result: AbutmentDesignResult) -> list[str]:
             ("Sobrecarga peatonal en relleno", f"{soil.pedestrian_surcharge_tn_m2:.3f} Ton/m2"),
         ]
     )
+    if g.abutment_type == "B":
+        values = [row for row in values if row[0] != "t1 transicion frontal superior"]
+        values.extend([
+            ("N asiento calculado", f"{g.bearing_seat_length_m:.3f} m = t_sup + t2 - b_parapeto"),
+            ("Modelo B: alcance", "Pantalla, talon, puntera y dentellon si existe"),
+            ("Parapeto y cabezal", "Incluidos en pesos; armado local requiere diseno especifico"),
+        ])
     return [
         "",
         *key_value_box(
@@ -477,6 +485,15 @@ def _format_geometry_procedure(result: AbutmentDesignResult) -> list[str]:
         ),
         ("Franja de diseno", "b", f"{g.strip_width_m:.3f}", f"{g.strip_width_m:.3f} m"),
     ]
+    if g.abutment_type == "B":
+        rows.extend([
+            ("Asiento N", "t_sup + t2 - b_parap.",
+             f"{g.upper_stem_thickness_m:.3f} + {g.backfill_step_width_m:.3f} - {g.seat_wall_width_m:.3f}",
+             f"{g.bearing_seat_length_m:.3f} m"),
+            ("Altura de cara inclinada", "H - D - h_parap.",
+             f"{g.retained_height_m:.3f} - {g.footing_thickness_m:.3f} - {g.seat_block_height_m:.3f}",
+             f"{g.seat_body_height_m:.3f} m"),
+        ])
     return [
         "",
         *boxed_table(

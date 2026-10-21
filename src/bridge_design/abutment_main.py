@@ -29,6 +29,7 @@ from bridge_design.cli.abutment_input_prompts import (
 )
 from bridge_design.domain.abutment import (
     AbutmentDesignResult,
+    AbutmentGeometryInputs,
     AbutmentInputs,
     AbutmentKeyInputs,
     AbutmentLoadInputs,
@@ -37,6 +38,7 @@ from bridge_design.domain.abutment import (
     solve_abutment_design,
 )
 from bridge_design.reporting.abutment_docx import generate_abutment_docx_with_dialog
+from bridge_design.domain.abutment_model_b import model_b_geometry
 
 
 def run_abutment_design(
@@ -56,6 +58,8 @@ def run_abutment_design(
     include_bridge_inputs: bool = True,
     include_stem_reinforcement_cut: bool = True,
     generate_word_report: bool = True,
+    geometry_defaults: AbutmentGeometryInputs | None = None,
+    select_abutment_type: bool = True,
 ) -> None:
     """Run the cantilever retaining structure design workflow."""
     if inputs is None:
@@ -68,6 +72,8 @@ def run_abutment_design(
             load_note=load_note,
             include_bridge_inputs=include_bridge_inputs,
             collect_key=False,
+            geometry_defaults=geometry_defaults,
+            select_abutment_type=select_abutment_type,
         )
     preliminary = solve_abutment_design(inputs)
     inputs, preliminary = _consider_footing_width_when_contact_fails(inputs, preliminary)
@@ -220,7 +226,7 @@ def _prompt_yes_no(label: str, default: bool) -> bool:
         print("Ingrese si o no.")
 
 
-def _run_yaml_mode(args: list[str]) -> bool:
+def _run_yaml_mode(args: list[str], model: str | None = None) -> bool:
     if not is_yaml_mode(args):
         return False
     if args[0] == "output":
@@ -228,13 +234,16 @@ def _run_yaml_mode(args: list[str]) -> bool:
             "Guardar plantilla YAML de estribo",
             "modelo_estribo.yaml",
         )
-        save_yaml_file(path, abutment_yaml_template(pure_wall=False))
+        defaults = model_b_geometry() if model == "B" else None
+        save_yaml_file(path, abutment_yaml_template(pure_wall=False, geometry_defaults=defaults))
         print(f"Plantilla YAML guardada en: {path}")
         return True
     path = resolve_yaml_mode_path(args, mode="input") or select_yaml_open_path(
         "Seleccionar YAML de estribo"
     )
     inputs = abutment_inputs_from_yaml(load_yaml_file(path), pure_wall=False)
+    if model is not None and model != inputs.geometry.abutment_type:
+        raise ValueError("--tipo no coincide con geometria.tipo_estribo del YAML.")
     run_abutment_design(inputs=inputs)
     return True
 
@@ -244,9 +253,24 @@ def main(argv: list[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in {"-h", "--help", "help"}:
         print_yaml_mode_help("diseno-estribos")
+        print("  --tipo A|B                 elegir modelo en ingreso manual o plantilla output")
+        print("  diseno-estribos output modelo_b.yaml --tipo B")
         return
     try:
-        if _run_yaml_mode(args):
+        model = None
+        if "--tipo" in args:
+            index = args.index("--tipo")
+            if index + 1 >= len(args) or args[index+1].upper() not in {"A", "B"}:
+                raise ValueError("Use --tipo A o --tipo B.")
+            model = args[index+1].upper()
+            del args[index:index+2]
+        if _run_yaml_mode(args, model):
+            return
+        if args:
+            raise ValueError("Argumentos desconocidos. Consulte diseno-estribos --help.")
+        if model is not None:
+            defaults = model_b_geometry() if model == "B" else AbutmentGeometryInputs()
+            run_abutment_design(geometry_defaults=defaults, select_abutment_type=False)
             return
     except (YamlModeError, ValueError) as exc:
         print(f"Error: {exc}")

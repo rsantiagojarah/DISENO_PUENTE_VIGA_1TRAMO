@@ -94,8 +94,11 @@ class AbutmentGeometryInputs:
     front_soil_depth_m: float = 1.50
     bridge_seat_to_bearing_height_m: float = 1.80
     strip_width_m: float = 1.0
+    abutment_type: str = "A"
 
     def __post_init__(self) -> None:
+        if self.abutment_type not in {"A", "B"}:
+            raise ValueError("tipo_estribo debe ser A o B.")
         non_negative_fields = {
             "seat_block_height_m",
             "seat_wall_width_m",
@@ -110,6 +113,8 @@ class AbutmentGeometryInputs:
             "bridge_seat_to_bearing_height_m",
         }
         for field_name, value in self.__dict__.items():
+            if field_name == "abutment_type":
+                continue
             if field_name in non_negative_fields:
                 require_non_negative(value, field_name)
                 continue
@@ -132,6 +137,27 @@ class AbutmentGeometryInputs:
                 "altura cajuela + altura bloque cajuela + altura transicion no debe exceder "
                 "la altura de pantalla sobre zapata."
             )
+        if self.abutment_type == "B":
+            if self.small_batter_width_m != 0.0:
+                raise ValueError("Modelo B: t1 debe ser cero; la cara exterior tiene pendiente continua.")
+            expected = self.upper_stem_thickness_m + self.backfill_step_width_m
+            if abs(self.bearing_seat_length_m + self.seat_wall_width_m - expected) > 1e-8:
+                raise ValueError("Modelo B: N + b_parapeto debe igualar t_sup + t2.")
+            if self.seat_wall_width_m <= 0 or self.seat_block_height_m <= 0:
+                raise ValueError("Modelo B: el parapeto requiere espesor y altura positivos.")
+            if self.bearing_seat_length_m <= 0:
+                raise ValueError("Modelo B: N debe ser positivo para apoyar el tablero.")
+            if self.seat_body_height_m <= self.backwall_drop_m + self.backwall_taper_height_m:
+                raise ValueError("Modelo B: debe existir pantalla bajo el cabezal y la transicion.")
+            if self.backfill_step_width_m > 0 and self.backwall_taper_height_m <= 0:
+                raise ValueError("Modelo B: t2 positivo requiere altura de transicion positiva.")
+            if self.front_soil_depth_m > self.footing_thickness_m + self.seat_body_height_m:
+                raise ValueError("Modelo B: el suelo frontal no puede superar el asiento del tablero.")
+
+    @property
+    def seat_body_height_m(self) -> float:
+        """Height to the bearing seat above the footing top (model B batter)."""
+        return self.stem_height_above_footing_m - self.seat_block_height_m
 
     @property
     def stem_height_above_footing_m(self) -> float:
@@ -143,6 +169,8 @@ class AbutmentGeometryInputs:
 
     @property
     def load_x_m(self) -> float:
+        if self.abutment_type == "B":
+            return self.toe_length_m + self.lower_stem_thickness_m - self.upper_stem_thickness_m
         return (
             self.lower_stem_thickness_m
             + self.toe_length_m
@@ -373,6 +401,11 @@ class AbutmentInputs:
 
     def __post_init__(self) -> None:
         require_range(self.gamma_eq, "gamma_EQ", 0.0, 1.0)
+        if self.geometry.abutment_type == "B":
+            if self.is_pure_wall:
+                raise ValueError("Modelo B corresponde a estribos con parapeto, no a diseno-muros.")
+            if self.soil.backfill_slope_deg != 0.0:
+                raise ValueError("Modelo B requiere relleno horizontal (beta=0), como el esquema de referencia.")
         validate_wall_backface(self.geometry, self.soil, self.is_pure_wall)
 
 
@@ -1314,6 +1347,11 @@ def mononobe_okabe_active_coefficient(
 def _concrete_components(inputs: AbutmentInputs) -> tuple[LoadComponent, ...]:
     g = inputs.geometry
     gamma = inputs.materials.concrete_unit_weight_kg_m3 / 1000.0
+    if g.abutment_type == "B":
+        from bridge_design.domain.abutment_model_b import concrete_regions
+        return tuple(LoadComponent(region.name, "DC", region.area_m2 * gamma,
+                                   region.centroid_x_m, region.centroid_y_m)
+                     for region in concrete_regions(g) if region.area_m2 > 0.0)
     e71 = g.stem_height_above_footing_m
     if inputs.is_pure_wall:
         rows = (
@@ -1464,6 +1502,11 @@ def _sloping_backfill_component(inputs: AbutmentInputs) -> LoadComponent | None:
 def _soil_components(inputs: AbutmentInputs) -> tuple[LoadComponent, ...]:
     g = inputs.geometry
     gamma = inputs.materials.soil_unit_weight_kg_m3 / 1000.0
+    if g.abutment_type == "B":
+        from bridge_design.domain.abutment_model_b import soil_regions
+        return tuple(LoadComponent(region.name, "EV", region.area_m2 * gamma,
+                                   region.centroid_x_m, region.centroid_y_m)
+                     for region in soil_regions(g) if region.area_m2 > 0.0)
     e71 = g.stem_height_above_footing_m
     if inputs.is_pure_wall:
         effective_heel_m = g.heel_length_m - g.backfill_step_width_m
@@ -2809,6 +2852,10 @@ def _single_stem_reinforcement_cut(
     # ld recto sube el corte en la pantalla. El gancho solo embebe la barra en la zapata.
     anchorage_m = development_extension_m if footing_anchorage_m is None else footing_anchorage_m
     constructive_cut = min(height, theoretical_cut + development_extension_m * bar_cos)
+    if inputs.geometry.abutment_type == "B":
+        from bridge_design.domain.abutment_model_b import back_face_length_m, back_face_height_m
+        constructive_cut = back_face_height_m(inputs.geometry,
+            back_face_length_m(inputs.geometry, theoretical_cut) + development_extension_m)
     (
         moment_at_cut,
         effective_depth_cm,
@@ -2841,6 +2888,11 @@ def _single_stem_reinforcement_cut(
     if effective_depth_cm <= 0.0:
         return None
 
+    lower_length = constructive_cut / bar_cos + anchorage_m
+    continuous_length = height / bar_cos + anchorage_m
+    if inputs.geometry.abutment_type == "B":
+        lower_length = back_face_length_m(inputs.geometry, constructive_cut) + anchorage_m
+        continuous_length = back_face_length_m(inputs.geometry, height) + anchorage_m
     return AbutmentStemReinforcementCut(
         lower_bar_label=lower_bar.label,
         lower_spacing_m=spacing_m,
@@ -2854,8 +2906,8 @@ def _single_stem_reinforcement_cut(
         constructive_cut_height_m=constructive_cut,
         development_extension_m=development_extension_m,
         footing_anchorage_m=anchorage_m,
-        lower_cut_bar_length_m=constructive_cut / bar_cos + anchorage_m,
-        continuous_bar_length_m=height / bar_cos + anchorage_m,
+        lower_cut_bar_length_m=lower_length,
+        continuous_bar_length_m=continuous_length,
         controlling_moment_at_cut_tn_m_m=moment_at_cut,
         required_as_at_cut_cm2_m=required_as,
         moment_resistance_at_cut_tn_m_m=moment_resistance_at_cut,
@@ -2986,6 +3038,10 @@ def _stem_cut_design_at_height(
 
 def _stem_thickness_at_height_m(inputs: AbutmentInputs, height_above_footing_m: float) -> float:
     g = inputs.geometry
+    if g.abutment_type == "B":
+        from bridge_design.domain.abutment_model_b import stem_faces_at_height
+        front, back = stem_faces_at_height(g, height_above_footing_m)
+        return back - front
     height = g.stem_height_above_footing_m
     if not inputs.is_pure_wall:
         y = min(max(height_above_footing_m, 0.0), height)
@@ -3220,7 +3276,8 @@ def _upper_concrete_weight_and_arm(inputs: AbutmentInputs) -> tuple[float, float
     upper = tuple(
         component
         for component in _concrete_components(inputs)
-        if component.name in upper_names
+        if (component.name != "6 Zapata" if inputs.geometry.abutment_type == "B"
+            else component.name in upper_names)
     )
     weight = sum(component.value_tn_m for component in upper)
     arm = sum(
@@ -3268,9 +3325,10 @@ def _heel_weight_breakdown(inputs: AbutmentInputs) -> HeelWeightBreakdown:
         soil_slope_moment = gamma_soil * slope * (setback * length**2 / 2.0 + length**3 / 3.0)
     soil_slope_arm = soil_slope_moment / soil_slope if soil_slope > 0.0 else 0.0
     soil_weight = soil_rect + soil_triangle + soil_step + soil_slope
+    triangle_arm = b_step * (2.0 if g.abutment_type == "B" else 1.0) / 3.0
     soil_arm = 0.0 if soil_weight <= 1e-12 else (
         soil_rect * (b_step + h_heel / 2.0)
-        + soil_triangle * (b_step / 3.0)
+        + soil_triangle * triangle_arm
         + soil_step * (b_step / 2.0)
         + soil_slope_moment
     ) / soil_weight
@@ -3606,6 +3664,9 @@ def _bar_detail_length_m(inputs: AbutmentInputs, element: str, required_ld_cm: f
     g = inputs.geometry
     ld_m = required_ld_cm / 100.0
     if element == "Pantalla":
+        if g.abutment_type == "B":
+            from bridge_design.domain.abutment_model_b import back_face_length_m
+            return back_face_length_m(g, g.stem_height_above_footing_m) + ld_m
         return g.stem_height_above_footing_m / cos(radians(90.0 - inputs.soil.wall_backface_angle_deg)) + ld_m
     if element == "Zapata - talon superior":
         return g.heel_length_m + ld_m
@@ -3646,6 +3707,11 @@ def _stem_temperature_as(inputs: AbutmentInputs) -> float:
 
 def _stem_average_thickness_cm(inputs: AbutmentInputs) -> float:
     g = inputs.geometry
+    if g.abutment_type == "B":
+        # t_sup is the rectangular core, not the actual thickness at the top
+        # of this panel: the exterior batter continues through the head.
+        panel_height = _stem_panel_height_cm(inputs) / 100.0
+        return (g.lower_stem_thickness_m + _stem_thickness_at_height_m(inputs, panel_height)) * 50.0
     return (g.lower_stem_thickness_m + g.upper_stem_thickness_m) * 50.0
 
 

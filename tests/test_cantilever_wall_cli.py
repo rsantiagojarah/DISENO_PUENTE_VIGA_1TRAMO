@@ -450,7 +450,7 @@ def test_cantilever_wall_domain_api_uses_wall_names() -> None:
 def test_abutment_geometry_prompt_includes_pdf_model_dimensions(monkeypatch) -> None:
     from bridge_design.cli.abutment_input_prompts import _collect_geometry
 
-    answers = iter([""] * 15)
+    answers = iter(["A"] + [""] * 15)
     prompts: list[str] = []
 
     def fake_input(prompt: str) -> str:
@@ -462,6 +462,7 @@ def test_abutment_geometry_prompt_includes_pdf_model_dimensions(monkeypatch) -> 
     geometry = _collect_geometry(include_bridge_inputs=True)
 
     prompt_text = "\n".join(prompts)
+    assert "Tipo de estribo A/B" in prompt_text
     assert "t1 - Transicion frontal superior" in prompt_text
     assert "t2 - Retiro superior del relleno" in prompt_text
     assert "cajuela - Longitud horizontal de apoyo" in prompt_text
@@ -479,6 +480,7 @@ def test_abutment_geometry_prompt_accepts_zero_optional_pdf_dimensions(monkeypat
 
     answers = iter(
         [
+            "A",
             "7.8",
             "15",
             "6",

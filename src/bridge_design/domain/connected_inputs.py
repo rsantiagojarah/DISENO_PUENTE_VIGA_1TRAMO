@@ -127,6 +127,8 @@ class ConnectedInputs:
         if self.left.soil.pga != self.right.soil.pga or self.left.soil.fpga != self.right.soil.fpga:
             raise ValueError("PGA y Fpga deben corresponder a un mismo evento sismico en ambos lados.")
         for side in (self.left, self.right):
+            if side.geometry.abutment_type != "A":
+                raise ValueError("El modelo B esta disponible en diseno-estribos individual; el FRAME conectado requiere modelo A.")
             if side.is_pure_wall or side.key.enabled:
                 raise ValueError("Esta modalidad usa estribos con cajuela, sin dentellon.")
             geometry = side.geometry

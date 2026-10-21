@@ -18,6 +18,7 @@ from bridge_design.domain.abutment import (
     equivalent_vehicular_surcharge_height_m,
 )
 from bridge_design.domain.cantilever_wall import cantilever_wall_geometry_inputs, cantilever_wall_load_inputs
+from bridge_design.domain.abutment_model_b import model_b_geometry
 from bridge_design.domain.barrier import (
     BarrierDesignInputs,
     BarrierGeometry,
@@ -128,6 +129,7 @@ def abutment_yaml_template(
         }
     )
     if not pure_wall:
+        geometry["tipo_estribo"] = g.abutment_type
         geometry.update(
             {
                 "transicion_frontal_superior_t1_m": g.small_batter_width_m,
@@ -139,7 +141,16 @@ def abutment_yaml_template(
                 "altura_transicion_m": g.backwall_taper_height_m,
             }
         )
+        if g.abutment_type == "B":
+            geometry.pop("transicion_frontal_superior_t1_m")
     data = _template_header("diseno-muros" if pure_wall else "diseno-estribos")
+    if not pure_wall and g.abutment_type == "B":
+        data["nota"] = (
+            "Modelo B del esquema MODELO_B_ESTRIBO.pdf. Valores de ejemplo editables, no cotas del PDF. "
+            "t_sup es el nucleo rectangular; N + b_parapeto = t_sup + t2. "
+            "longitud_cajuela_m es N; si se omite se calcula. t1=0; relleno horizontal beta=0. "
+            "Las alturas del bloque y transicion deben definirse. Ejes de calculo: x desde borde de puntera hacia talon."
+        )
     data.update(
         {
             "geometria": geometry,
@@ -192,16 +203,28 @@ def abutment_inputs_from_yaml(
     l0 = cantilever_wall_load_inputs() if pure_wall else (load_defaults or AbutmentLoadInputs())
     s0 = AbutmentSoilInputs()
     g = _section(data, "geometria")
+    model = str(_value(g, "tipo_estribo", g0.abutment_type)).strip().upper()
+    if model not in {"A", "B"}:
+        raise ValueError("tipo_estribo debe ser A o B.")
+    if pure_wall and model != "A":
+        raise ValueError("tipo_estribo B solo corresponde a diseno-estribos.")
+    if model == "B" and g0.abutment_type != "B":
+        g0 = model_b_geometry(g0)
     m = _section(data, "materiales")
     loads = _section(data, "cargas_tablero")
     soil = _section(data, "suelo_sismo")
 
     geometry = AbutmentGeometryInputs(
+        abutment_type=model,
         retained_height_m=float(_value(g, "altura_relleno_activo_m", g0.retained_height_m)),
         bridge_length_m=float(_value(g, "luz_puente_m", g0.bridge_length_m)),
         seat_block_height_m=float(_value(g, "altura_cajuela_m", 0.0 if pure_wall else g0.seat_block_height_m)),
         seat_wall_width_m=float(_value(g, "espesor_parapeto_posterior_m", 0.0 if pure_wall else g0.seat_wall_width_m)),
-        bearing_seat_length_m=float(_value(g, "longitud_cajuela_m", 0.0 if pure_wall else g0.bearing_seat_length_m)),
+        bearing_seat_length_m=float(_value(g, "longitud_cajuela_m", (
+            float(_value(g, "espesor_superior_pantalla_m", g0.upper_stem_thickness_m))
+            + float(_value(g, "retiro_superior_relleno_t2_m", g0.backfill_step_width_m))
+            - float(_value(g, "espesor_parapeto_posterior_m", g0.seat_wall_width_m))
+        ) if model == "B" else (0.0 if pure_wall else g0.bearing_seat_length_m))),
         backwall_drop_m=float(_value(g, "altura_bloque_cajuela_m", 0.0 if pure_wall else g0.backwall_drop_m)),
         backwall_taper_height_m=float(_value(g, "altura_transicion_m", 0.0 if pure_wall else g0.backwall_taper_height_m)),
         backfill_step_width_m=float(_value(g, "retiro_superior_relleno_t2_m", 0.0 if pure_wall else g0.backfill_step_width_m)),

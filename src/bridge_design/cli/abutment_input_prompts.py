@@ -18,6 +18,7 @@ from bridge_design.domain.abutment import (
     wall_vertical_front_angle_deg,
 )
 from bridge_design.domain.cantilever_wall import cantilever_wall_geometry_inputs, cantilever_wall_load_inputs
+from bridge_design.domain.abutment_model_b import model_b_geometry
 from bridge_design.domain.rebar_catalog import (
     REINFORCING_BAR_CATALOG,
     ReinforcementCaseOptions,
@@ -39,6 +40,7 @@ def collect_abutment_inputs(
     shared_bearing_soil: AbutmentSoilInputs | None = None,
     shared_materials: AbutmentMaterialInputs | None = None,
     ask_foundation_interface: bool = True,
+    select_abutment_type: bool = True,
 ) -> AbutmentInputs:
     """Collect abutment design inputs from terminal."""
     print("=" * 72)
@@ -46,7 +48,8 @@ def collect_abutment_inputs(
     print("=" * 72)
     print(defaults_note)
 
-    geometry = _collect_geometry(include_bridge_inputs=include_bridge_inputs, geometry_defaults=geometry_defaults)
+    geometry = _collect_geometry(include_bridge_inputs=include_bridge_inputs, geometry_defaults=geometry_defaults,
+                                 select_abutment_type=select_abutment_type)
     materials = shared_materials if shared_materials is not None else _collect_materials()
     if include_bridge_inputs:
         loads = _collect_loads(load_defaults, load_title, load_note)
@@ -81,10 +84,24 @@ def collect_abutment_inputs(
 def _collect_geometry(
     include_bridge_inputs: bool = True,
     geometry_defaults: AbutmentGeometryInputs | None = None,
+    select_abutment_type: bool = True,
 ) -> AbutmentGeometryInputs:
     default = geometry_defaults or (AbutmentGeometryInputs() if include_bridge_inputs else cantilever_wall_geometry_inputs())
     print()
     print("GEOMETRIA")
+    if include_bridge_inputs and select_abutment_type:
+        print("A: estribo actual con transiciones superiores. B: cara exterior inclinada continua, modelo del PDF.")
+        while True:
+            model = input(f"Tipo de estribo A/B [{default.abutment_type}]: ").strip().upper() or default.abutment_type
+            if model in {"A", "B"}:
+                break
+            print("Ingrese A o B.")
+        if model != default.abutment_type:
+            default = model_b_geometry(default) if model == "B" else AbutmentGeometryInputs()
+    model_b = include_bridge_inputs and default.abutment_type == "B"
+    if model_b:
+        print("Modelo B: t_sup es el ancho del nucleo rectangular; N=t_sup+t2-b_parapeto se calcula.")
+        print("Cara exterior continua hasta el asiento. Talon a la izquierda en el dibujo. Relleno horizontal beta=0.")
     retained_height_label = (
         "H activo - altura de relleno posterior desde fondo de zapata"
         if include_bridge_inputs
@@ -134,15 +151,21 @@ def _collect_geometry(
     if include_bridge_inputs:
         geometry_kwargs.update(
             {
-                "small_batter_width_m": prompt_non_negative_float("t1 - Transicion frontal superior", "m", default.small_batter_width_m),
+                "small_batter_width_m": 0.0 if model_b else prompt_non_negative_float("t1 - Transicion frontal superior", "m", default.small_batter_width_m),
                 "backfill_step_width_m": prompt_non_negative_float("t2 - Retiro superior del relleno", "m", default.backfill_step_width_m),
-                "bearing_seat_length_m": prompt_non_negative_float("cajuela - Longitud horizontal de apoyo", "m", default.bearing_seat_length_m),
+                "bearing_seat_length_m": 0.0 if model_b else prompt_non_negative_float("cajuela - Longitud horizontal de apoyo", "m", default.bearing_seat_length_m),
                 "seat_wall_width_m": prompt_non_negative_float("e parapeto - Espesor parapeto posterior", "m", default.seat_wall_width_m),
                 "seat_block_height_m": prompt_non_negative_float("altura cajuela - Altura del parapeto superior", "m", default.seat_block_height_m),
                 "backwall_drop_m": prompt_non_negative_float("altura bloque cajuela", "m", default.backwall_drop_m),
                 "backwall_taper_height_m": prompt_non_negative_float("altura transicion", "m", default.backwall_taper_height_m),
             }
         )
+    if model_b:
+        geometry_kwargs["bearing_seat_length_m"] = round(
+            geometry_kwargs["upper_stem_thickness_m"] + geometry_kwargs["backfill_step_width_m"]
+            - geometry_kwargs["seat_wall_width_m"], 12
+        )
+        print(f"N - Longitud horizontal del asiento calculada: {geometry_kwargs['bearing_seat_length_m']:.3f} m")
     geometry = replace(
         default,
         **geometry_kwargs,
@@ -224,7 +247,11 @@ def _collect_soil(
         print("delta no puede superar el angulo de friccion del relleno.")
         wall_soil_friction = prompt_non_negative_float("delta muro-suelo", "grados", 0.0)
     print("Adopte delta segun la interfaz: MTC 2018, Tabla 2.4.4.1.5.3-1.")
-    backfill_slope = prompt_non_negative_float("beta pendiente del relleno", "grados", default.backfill_slope_deg)
+    if geometry.abutment_type == "B":
+        backfill_slope = 0.0
+        print("Modelo B: relleno horizontal beta=0, conforme al esquema.")
+    else:
+        backfill_slope = prompt_non_negative_float("beta pendiente del relleno", "grados", default.backfill_slope_deg)
     if element_label == "muro":
         print("beta es la pendiente del relleno desde la horizontal; se admite beta>0 con trasdos vertical o inclinado.")
         print("Relleno del lado del trasdos. theta se mide desde la horizontal (90 = trasdos vertical).")

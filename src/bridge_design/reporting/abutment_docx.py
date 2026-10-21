@@ -276,7 +276,7 @@ def _cover(document: Document, result: AbutmentDesignResult, labels: _ReportLabe
         document,
         ("Dato", "Descripción"),
         (
-            ("Sistema", labels.system),
+            ("Sistema", labels.system + (f". Modelo {g.abutment_type}" if not data.is_pure_wall else "")),
             ("Altura retenida", f"{g.retained_height_m:.2f} m"),
             ("Ancho de zapata", f"{g.footing_width_m:.2f} m"),
             ("Ángulo de fricción", f"{data.soil.friction_angle_deg:.1f}°"),
@@ -331,6 +331,11 @@ def _design_basis(
     m = data.materials
     document.add_heading("1. Bases de diseño", level=1)
     _body(document, labels.analysis_intro)
+    if g.abutment_type == "B":
+        _body(document, "Modelo B con cara exterior inclinada continua hasta el asiento del tablero. "
+              "La geometria sigue las regiones 1 a 11 del esquema de referencia. "
+              "El calculo disena la pantalla, el talon, la puntera y el dentellon cuando existe. "
+              "El parapeto y el cabezal se incluyen en pesos y brazos; su armado local y la zona de apoyo requieren diseno especifico.")
     document.add_heading("1.1 Materiales y parámetros geotécnicos", level=2)
     _table(
         document,
@@ -363,6 +368,7 @@ def _design_basis(
         ("Suelo frontal", "hf", f"{g.front_soil_depth_m:.3f} m"),
     ]
     if not data.is_pure_wall:
+        geometry_rows.insert(0, ("Tipo de estribo", "Modelo", g.abutment_type))
         geometry_rows.extend(
             (
                 ("Longitud de cajuela", "Lc", f"{g.bearing_seat_length_m:.3f} m"),
@@ -374,18 +380,28 @@ def _design_basis(
                 ("Retiro superior t2", "t2", f"{g.backfill_step_width_m:.3f} m"),
             )
         )
+        if g.abutment_type == "B":
+            geometry_rows = [row for row in geometry_rows if row[1] != "t1"]
+            geometry_rows.append(("Altura de cara exterior inclinada", "H-D-hc", f"{g.seat_body_height_m:.3f} m"))
     _table(
         document,
         ("Parámetro", "Símbolo", "Valor"),
         tuple(geometry_rows),
         widths=(78, 30, 59),
     )
+    if g.abutment_type == "B":
+        _body(document, "t_sup corresponde al nucleo rectangular de la region 4 y es la referencia del ancho "
+              "en el nivel del asiento, sin t2. El espesor real de pantalla se obtiene entre sus dos caras a cada altura. "
+              f"N=t_sup+t2-b_parapeto={g.bearing_seat_length_m:.3f} m. "
+              "Los brazos x se miden desde el borde exterior de puntera hacia el talon, aunque el dibujo se presenta como el PDF.")
     hp_label = "Hp" if data.is_pure_wall else "Hp'"
     hp_comment = (
         "La altura se utiliza para obtener los empujes y sus brazos respecto de la cara superior de la zapata."
         if data.is_pure_wall
         else "La altura libre de pantalla Hp' excluye la cajuela y el bloque de asiento del tablero."
     )
+    if g.abutment_type == "B":
+        hp_comment = "Hp'=H-D incluye el parapeto; la cara exterior inclinada tiene altura H-D-h_parapeto."
     _calc(
         document,
         "Altura libre de pantalla",
@@ -759,7 +775,7 @@ def _stability_state_calculations(
 def _key_design(document: Document, result: AbutmentDesignResult) -> None:
     document.add_heading("5. Dentellón y resistencia pasiva", level=1)
     if result.key is None:
-        _body(document, "La solución adoptada no requiere dentellón; la fricción de base satisface el deslizamiento en todos los estados.")
+        _body(document, "No se ha incluido dentellón en el modelo. La verificación al deslizamiento se presenta para cada estado en la sección 4.")
         return
     data = result.inputs
     key = result.key

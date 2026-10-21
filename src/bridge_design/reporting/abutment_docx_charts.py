@@ -74,6 +74,8 @@ def _without_repeated_points(points: list[tuple[float, float]]) -> list[tuple[fl
 
 def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path) -> Path:
     """Draw the adopted abutment cross-section and its principal dimensions."""
+    if result.inputs.geometry.abutment_type == "B":
+        return _save_model_b_geometry(result, output_path)
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     image = Image.new("RGB", (1800, 980), "white")
@@ -204,6 +206,82 @@ def save_abutment_geometry(result: AbutmentDesignResult, output_path: str | Path
     draw.text((pressure_label_x, top + height / 2 + 40), "Empuje sobre pantalla", font=small, fill=ACCENT)
     if result.inputs.is_pure_wall:
         draw.text((70, 85), f"Trasdós: θ = {result.inputs.soil.wall_backface_angle_deg:.4f}°; relleno: β = {result.inputs.soil.backfill_slope_deg:.3f}°; Hv = {display_height:.3f} m", font=small, fill=INK)
+    image.save(path, dpi=(220, 220), optimize=True)
+    return path
+
+
+def _save_model_b_geometry(result: AbutmentDesignResult, output_path: str | Path) -> Path:
+    """Equal-scale region diagram, reflected to match the reference PDF."""
+    from bridge_design.domain.abutment_model_b import concrete_regions, soil_regions
+    g = result.inputs.geometry
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", (1800, 1500), "white")
+    draw = ImageDraw.Draw(image)
+    regular, small, bold = _font(30), _font(26), _font(36, bold=True)
+    draw.text((65, 30), "Modelo B - seccion transversal adoptada", font=bold, fill=INK)
+    draw.text((65, 83), "Regiones de concreto 1-6 y relleno 7-11. Talon a la izquierda, como el PDF.", font=regular, fill=INK)
+    depth = result.inputs.key.height_m if result.key is not None else 0.0
+    scale = min(1020/g.footing_width_m, 1050/(g.retained_height_m+depth))
+    left = 210 + (1020-g.footing_width_m*scale)/2
+    right = left+g.footing_width_m*scale
+    base = 1280-depth*scale
+
+    def sx(x):
+        return left+(g.footing_width_m-x)*scale
+
+    def sy(y):
+        return base-y*scale
+
+    # Draw the front-soil surface and region partition exactly as calculated.
+    regions = (*soil_regions(g), *concrete_regions(g))
+    for region in regions:
+        if region.area_m2 <= 1e-12:
+            continue
+        polygon = [(sx(x), sy(y)) for x, y in region.vertices]
+        draw.polygon(polygon, fill=CONCRETE if int(region.name.split()[0]) <= 6 else SOIL, outline=RULE)
+        draw.line(polygon+[polygon[0]], fill=INK, width=2)
+    for region in regions:
+        if region.area_m2 <= 1e-12:
+            continue
+        label = region.name.split()[0]
+        x, y = sx(region.centroid_x_m), sy(region.centroid_y_m)
+        # Small regions have a leader, preserving readable numbering.
+        box = draw.textbbox((0, 0), label, font=small)
+        if label in {"3", "8", "10"} or region.area_m2*scale**2 < 2100:
+            dx, dy = {"3": (130, -35), "8": (-100, 10), "10": (190, -65)}.get(label, (110, -35))
+            draw.line((x, y, x+dx, y+dy), fill=INK, width=2)
+            x, y = x+dx, y+dy
+        draw.ellipse((x-21, y-21, x+21, y+21), fill="white", outline=INK, width=2)
+        draw.text((x-(box[2]-box[0])/2, y-18), label, font=small, fill=INK)
+    if result.key is not None:
+        center = g.toe_length_m+g.lower_stem_thickness_m/2
+        half = result.inputs.key.width_m/2
+        draw.rectangle((sx(center+half), base, sx(center-half), sy(-depth)), fill=CONCRETE, outline=INK, width=3)
+    _dimension(draw, (left, 1400), (right, 1400), "B", regular, horizontal=True)
+    _dimension(draw, (left-75, base), (left-75, sy(g.retained_height_m)), "H", regular, horizontal=False)
+    back = g.toe_length_m+g.lower_stem_thickness_m
+    _dimension(draw, (left, 1340), (sx(back), 1340), "L_talon", small, horizontal=True)
+    if g.toe_length_m > 0:
+        _dimension(draw, (sx(g.toe_length_m), 1340), (right, 1340), "L_punta", small, horizontal=True)
+    _dimension(draw, (right+60, base), (right+60, sy(g.footing_thickness_m)), "D", regular, horizontal=False)
+    draw.text((1340, 190), "Dimensiones en metros", font=bold, fill=INK)
+    dimensions = (
+        ("H", g.retained_height_m), ("B", g.footing_width_m), ("D", g.footing_thickness_m),
+        ("L_talon", g.heel_length_m), ("L_punta", g.toe_length_m),
+        ("t_inf", g.lower_stem_thickness_m), ("t_sup", g.upper_stem_thickness_m),
+        ("t2", g.backfill_step_width_m), ("N", g.bearing_seat_length_m),
+        ("b_parap.", g.seat_wall_width_m), ("h_parap.", g.seat_block_height_m),
+        ("h_bloque", g.backwall_drop_m), ("h_transicion", g.backwall_taper_height_m),
+        ("h frontal", g.front_soil_depth_m),
+    )
+    for i, (label, value) in enumerate(dimensions):
+        draw.text((1340, 250+i*48), f"{label} = {value:.3f}", font=regular, fill=INK)
+    draw.text((1340, 1000), "Ejes del calculo:", font=regular, fill=INK)
+    draw.text((1340, 1045), "x=0: borde de puntera", font=small, fill=INK)
+    draw.text((1340, 1085), "x=B: borde de talon", font=small, fill=INK)
+    draw.text((1340, 1125), "y=0: fondo de zapata", font=small, fill=INK)
+    draw.text((65, 1450), "t_sup: nucleo rectangular. N = t_sup + t2 - b_parap. Relleno horizontal.", font=small, fill=INK)
     image.save(path, dpi=(220, 220), optimize=True)
     return path
 

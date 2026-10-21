@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 def _back_x(g: "AbutmentGeometryInputs", y: float) -> float:
     """Back of the actual stepped section, measured from the toe."""
+    if g.abutment_type == "B":
+        from bridge_design.domain.abutment_model_b import stem_faces_at_height
+        return stem_faces_at_height(g, y)[1]
     x = g.toe_length_m + g.lower_stem_thickness_m
     body = g.stem_height_above_footing_m - g.seat_block_height_m - g.backwall_drop_m
     start = body - g.backwall_taper_height_m

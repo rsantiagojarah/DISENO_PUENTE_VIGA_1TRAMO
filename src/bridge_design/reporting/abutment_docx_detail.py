@@ -443,6 +443,9 @@ def concrete_geometry_rows(result: AbutmentDesignResult) -> tuple[tuple[str, ...
 
 
 def _concrete_area_expression(name: str, g) -> str:
+    if g.abutment_type == "B":
+        from bridge_design.domain.abutment_model_b import concrete_regions
+        return next(region.area_expression for region in concrete_regions(g) if region.name == name)
     mapping = {
         "1 Parapeto": "ep·hc",
         "2 Cajuela": "hb·(Lc+ep)",
@@ -1072,6 +1075,9 @@ def cracking_and_temperature_trace(
             f"{result.inputs.geometry.upper_stem_thickness_m*100:.1f})/2"
         )
         h_label = "Hp" if result.inputs.is_pure_wall else "Hp'"
+        if result.inputs.geometry.abutment_type == "B":
+            b_label = "e_medio_real del panel"
+            h_label = "h_panel bajo transicion"
     elif case.name == "Diente de concreto":
         b_cm = result.inputs.key.width_m * 100.0
         h_cm = result.inputs.key.height_m * 100.0
@@ -1350,6 +1356,22 @@ def stem_cut_constructive_length_trace(
     cut: AbutmentStemReinforcementCut,
 ) -> tuple[str, str, str, str, str]:
     g = result.inputs.geometry
+    if g.abutment_type == "B":
+        from bridge_design.domain.abutment_model_b import back_face_length_m
+        return (
+            "s(y)=longitud acumulada del trasdos; s(hc)=min[s(Hp),s(ht)+ld_recto]; "
+            "Lcort=s(hc)+ld_zapata; Lcont=s(Hp)+ld_zapata",
+            "s incluye los tramos verticales y la transicion inclinada de longitud sqrt(h_transicion^2+t2^2). "
+            "ht y hc son alturas sobre zapata; ld_zapata es el anclaje dentro de la base.",
+            f"ht={cut.theoretical_cut_height_m:.3f} m; s(ht)={back_face_length_m(g, cut.theoretical_cut_height_m):.3f} m; "
+            f"ld_recto={cut.development_extension_m:.3f} m; hc={cut.constructive_cut_height_m:.3f} m\n"
+            f"s(hc)={back_face_length_m(g, cut.constructive_cut_height_m):.3f} m; "
+            f"s(Hp)={back_face_length_m(g, g.stem_height_above_footing_m):.3f} m; "
+            f"ld_zapata={cut.footing_anchorage_m:.3f} m",
+            f"Lcort={cut.lower_cut_bar_length_m:.3f} m; Lcont={cut.continuous_bar_length_m:.3f} m.",
+            "La prolongacion se mide sobre el recorrido de la barra por la cara del relleno. "
+            "El doblado y acomodo de barras en el cabezal requieren detalle constructivo.",
+        )
     formula = (
         "α=90°-θ; hc=min(Hp, ht+ld_recto·cosα); "
         "Lcort=hc/cosα+ld_zapata; Lcont=Hp/cosα+ld_zapata"
