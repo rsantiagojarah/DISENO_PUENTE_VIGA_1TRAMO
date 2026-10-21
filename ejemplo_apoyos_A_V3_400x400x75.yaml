@@ -1,0 +1,113 @@
+# Caso V3 aprobado: izquierdo fijo, derecho movil; unidades Tn, cm y m.
+esquema: fijo_movil_un_tramo
+diametro_pasador_cm: 2.54
+reacciones_verticales_iguales: true
+desplazamiento_fijo_cm: 0.0
+movil:
+  proyecto: Puente de 15 m Apoyos de la viga V3
+  identificador: V3 derecho movil
+  alcance: neopreno
+  acciones:
+    dc_tn: 20.016
+    dw_tn: 3.095
+    ll_sin_im_tn: 26.841353383458642
+    pl_tn: 0.0
+    im_tn: 8.857646616541356
+    reaccion_minima_tn: 23.111
+    fuente: Reacciones V3 del usuario; LL+IM=35.699 Tn sin carril, IM=0.33 LL. Pmin=DC+DW
+      confirmado en servicio; retraccion=0.45 cm como hipotesis.
+  movimientos:
+    longitud_expansion_m: 15.0
+    zona_climatica: sierra
+    temperatura_instalacion_c: 23.0
+    temperatura_minima_c: 7.0
+    temperatura_maxima_c: 23.0
+    retraccion_cm: 0.45
+    postensado_cm: 0.0
+    otros_cm: 0.0
+    gamma_tu: 1.2
+    alpha_por_c: 1.08e-05
+    usar_rango_completo: false
+  geometria:
+    ancho_cm: 40.0
+    largo_cm: 40.0
+    altura_total_cm: 7.5
+    seleccion: medida
+    recubrimiento_lateral_cm: 0.0
+    rotacion_catalogo_rad: null
+    capa_interior_cm: 2.0
+    capa_exterior_cm: 1.15
+    numero_capas_interiores: 2
+    zuncho_cm: 0.4
+    cantidad_agujeros: 1
+    diametro_agujeros_cm: 2.54
+    largo_maximo_busqueda_cm: 120.0
+    maximo_capas_busqueda: 20
+    casi_cuadrado: true
+    rotacion_principal_eje_transversal: true
+  materiales:
+    shore_a: 60
+    fy_zuncho_kg_cm2: 2530.0
+  conexiones:
+    mu: 0.2
+  compresion:
+    metodo: serquen
+    fuente: ''
+    tipo: fabricante
+    shore_a: 60
+    puntos: []
+  junta_limite_cm: 0.3175
+fijo:
+  proyecto: Puente de 15 m Apoyos de la viga V3
+  identificador: V3 izquierdo fijo
+  alcance: neopreno
+  acciones:
+    dc_tn: 20.016
+    dw_tn: 3.095
+    ll_sin_im_tn: 26.841353383458642
+    pl_tn: 0.0
+    im_tn: 8.857646616541356
+    reaccion_minima_tn: 23.111
+    fuente: Reacciones V3 del usuario; LL+IM=35.699 Tn sin carril, IM=0.33 LL. Pmin=DC+DW
+      confirmado en servicio; retraccion=0.45 cm como hipotesis.
+  movimientos:
+    longitud_expansion_m: 15.0
+    zona_climatica: sierra
+    temperatura_instalacion_c: 23.0
+    temperatura_minima_c: 7.0
+    temperatura_maxima_c: 23.0
+    retraccion_cm: 0.45
+    postensado_cm: 0.0
+    otros_cm: 0.0
+    gamma_tu: 1.2
+    alpha_por_c: 1.08e-05
+    usar_rango_completo: false
+  geometria:
+    ancho_cm: 40.0
+    largo_cm: 40.0
+    altura_total_cm: 7.5
+    seleccion: medida
+    recubrimiento_lateral_cm: 0.0
+    rotacion_catalogo_rad: null
+    capa_interior_cm: 2.0
+    capa_exterior_cm: 1.15
+    numero_capas_interiores: 2
+    zuncho_cm: 0.4
+    cantidad_agujeros: 1
+    diametro_agujeros_cm: 2.54
+    largo_maximo_busqueda_cm: 120.0
+    maximo_capas_busqueda: 20
+    casi_cuadrado: true
+    rotacion_principal_eje_transversal: true
+  materiales:
+    shore_a: 60
+    fy_zuncho_kg_cm2: 2530.0
+  conexiones:
+    mu: 0.2
+  compresion:
+    metodo: serquen
+    fuente: ''
+    tipo: fabricante
+    shore_a: 60
+    puntos: []
+  junta_limite_cm: 0.3175

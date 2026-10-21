@@ -13,7 +13,7 @@ def bearing_pair_template():
         data['conexiones'] = {'mu':.2}
         supports[role] = data
     return {'esquema':'fijo_movil_un_tramo','reacciones_verticales_iguales':False,
-            'desplazamiento_fijo_cm':0.,**supports}
+            'desplazamiento_fijo_cm':0.,'diametro_pasador_cm':None,**supports}
 
 
 def bearing_pair_from_yaml(data):
@@ -33,4 +33,7 @@ def bearing_pair_from_yaml(data):
     displacement = data.get('desplazamiento_fijo_cm',0.)
     if isinstance(displacement,bool) or not isinstance(displacement,(int,float)):
         raise ValueError('desplazamiento_fijo_cm requiere un número no negativo.')
-    return BearingPairInputs(mobile,fixed,equal,displacement)
+    pin = data.get('diametro_pasador_cm')
+    if pin is not None and (isinstance(pin,bool) or not isinstance(pin,(int,float))):
+        raise ValueError('diametro_pasador_cm requiere un número positivo o null.')
+    return BearingPairInputs(mobile,fixed,equal,displacement,pin)

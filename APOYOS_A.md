@@ -1,6 +1,6 @@
 # Dimensionamiento de apoyos de neopreno - Método A
 
-`diseno-apoyos-A` dimensiona un apoyo rectangular zunchado sin agujeros ni PTFE para un puente de concreto armado construido en sitio. Incluye geometría, movimientos, compresión, capas, zunchos por servicio y fatiga, estabilidad, deflexiones y fricción. No dimensiona ni verifica el pedestal ni las conexiones sísmicas externas. La fricción insuficiente se informa expresamente.
+`diseno-apoyos-A` dimensiona el sistema de un tramo con apoyo izquierdo fijo y derecho móvil, con neoprenos rectangulares zunchados, perforaciones opcionales y sin PTFE, para un puente de concreto armado construido en sitio. Incluye geometría, movimientos, compresión, capas, zunchos por servicio y fatiga, estabilidad, deflexiones y fricción. No dimensiona ni verifica el pedestal ni las conexiones sísmicas externas. La fricción insuficiente se informa expresamente.
 
 ## Ejecución
 
@@ -12,6 +12,44 @@ diseno-apoyos-A input modelo_apoyos_A.yaml --word memoria_A.docx --json calculo_
 ```
 
 Sin argumentos se ingresan los datos en consola. Se conserva la exportación Word y JSON desde el mismo registro numérico. El comando aplica alcance neopreno incluso a los YAML antiguos de alcance completo. El motor interno conserva las comprobaciones externas para compatibilidad, pero el comando no las ejecuta.
+
+## Memoria Word integrada y caso V3 aprobado
+
+La exportación habitual del comando genera la memoria con el estilo aprobado: A4, márgenes de 25.4 mm, Arial Narrow de 10 pt, portada, contenido, encabezados, pie con número de página, tablas grises y ecuaciones Word editables. La plantilla de presentación se distribuye dentro del paquete; no depende de documentos del escritorio ni de scripts temporales.
+
+El informe conserva las doce secciones de la memoria aprobada y desarrolla las comprobaciones comunes una sola vez. Si las reacciones, geometrías o curvas de ambos extremos difieren, desarrolla sus resultados por separado. El resumen muestra todos los controles del motor, sus valores y límites, incluidos incumplimientos, falta de datos y condiciones geométricas. El estado REFERENCIAL o ESTIMADO se mantiene visible y no se presenta como certificación del producto.
+
+Para reproducir el caso V3 sin volver a transcribir datos:
+
+```powershell
+diseno-apoyos-A input ejemplo_apoyos_A_V3_400x400x75.yaml --word Memoria_V3.docx --json calculo_V3.json
+```
+
+Para reproducirlo mediante ingreso manual, usar:
+
+| Dato | Valor |
+|---|---|
+| DC, DW y PL | 20.016, 3.095 y 0 Tn |
+| LL+IM vehicular conjunta | 35.699 Tn; confirmar sin carril; factor IM/LL = 0.33 |
+| Reacción mínima concomitante | 23.111 Tn, equivalente a DC+DW confirmado para servicio |
+| Longitud efectiva | 15 m |
+| Temperaturas propias | Instalación 23 °C, mínima 7 °C y máxima 23 °C |
+| Retracción y otros acortamientos | 0.45 cm y 0 cm |
+| Factor γTU, dureza y Fy | 1.2; Shore A 60; 2530 kgf/cm² |
+| W, L y H total | 40, 40 y 7.5 cm |
+| Selección y capas manuales | medida; sí |
+| Capa interior, exterior y cantidad interior | 2 cm, 1.15 cm y 2 capas |
+| Espesor de zuncho | 0.4 cm; resultan 3 zunchos |
+| Agujeros en cada apoyo | 1 de diámetro 2.54 cm |
+| Casi cuadrado y rotación transversal | Sí y sí |
+| Fricción y curvas | 0.20; Enter para Serquén |
+| Reacciones y geometría en ambos extremos | Iguales |
+| Desplazamiento relativo del fijo | 0 cm |
+| Diámetro real del pasador común | 2.54 cm, dato constructivo opcional |
+
+La separación de LL e IM no redondea los resultados intermedios. El caso produce P = 58.810 Tn por apoyo, movimiento del móvil de 8.5104 mm, fuerza horizontal de 3.0293 Tn, fricción disponible de 4.6222 Tn y zuncho perforado requerido de 3.3903 mm frente a 4 mm adoptados. Estado: REFERENCIAL favorable. La fecha y el número de páginas del Word pueden cambiar con el contenido.
+
+Estas cargas y dimensiones pertenecen al ejemplo, no reemplazan los valores de otros proyectos. Las posiciones de perforación se definen en el detalle constructivo. El diámetro del pasador puede declararse con `diametro_pasador_cm` en la raíz del YAML del sistema o al final del ingreso manual perforado. Es un dato descriptivo opcional para el recorrido geométrico del tubo: no dimensiona su resistencia y no se deduce del diámetro de cálculo del agujero. Los YAML anteriores que omitan ese dato siguen siendo válidos.
 
 ## Salida de terminal en cuadros
 

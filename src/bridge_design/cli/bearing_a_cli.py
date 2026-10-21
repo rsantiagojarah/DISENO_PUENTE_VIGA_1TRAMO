@@ -51,7 +51,7 @@ def _temperature(label: str, default: float) -> float:
 
 def collect_bearing_a_inputs() -> BearingAInputs:
     data = bearing_a_template()
-    print("=== APOYO RECTANGULAR ZUNCHADO SIN AGUJEROS NI PTFE - METODO A ===")
+    print("=== APOYO RECTANGULAR ZUNCHADO CON PERFORACIONES OPCIONALES, SIN PTFE - METODO A ===")
     print("Datos del neopreno para concreto armado construido en sitio.")
     print("Fuerzas: Tn (toneladas-fuerza); longitudes: cm y m; esfuerzos: kgf/cm2.")
     data["proyecto"] = input("Nombre del proyecto [Diseño de apoyo]: ").strip() or "Diseño de apoyo"
@@ -60,17 +60,33 @@ def collect_bearing_a_inputs() -> BearingAInputs:
     print("Valores predeterminados: reacciones del apoyo de viga exterior.")
     for k,label,default in (("dc_tn","DC estructural",27.470),("dw_tn","DW rodadura",0.169),("pl_tn","PL peatonal",4.669)):
         a[k] = prompt_non_negative_float(label,"Tn",default)
-    print("LL e IM predeterminados: separación aproximada de 21.871 Tn suponiendo 33% de impacto sobre todo el total; solo válida sin carga de carril incluida.")
-    for k,label,default in (("ll_sin_im_tn","LL vehicular sin impacto",16.444),("im_tn","IM incremento dinámico",5.427)):
-        while True:
-            value = prompt_non_negative_float(label,"Tn",default)
-            if isfinite(value):
-                a[k] = value
-                break
-            print("Ingrese una carga finita.")
+    combined = _optional_number("LL+IM vehicular conjunta (Tn); Enter=ingresar LL e IM por separado")
+    impact_source = ""
+    if combined is not None:
+        if not isfinite(combined) or combined < 0:
+            raise ValueError("LL+IM debe ser una reacción finita no negativa.")
+        print("La separación con un único factor requiere una reacción exclusivamente vehicular, sin carga de carril incluida.")
+        if not _yes("Confirmar que LL+IM no incluye carga de carril",False):
+            raise ValueError("Ingrese LL e IM por separado a partir del modelo cuando exista carga de carril.")
+        impact = prompt_non_negative_float("Factor de impacto IM/LL (33% = 0.33)","-",.33)
+        if not isfinite(impact):
+            raise ValueError("El factor de impacto debe ser finito.")
+        a["ll_sin_im_tn"] = combined / (1 + impact)
+        a["im_tn"] = combined - a["ll_sin_im_tn"]
+        impact_source = f"; LL+IM={combined:g} Tn sin carril; IM={impact:g} LL, separación sin redondeo intermedio"
+    else:
+        print("LL e IM predeterminados: separación aproximada de 21.871 Tn suponiendo 33% de impacto sobre todo el total; solo válida sin carga de carril incluida.")
+        for k,label,default in (("ll_sin_im_tn","LL vehicular sin impacto",16.444),("im_tn","IM incremento dinámico",5.427)):
+            while True:
+                value = prompt_non_negative_float(label,"Tn",default)
+                if isfinite(value):
+                    a[k] = value
+                    break
+                print("Ingrese una carga finita.")
     print(f"LL+IM = {a['ll_sin_im_tn'] + a['im_tn']:.6g} Tn.")
     a["reaccion_minima_tn"] = _optional_number("Reacción mínima concomitante para fricción (Tn); sin dato se usa DC")
     a["fuente"] = input("Procedencia de reacciones [Ingreso manual]: ").strip() or "Ingreso manual del usuario"
+    a["fuente"] += impact_source
     if a["ll_sin_im_tn"] == 16.444 and a["im_tn"] == 5.427:
         a["fuente"] += "; LL/IM aproximados de 21.871 Tn con hipótesis de 33% sobre vehículo sin carril; composición por confirmar"
     m = data["movimientos"]
@@ -250,7 +266,9 @@ def collect_bearing_pair_inputs():
     count, diameter = _collect_holes("Fijo")
     fixed = replace(fixed,geometry=replace(fixed.geometry,hole_count=count,hole_diameter_cm=diameter))
     displacement = _optional_number('Desplazamiento relativo longitudinal del fijo (cm); Enter=0 para punto fijo ideal')
+    pin = _optional_number('Diámetro real del pasador común (cm); Enter=sin dato; no dimensiona su resistencia') if pair.mobile.geometry.hole_count or fixed.geometry.hole_count else None
     return replace(pair,fixed=fixed,equal_vertical_actions=equal,
+                   pin_diameter_cm=pin,
                    fixed_displacement_cm=0. if displacement is None else displacement)
 
 

@@ -63,12 +63,13 @@ def test_manual_pair_never_asks_for_anchors(monkeypatch):
     assert not any('anclaj' in p.lower() or 'Evento Extremo' in p for p in prompts)
 
 
-def test_pair_report_has_no_external_verification_requirements(tmp_path):
+def test_pair_report_uses_approved_sections_and_defines_its_scope(tmp_path):
     from docx import Document
     from bridge_design.reporting.bearing_a_pair_docx import generate_bearing_pair_docx
     pair = design_bearing_pair(bearing_pair_from_yaml(bearing_pair_template()))
     doc = Document(generate_bearing_pair_docx(pair,tmp_path/'par.docx'))
     text = '\n'.join(p.text for p in doc.paragraphs)+'\n'+'\n'.join(c.text for t in doc.tables for row in t.rows for c in row.cells)
-    assert 'A Diseño del apoyo móvil' in text and 'B Diseño del apoyo fijo' in text
-    assert 'anclaj' not in text.lower()
-    assert 'C Restricciones' not in text and 'PENDIENTE' not in text
+    assert '1. Configuración adoptada' in text and '10. Resumen de verificaciones' in text
+    assert 'Izquierdo fijo' in text and 'Derecho móvil' in text
+    assert 'cuya resistencia no se verifica en esta memoria' in text
+    assert 'Estado del sistema: REFERENCIAL' in text

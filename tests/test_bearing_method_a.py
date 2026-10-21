@@ -252,14 +252,14 @@ def test_cli_template_calculation_and_report_exports(tmp_path,capsys):
         assert package.testzip() is None
         xml = package.read("word/document.xml").decode("utf-8")
         styles = package.read("word/styles.xml").decode("utf-8")
-    assert data["movil"]["input_sha256"][:32] not in xml
+    assert data["movil"]["input_sha256"] in xml
     assert data["esquema"] == "fijo_movil_un_tramo"
     assert "m:oMath" in xml and "m:f" in xml
     assert "Arial Narrow" in styles
     assert 'w:top="1440"' in xml
-    assert "curvas de referencia" in xml and "PENDIENTE" not in xml
-    assert "Reemplazando los valores correspondientes" in xml
-    assert "Deformaciones unitarias por compresión" in xml
+    assert "curvas de referencia" in xml and "Estado del sistema: REFERENCIAL" in xml
+    assert "4. Temperatura y retracción" in xml
+    assert "6. Deformaciones y deflexiones verticales" in xml
     assert "Versión del algoritmo" not in xml and "JSON" not in xml
     from lxml import etree
     namespaces = {"m":"http://schemas.openxmlformats.org/officeDocument/2006/math","w":"http://schemas.openxmlformats.org/wordprocessingml/2006/main"}

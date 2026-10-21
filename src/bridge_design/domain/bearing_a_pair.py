@@ -16,10 +16,13 @@ class BearingPairInputs:
     fixed: BearingAInputs
     equal_vertical_actions: bool = False
     fixed_displacement_cm: float = 0.0
+    pin_diameter_cm: float | None = None
 
     def __post_init__(self):
         if isinstance(self.fixed_displacement_cm,bool) or not isfinite(self.fixed_displacement_cm) or self.fixed_displacement_cm < 0:
             raise ValueError('Desplazamiento del fijo: magnitud finita no negativa.')
+        if self.pin_diameter_cm is not None and (isinstance(self.pin_diameter_cm,bool) or not isfinite(self.pin_diameter_cm) or self.pin_diameter_cm <= 0):
+            raise ValueError('Diámetro del pasador: número finito positivo o sin dato.')
         if not self.mobile.connections.single_span or not self.fixed.connections.single_span:
             raise ValueError('El sistema fijo móvil implementado corresponde a un solo tramo.')
         if self.equal_vertical_actions and self.mobile.actions != self.fixed.actions:
@@ -42,6 +45,7 @@ class BearingPairResult:
 
     def to_dict(self):
         return {'esquema':'fijo_movil_un_tramo','status':self.status,
+                'diametro_pasador_cm':self.inputs.pin_diameter_cm,
                 'reacciones_verticales_iguales':self.inputs.equal_vertical_actions,
                 'movil':self.mobile.to_dict(),'fijo':self.fixed.to_dict()}
 

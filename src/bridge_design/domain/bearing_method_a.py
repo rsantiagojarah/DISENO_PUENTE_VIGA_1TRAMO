@@ -47,7 +47,8 @@ class BearingAActions:
             raise ValueError("La reacción permanente debe ser positiva; levantamiento fuera del alcance.")
         if self.min_vertical_tn is not None:
             _number(self.min_vertical_tn, "reacción mínima")
-            if self.min_vertical_tn > self.dc_tn + self.dw_tn:
+            # Admitir exclusivamente el ruido de coma flotante de DC + DW.
+            if self.min_vertical_tn > self.dc_tn + self.dw_tn + 1e-10:
                 raise ValueError("La reacción mínima no debe superar DC+DW.")
         if not self.source.strip():
             raise ValueError("Indique la procedencia de las reacciones.")
