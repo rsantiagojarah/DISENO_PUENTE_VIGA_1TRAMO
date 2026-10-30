@@ -48,7 +48,8 @@ def test_abutment_yaml_output_and_input_direct(tmp_path, monkeypatch) -> None:
         "espesor_superior_pantalla_m",
         "altura_suelo_frontal_m",
     ]
-    assert "diente" not in data
+    assert data["diente"]["considerar"] is False
+    assert data["diente"]["altura_m"] == pytest.approx(0.40)
 
     captured = []
 

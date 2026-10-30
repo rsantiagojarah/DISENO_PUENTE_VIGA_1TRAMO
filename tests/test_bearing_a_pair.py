@@ -72,4 +72,5 @@ def test_pair_report_uses_approved_sections_and_defines_its_scope(tmp_path):
     assert '1. Configuración adoptada' in text and '10. Resumen de verificaciones' in text
     assert 'Izquierdo fijo' in text and 'Derecho móvil' in text
     assert 'cuya resistencia no se verifica en esta memoria' in text
-    assert 'Estado del sistema: REFERENCIAL' in text
+    assert 'Resultado de las verificaciones: los controles efectuados cumplen' in text
+    assert 'REFERENCIAL' not in text

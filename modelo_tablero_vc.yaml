@@ -1,0 +1,78 @@
+version_esquema: 1
+comando: diseno-tablero
+nota: >
+  Datos de MEMORIA_CALCULO_TABLERO_20261007_1721. Este archivo cubre todas las
+  claves que lee diseno-tablero. La viga exterior, el ancho total, de y los
+  factores g se calculan; la barrera, la vereda y la baranda derechas se
+  reflejan solas. El acero adoptado no es dato de ingreso.
+modelo_transversal_losa:
+  separacion_vigas_m: 2.31
+  volado_losa_m: 1.00
+  numero_vigas: 5
+  espesor_losa_m: 0.20
+  altura_total_viga_m: 1.10
+  ancho_viga_m: 0.50
+materiales:
+  concreto:
+    peso_especifico_tn_m3: 2.4
+    fc_kg_cm2: 280.0
+  acero:
+    especificacion: ASTM A615 Grado 60
+    fy_kg_cm2: 4200.0
+    modulo_elasticidad_kg_cm2: 2000000.0
+  asfalto:
+    peso_especifico_tn_m3: 2.2
+    espesor_m: 0.05
+  vereda:
+    peso_especifico_tn_m3: 2.4
+    espesor_m: 0.15
+  baranda:
+    peso_lineal_kg_m: 300.0
+  barrera:
+    peso_lineal_kg_m: 486.9
+barrera_concreto:
+  geometria:
+    altura_total_m: 0.85
+    ancho_base_m: 0.375
+    area_seccion_m2: 0.202875
+    longitud_disponible_anclaje_cm: 20.0
+    momento_adicional_superior_tn_m: 0.0
+  impacto:
+    nivel_ensayo: TL-4
+    fuerza_transversal_tn: 24.47
+    longitud_distribucion_m: 1.07
+    patron: segmento
+  seccion:
+    separacion_dowel_m: 0.17
+cargas_vivas:
+  peatonal_veredas_tn_m2: 0.3660
+ubicacion_cargas_modelo_transversal:
+  ancho_vereda_cada_lado_m: 1.50
+  ancho_barrera_m: 0.375
+  ubicacion_barrera_izquierda_m: 1.65
+  asfalto_inicio_m: 2.025
+  asfalto_fin_m: 9.215
+  ubicacion_baranda_izquierda_m: 0.075
+  recorrido_vehicular_inicio_m: 2.025
+  recorrido_vehicular_fin_m: 9.215
+  paso_movimiento_vehicular_m: 0.10
+viga_interior:
+  luz_puente_m: 15.0
+  diafragmas:
+    - ubicacion_m: 7.50
+      espesor_longitudinal_m: 0.35
+      altura_m: 0.70
+      ancho_tributario_transversal_m: 2.31
+  paso_carga_movil_m: 0.10
+  paso_muestreo_momentos_m: 0.10
+viga_exterior:
+  # de = eje de la viga exterior − cara de tráfico de la barrera
+  # eje en x = volado = 1.00 m
+  # cara de tráfico = 1.65 + 0.375 = 2.025 m
+  # de = 1.00 − 2.025 = −1.025 m (el eje está 1.025 m hacia el borde libre)
+  de_alma_exterior_a_cara_interior_barrera_m: -1.025
+diafragma:
+  espesor_longitudinal_m: 0.35
+  altura_resistente_m: 0.70
+  longitud_tributaria_cargas_m: 0.35
+  paso_vehicular_m: 0.10

@@ -1,12 +1,10 @@
 """Memoria conjunta con el estilo aprobado y el mismo registro que consola/JSON."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-
 from bridge_design.domain.bearing_method_a import FATIGUE_LIMIT, MTC_URL, perforated_properties
 from bridge_design.domain.elastomeric_bearing import ElastomerGrade
 from bridge_design.reporting.bearing_a_layout import BearingReportLayout
-from bridge_design.reporting.bearing_a_labels import compression_basis, conclusion, title
+from bridge_design.reporting.bearing_a_labels import conclusion, title
 
 
 def _n(value, digits=3, scale=1):
@@ -14,7 +12,13 @@ def _n(value, digits=3, scale=1):
 
 
 def _state(result):
-    return result.status + (' favorable para los controles incluidos' if result.status in ('CONFORME','REFERENCIAL','ESTIMADO') else '')
+    return {
+        'CONFORME': 'los controles efectuados cumplen los límites adoptados',
+        'REFERENCIAL': 'los controles efectuados cumplen los límites adoptados',
+        'ESTIMADO': 'los controles efectuados cumplen los límites adoptados',
+        'NO CONFORME': 'uno o más controles no cumplen los límites adoptados',
+        'PENDIENTE': 'una o más verificaciones no pudieron completarse con los datos disponibles',
+    }.get(result.status, 'resultado no determinado')
 
 
 def _geometry(r):
@@ -130,7 +134,13 @@ def _compression(w, r):
 
 
 def _deflections(w, r):
-    w.p(compression_basis(r))
+    curve = r.inputs.compression_curve
+    if curve is None:
+        w.p('Las deformaciones verticales se determinaron mediante una aproximación elástica del neopreno.')
+    elif curve.kind == 'referencia':
+        w.p('Las deformaciones verticales se determinaron mediante interpolación de las curvas de compresión de referencia para el neopreno adoptado.')
+    else:
+        w.p('Las deformaciones verticales se determinaron mediante interpolación de las curvas de compresión suministradas.')
     if r.inputs.compression_curve is not None:
         w.p('Fuente: '+r.inputs.compression_curve.source+'. Se interpola en esfuerzo y factor S, sin extrapolar.')
     w.table(('Capa','Factor S','Permanentes DC + DW','Total sin IM'),[
@@ -211,19 +221,64 @@ def _horizontal(w, pair):
 
 
 def _summary(w, pair):
-    w.p('C identifica un control numérico favorable; R, un control dependiente de curvas referenciales; E, un resultado con modelo elástico estimado. '
-        'Los incumplimientos y resultados pendientes se indican expresamente.')
+    w.p('El cuadro siguiente presenta los resultados de los controles de compresión, corte, espesor de elastómero, zunchos, estabilidad, deformaciones verticales, deflexiones y fricción efectuados para ambos apoyos.')
     checks = [{s.id:s for s in r.checks} for r in (pair.fixed,pair.mobile)]
+    specifications = [
+        ('SIGMA', 'Compresión máxima kgf/cm²', 1, 3),
+        ('GS', 'Compresión por G y S kgf/cm²', 1, 3),
+        ('SHEAR', 'Espesor por corte cm', 1, 5),
+        ('EXTERIOR', 'Capas exteriores mm', 10, 1),
+        ('SCOPE', 'Aplicabilidad del Método A', 1, 4),
+        ('HS_SERVICE', 'Acero por servicio mm', 10, 3),
+        ('HS_FATIGUE', 'Acero por fatiga mm', 10, 3),
+        ('HS_HOLES', 'Acero perforado mm', 10, 3),
+        ('STABILITY_L', 'Estabilidad en L y W cm', 1, 3),
+        ('STRAIN_CHECK', 'Deformación interior %', 100, 3),
+        ('JOINT', 'Deflexión en junta cm', 1, 4),
+        ('SLIP', 'Fricción en servicio Tn', 1, 3),
+    ]
     rows = []
-    for key in dict.fromkeys([*checks[1],*checks[0]]):
+    included = set()
+    for key, label, scale, digits in specifications:
         steps = [c.get(key) for c in checks]
-        s = next(s for s in steps if s is not None)
-        scale = 10 if key.startswith('HS_') or key == 'EXTERIOR' else 100 if key == 'STRAIN_CHECK' else 1
-        unit = 'mm' if scale == 10 else '%' if scale == 100 else s.unit
-        digits = 6 if key == 'HEIGHT_TARGET' else 5 if key == 'SHEAR' else 4 if key in ('SCOPE','STRAIN_CHECK','JOINT') or key.startswith('HS_') else 3
-        rows.append((title(s)+(f' ({unit})' if unit != '-' else ''),*(_comparison(step,scale,digits) for step in steps),_mark(steps)))
-    w.table(('Verificación','Izquierdo fijo','Derecho móvil','Estado'),rows,(60,39,39,20))
+        if not any(steps):
+            continue
+        included.add(key)
+        if key == 'STABILITY_L':
+            # Para plantas rectangulares, mostrar ambos límites sin perder el control transversal.
+            transverse = [c.get('STABILITY_W') for c in checks]
+            included.add('STABILITY_W')
+            values = []
+            for longitudinal, lateral in zip(steps, transverse):
+                value = _comparison(longitudinal, scale, digits)
+                if lateral and (lateral.value != longitudinal.value or lateral.limit != longitudinal.limit):
+                    value += ' / ' + _comparison(lateral, scale, digits)
+                values.append(value)
+            steps += transverse
+        else:
+            values = [_comparison(step,scale,digits) for step in steps]
+        if key == 'SLIP' and checks[0].get(key) is None:
+            values[0] = 'No aplica al fijo ideal'
+        mark = _mark(steps)
+        result = {'C': 'Cumple', 'R': 'Cumple', 'E': 'Cumple', 'NO CUMPLE': 'No cumple', 'PENDIENTE': 'Pendiente'}[mark]
+        rows.append((label, *values, result))
+    w.table(('Verificación','Izquierdo fijo','Derecho móvil','Resultado'),rows,(60,39,39,20))
     w.p('','blank')
+    if any(s.status == 'REFERENCIAL' for c in checks for s in c.values()):
+        w.p('Las verificaciones de deformación basadas en las curvas de referencia son orientativas y no sustituyen los datos del fabricante.')
+    if any(s.status == 'CUMPLE (ESTIMADO)' for c in checks for s in c.values()):
+        w.p('Las verificaciones de deformación obtenidas con el modelo elástico son estimadas.')
+    extra = []
+    for key in dict.fromkeys([*checks[0], *checks[1]]):
+        if key in included:
+            continue
+        steps = [c.get(key) for c in checks]
+        if any(s and s.status in ('NO CUMPLE', 'PENDIENTE') for s in steps):
+            step = next(s for s in steps if s is not None)
+            extra.append((title(step), *(_comparison(s) for s in steps), 'No cumple' if any(s and s.status == 'NO CUMPLE' for s in steps) else 'Pendiente'))
+    if extra:
+        w.p('Condiciones adicionales que requieren atención:')
+        w.table(('Verificación','Izquierdo fijo','Derecho móvil','Resultado'),extra,(60,39,39,20))
 
 
 def generate_bearing_pair_docx(pair, output_path):
@@ -246,13 +301,13 @@ def generate_bearing_pair_docx(pair, output_path):
     w.p('La memoria presenta los datos adoptados, las expresiones principales, los resultados y las verificaciones de los cuerpos de neopreno y sus zunchos. '
         'Se conservan las hipótesis de cálculo y las observaciones constructivas.','cover_intro')
     w.page_break(); w.heading('Contenido')
-    w.p('Se desarrolla el cálculo de los neoprenos, identificando las diferencias del apoyo fijo y del móvil, con fórmulas editables y un resumen conjunto de verificaciones.')
+    w.p('Se desarrolla el cálculo de los apoyos, identificando las condiciones del apoyo fijo y del móvil, con las expresiones de cálculo y un resumen conjunto de verificaciones.')
     w.table(('Sección','Contenido desarrollado'),[
-        ('1 y 2','Configuración adoptada y alcance de la verificación'),('3 y 4','Reacciones, separación de impacto, temperatura y retracción'),
+        ('1 y 2','Configuración y funcionamiento de los apoyos'),('3 y 4','Reacciones, separación de impacto, temperatura y retracción'),
         ('5 y 6','Geometría perforada, compresión y deformaciones verticales'),('7 a 9','Zunchos, estabilidad y fricción'),
-        ('10 a 12','Resumen de verificaciones, conclusión, detalle constructivo y referencias'),
+        ('10 a 12','Resultados numéricos, configuración de apoyos y referencias'),
     ],(30,128))
-    w.p('','blank'); w.p('Estado del sistema: '+_state(pair)+'. '+compression_basis(r)); w.page_break()
+    w.p('','blank'); w.p('Resultado de las verificaciones: '+_state(pair)+'.'); w.page_break()
     w.heading('1. Configuración adoptada')
     w.p('Se verifican los cuerpos de neopreno y sus zunchos para un apoyo izquierdo fijo y un apoyo derecho móvil. '+f'Estado del cálculo: {_state(pair)}.')
     if common_geometry:
@@ -260,21 +315,21 @@ def generate_bearing_pair_docx(pair, output_path):
     else:
         _configuration(w,r,'Apoyo derecho móvil'); _configuration(w,f,'Apoyo izquierdo fijo')
     w.p('L es longitudinal y W transversal. Se utiliza el área neta de caucho y el perímetro libre de las capas. La ubicación de los agujeros y las tolerancias deben definirse en el detalle de fabricación.')
-    w.heading('2. Alcance del resultado')
+    w.heading('2. Condiciones de funcionamiento')
     w.p('El fijo se representa con el desplazamiento relativo longitudinal adoptado mediante una restricción externa. El móvil acomoda el movimiento por deformación del elastómero. '
         'El dimensionamiento del pasador, su anclaje, el pedestal y las holguras requieren verificaciones complementarias.')
     w.heading('3. Acciones y movimientos de servicio'); _actions(w,pair)
     w.heading('4. Temperatura y retracción'); _movements(w,pair)
     for label,fn in [('5. Geometría efectiva y compresión',_compression),('6. Deformaciones y deflexiones verticales',_deflections),
-                     ('7. Diseño de los zunchos perforados',_steel),('8. Composición estabilidad y aplicabilidad',_stability)]:
+                     ('7. Diseño de los zunchos perforados',_steel),('8. Composición, estabilidad y aplicabilidad',_stability)]:
         w.heading(label)
         if common_vertical:
             fn(w,r)
         else:
             w.p('Apoyo derecho móvil','bold'); fn(w,r); w.p('Apoyo izquierdo fijo','bold'); fn(w,f)
-    w.heading('9. Fuerza horizontal y fricción'); _horizontal(w,pair)
+    w.heading('9. Fuerza horizontal y fricción del móvil'); _horizontal(w,pair)
     w.heading('10. Resumen de verificaciones'); _summary(w,pair)
-    w.heading('11. Conclusión y detalle constructivo'); w.p('Estado del sistema: '+_state(pair)+'.','bold')
+    w.heading('11. Resultados y configuración de los apoyos'); w.p('Resultado de las verificaciones: '+_state(pair)+'.','bold')
     for label,result in ([('Ambos neoprenos',r)] if common_geometry else [('Móvil',r),('Fijo',f)]):
         w.p(f'{label}: neopreno Shore {result.inputs.hardness} de {_geometry(result)}, {_composition(result)}. '+_holes(result)+'. '+conclusion(pair if common_geometry else result))
     if r.adopted.hole_count or f.adopted.hole_count:
@@ -292,13 +347,10 @@ def generate_bearing_pair_docx(pair, output_path):
                 f'del pasador más {2*r.value("DELTA")*10:.4f} mm, antes de tolerancias. El diámetro del pasador no se deduce de la perforación. ')
     w.p(f'El dispositivo derecho debe permitir el recorrido longitudinal de {r.value("DELTA")*10:.4f} mm, considerando la posición de montaje y las tolerancias. '
         +tube+'También deben verificarse el anclaje del fijo y el pasador frente a sus acciones de diseño.')
-    w.heading('12. Referencias y registro')
+    w.heading('12. Referencias bibliográficas')
     p = w.p('Manual de Puentes MTC 2018, artículos 2.10.3.3.5 y 2.10.4.1 a 2.10.4.3.8. ','bullet')
     w.link(p,'Portal normativo del MTC',MTC_URL)
-    w.p('Rodríguez Serquén, Puentes con AASHTO LRFD 2020, capítulo de apoyos, pp. 223 a 239. Compresión: p. 231, Fig. C14.7.6.3.3-1, '
-        'cuando se seleccionan las curvas referenciales incorporadas al programa.','bullet')
-    p = w.p(f'Motor: {r.version}.\nSHA256 móvil: {r.input_sha256}\nSHA256 fijo: {f.input_sha256}')
-    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    w.p('Rodríguez Serquén, Puentes con AASHTO LRFD 2020, capítulo de apoyos, pp. 223 a 239. Curvas de compresión: p. 231, Fig. C14.7.6.3.3-1.','bullet')
     w.doc.core_properties.title = 'Memoria de cálculo del sistema de apoyos'
     w.doc.core_properties.subject = r.inputs.project
     w.doc.save(path)

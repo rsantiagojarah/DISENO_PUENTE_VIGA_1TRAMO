@@ -188,6 +188,14 @@ def abutment_yaml_template(
             },
             "suelo_sismo": data["suelo_sismo"],
         }
+        # The interactive workflow starts without a key, but expose its full
+        # definition in YAML so a saved model can be reproduced unattended.
+        data["diente"] = {
+            "considerar": False,
+            "altura_m": AbutmentKeyInputs().height_m,
+            "ancho_m": AbutmentKeyInputs().width_m,
+            "considerar_empuje_pasivo_frontal_superior": False,
+        }
     return data
 
 
@@ -277,7 +285,18 @@ def abutment_inputs_from_yaml(
         ),
         pedestrian_surcharge_tn_m2=float(_value(soil, "sobrecarga_peatonal_relleno_tn_m2", s0.pedestrian_surcharge_tn_m2)),
     )
-    key_inputs = AbutmentKeyInputs(enabled=False, passive_soil_height_m=geometry.front_soil_depth_m)
+    key_data = _section(data, "diente")
+    key_inputs = AbutmentKeyInputs(
+        enabled=_bool(key_data, "considerar", False),
+        height_m=float(_value(key_data, "altura_m", AbutmentKeyInputs().height_m)),
+        width_m=float(_value(key_data, "ancho_m", AbutmentKeyInputs().width_m)),
+        passive_soil_height_m=geometry.front_soil_depth_m,
+        consider_upper_front_passive=_bool(
+            key_data,
+            "considerar_empuje_pasivo_frontal_superior",
+            False,
+        ),
+    )
     return AbutmentInputs(
         materials=materials,
         geometry=geometry,

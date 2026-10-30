@@ -1,0 +1,93 @@
+version_esquema: 1
+comando: diseno-tablero
+nota: >
+  Entradas reconstruidas de la corrida interactiva de diseno-tablero.
+  Ancho total = 12.150 m; S = 2.5625 m; a = 0.950 m; 5 vigas.
+  Tuberia DW: 180 kg/m en x = 0.350 m. Un diafragma interior en L/2 y
+  diafragmas de extremo con h bajo losa = 0.900 m.
+  El acero adoptado no es dato de ingreso; al repetir la corrida hay que
+  volver a elegir las mismas opciones:
+  losa negativo/positivo 5/8" @ 0.150 m; temperatura/distribucion 1/2" @ 0.200 m;
+  vigas interior y exterior item 88 (20 #1"), temperatura item 4, Ask item 4,
+  estribos item 4 (2r 1/2"); volado superior item 4, temperatura 1/2" @ 0.200 m;
+  diafragma interior negativo/positivo item 33 (4 #3/4"), temperatura item 4,
+  estribos item 4; diafragma de extremo negativo/positivo item 34 (5 #3/4"),
+  temperatura item 4, estribos item 4, Ask item 4.
+modelo_transversal_losa:
+  separacion_vigas_m: 2.5625
+  volado_losa_m: 0.95
+  numero_vigas: 5
+  espesor_losa_m: 0.20
+  altura_viga_bajo_losa_m: 0.90
+  ancho_viga_m: 0.50
+materiales:
+  concreto:
+    peso_especifico_tn_m3: 2.4
+    fc_kg_cm2: 280.0
+  acero:
+    especificacion: ASTM A615 Grado 60
+    fy_kg_cm2: 4200.0
+    modulo_elasticidad_kg_cm2: 2000000.0
+  asfalto:
+    peso_especifico_tn_m3: 2.2
+    espesor_m: 0.07
+  vereda:
+    peso_especifico_tn_m3: 2.4
+    espesor_m: 0.17
+  baranda:
+    peso_lineal_kg_m: 300.0
+  barrera:
+    # El programa sustituye este valor por area * Pec = 0.202875 * 2.4 * 1000 = 486.9 kg/m.
+    peso_lineal_kg_m: 500.0
+barrera_concreto:
+  geometria:
+    altura_total_m: 0.85
+    ancho_base_m: 0.375
+    area_seccion_m2: 0.202875
+    longitud_disponible_anclaje_cm: 20.0
+    momento_adicional_superior_tn_m: 0.0
+  impacto:
+    nivel_ensayo: TL-4
+    fuerza_transversal_tn: 24.47
+    longitud_distribucion_m: 1.07
+    patron: segmento
+  seccion:
+    separacion_dowel_m: 0.17
+cargas_vivas:
+  peatonal_veredas_tn_m2: 0.366
+ubicacion_cargas_modelo_transversal:
+  ancho_vereda_cada_lado_m: 1.50
+  ancho_barrera_m: 0.375
+  ubicacion_barrera_izquierda_m: 1.65
+  asfalto_inicio_m: 2.025
+  asfalto_fin_m: 10.125
+  ubicacion_baranda_izquierda_m: 0.075
+  recorrido_vehicular_inicio_m: 2.025
+  recorrido_vehicular_fin_m: 10.125
+  paso_movimiento_vehicular_m: 0.10
+viga_interior:
+  luz_puente_m: 15.0
+  diafragmas:
+    - ubicacion_m: 7.50
+      espesor_longitudinal_m: 0.35
+      altura_bajo_losa_m: 0.70
+      ancho_tributario_transversal_m: 2.5625
+  paso_carga_movil_m: 0.10
+  paso_muestreo_momentos_m: 0.10
+viga_exterior: {}
+  # de y g se calculan: de = 0.95 - (1.65 + 0.375) = -1.075 m;
+  # g momento = g corte = 0.517.
+diafragma:
+  espesor_longitudinal_m: 0.35
+  altura_bajo_losa_m: 0.70
+  longitud_tributaria_cargas_m: 0.35
+  paso_vehicular_m: 0.10
+diafragma_borde:
+  espesor_longitudinal_m: 0.35
+  altura_bajo_losa_m: 0.90
+  longitud_tributaria_cargas_m: 0.35
+  paso_vehicular_m: 0.10
+tuberia:
+  incluir: true
+  peso_lineal_kg_m: 180.0
+  x_desde_borde_izquierdo_m: 0.35

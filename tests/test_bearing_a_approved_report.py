@@ -54,15 +54,25 @@ def test_approved_case_and_native_report_have_actual_values_and_style(tmp_path):
     check_v3(pair)
     out = generate_bearing_pair_docx(pair,tmp_path/'subcarpeta/memoria.docx')
     text,root = document_text(out)
-    for value in ('0.7092','0.85104','8.5104','3.0293','3.3903','374.6','65.5','REFERENCIAL'):
+    for value in ('0.7092','0.85104','8.5104','3.0293','3.3903','374.6','65.5'):
         assert value in text
+    assert 'REFERENCIAL' not in text and 'ESTIMADO' not in text
+    assert 'los controles efectuados cumplen los límites adoptados' in text
     assert '42.4208' in text
     assert '1.2204' not in text and '12.204' not in text
     math = [''.join(e.xpath('.//m:t/text()',namespaces=NS)) for e in root.xpath('//m:oMath',namespaces=NS)]
     assert any('(23 − 7)' in e for e in math)
     assert any('(23 − 23)' in e for e in math)
     assert root.xpath('//m:f',namespaces=NS) and root.xpath('//m:sSub',namespaces=NS)
-    assert all(s.title in text or s.id in ('CREEP','JOINT','STABILITY_L','STABILITY_W') for s in pair.mobile.checks)
+    doc = Document(out)
+    summary = next(t for t in doc.tables if [c.text for c in t.rows[0].cells] == ['Verificación', 'Izquierdo fijo', 'Derecho móvil', 'Resultado'])
+    rows = [[c.text for c in row.cells] for row in summary.rows]
+    assert len(rows) == 13
+    assert rows[1] == ['Compresión máxima kgf/cm²', '36.873 ≤ 87.900', '36.873 ≤ 87.900', 'Cumple']
+    assert rows[-1] == ['Fricción en servicio Tn', 'No aplica al fijo ideal', '3.029 ≤ 4.622', 'Cumple']
+    assert 'orientativas' in text
+    assert 'SHA256' not in text and 'Motor:' not in text
+    assert 'fórmulas editables' not in text and 'incorporadas al programa' not in text
     template = Path(__file__).resolve().parents[1]/'src/bridge_design/reporting/templates/bearing_a_pair.docx'
     with ZipFile(template) as a, ZipFile(out) as b:
         for part in ('word/styles.xml','word/numbering.xml','word/theme/theme1.xml','word/header1.xml','word/footer1.xml'):
@@ -101,6 +111,7 @@ def test_manual_command_reproduces_yaml_without_rounding_components(tmp_path,mon
     assert list(remaining) == []
     capsys.readouterr()
     data = json.loads(audit.read_text(encoding='utf-8'))
+    assert data['movil']['input_sha256'] and data['fijo']['input_sha256']
     baseline = design_bearing_pair(bearing_pair_from_yaml(inputs())).to_dict()
     for role in ('movil','fijo'):
         assert data[role]['adopted'] == baseline[role]['adopted']
@@ -125,7 +136,7 @@ def test_modified_fixed_geometry_cannot_reuse_mobile_results_or_favorable_conclu
     assert pair.mobile.status == 'REFERENCIAL'
     assert pair.fixed.step('HS_HOLES').status == 'NO CUMPLE'
     text,_ = document_text(generate_bearing_pair_docx(pair,tmp_path/'fallo.docx'))
-    assert 'Estado del sistema: NO CONFORME' in text
+    assert 'uno o más controles no cumplen los límites adoptados' in text
     assert '3 zunchos de 3 mm' in text and '3 zunchos de 4 mm' in text
     assert 'NO CUMPLE' in text and 'no satisface' in text
 

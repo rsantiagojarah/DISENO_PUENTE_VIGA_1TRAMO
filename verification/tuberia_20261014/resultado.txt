@@ -1,0 +1,54 @@
+IMPLEMENTACIÓN DE TUBERÍA OPCIONAL EN TABLERO — 14/10/2026
+
+Uso por terminal: diseno-tablero
+El ingreso solicita incluir tubería (sí/no), peso lineal total en operación
+en kg/m y posición del eje de carga desde el borde exterior izquierdo, en m.
+Se considera uniforme en toda la luz, transmitida verticalmente a la losa.
+El peso incluye tubo lleno y accesorios; no se agrega agua automáticamente.
+
+Uso con YAML:
+  diseno-tablero input examples/soldeoro_con_tuberia.yaml
+
+Bloque opcional:
+  tuberia:
+    incluir: true
+    peso_lineal_kg_m: 180.0
+    x_desde_borde_izquierdo_m: 0.46
+
+Sin tubería: incluir: false, omitir el bloque o ingresar peso cero.
+Se rechazan pesos negativos, coordenadas fuera del tablero, valores no
+finitos y campos activos ausentes o no numéricos.
+
+ALCANCE
+Modelo transversal existente y vigas longitudinales simplemente apoyadas.
+Carga DW en losa, volados, vigas y diafragmas; reacciones físicas de apoyos.
+Ambos volados se calculan por separado cuando se incorpora la tubería.
+Las vigas se agrupan solamente si tienen iguales cargas, incluida la tubería.
+El diseño longitudinal no aprovecha las reducciones favorables: agrega
+max(reacción lineal de tubería,0). Para las reacciones globales se conservan
+los valores físicos con signo, de modo que no se incremente artificialmente
+el peso total. El criterio se identifica en terminal y memoria.
+Se mantiene el procedimiento existente de selección y detallado de armadura.
+No se incorporaron modelo tridimensional, cálculo adicional de torsión,
+soportes/anclajes de tubería ni entradas para barras continuas o cortadas.
+
+VERIFICACIÓN
+Sin tubería: 429 577 campos numéricos originales comparados exactamente;
+cero diferencias. Los campos nuevos opcionales no integran esa cuenta.
+Pruebas iniciales de tubería, reparto y YAML: 60 aprobadas.
+Pruebas ampliadas de elementos e informes: 77 aprobadas y 1 fallo preexistente
+de una expectativa de texto de ecuación en Word, documentado previamente.
+Pruebas finales de tubería: 23 aprobadas, incluyendo exportación Word y PDF.
+Validación final de entrada: 18 aprobadas, incluyendo 8 nuevos casos de YAML
+mal formado. Total de casos nuevos específicos de tubería: 31, todos comprobados.
+
+Ejemplo Soldeoro, 180 kg/m a x=0.46 m:
+  Mu viga exterior próxima: 298.290857 tf·m.
+  Mu volado izquierdo: 1.328709 tf·m/m.
+  Mu volado derecho: 1.182909 tf·m/m.
+  Incremento de reacción total por estribo: 1.350 tf sin mayorar.
+Word y PDF incluyen peso, ubicación, reparto por viga y comparación de
+momentos de Resistencia I sin/con tubería. La posición del volado derecho
+se expresa desde su borde local y queda identificada en su bloque.
+
+Detalle de resultados y del fallo preexistente: comparacion.json.

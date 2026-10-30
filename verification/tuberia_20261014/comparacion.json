@@ -1,0 +1,30 @@
+{
+  "compared_numeric_values": 429577,
+  "differences": [],
+  "baseline_commit": "52391d2b684bf585233a7370f97ac562a5eddab1",
+  "method": "Reproduccion completa de Soldeoro antes/despues, sin tuberia, con las mismas entradas y selecciones. Comparacion exacta de todos los campos numericos originales; los nuevos campos opcionales no forman parte del original.",
+  "tests": {
+    "initial_focused": "60 passed",
+    "extended": "77 passed, 1 preexisting failure",
+    "pipe_final_before_malformed_cases": "23 passed",
+    "input_validation_final": "18 passed, 13 deselected (incluye 8 casos nuevos de YAML mal formado)",
+    "new_pipe_tests_total": 31
+  },
+  "preexisting_failure": {
+    "id": "tests/test_deck_pdf_report.py::test_deck_command_generates_detailed_word_memory_automatically",
+    "reason": "Espera una cadena exacta de ecuacion E+ que no figura asi en OOXML. Mismo fallo registrado previamente en verification/soldeoro_20261014/comparacion.json; no es una diferencia numerica de calculo."
+  },
+  "pipe_example": {
+    "weight_kg_m": 180,
+    "x_from_left_m": 0.46,
+    "span_m": 15,
+    "exterior_Mu_tn_m": 298.2908565100753,
+    "left_overhang_Mu_tn_m_per_m": 1.3287093136125,
+    "right_overhang_Mu_tn_m_per_m": 1.1829093136125,
+    "additional_global_reaction_each_support_tn": 1.35
+  },
+  "export_checks": [
+    "Word generado con tabla comparativa y ambos volados; texto y tablas verificados por OOXML.",
+    "PDF generado y pagina de carga/comparacion revisada visualmente."
+  ]
+}
