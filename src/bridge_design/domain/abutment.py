@@ -812,6 +812,7 @@ class AbutmentDesignResult:
     stem_design: StructuralDesignCase
     stem_reinforcement_cut: AbutmentStemReinforcementCut | None
     heel_design: StructuralDesignCase
+    heel_lower_design: StructuralDesignCase
     toe_design: StructuralDesignCase | None
     key_design: StructuralDesignCase | None
     secondary_reinforcement: tuple[AbutmentSecondaryReinforcementCase, ...]
@@ -977,9 +978,10 @@ def solve_abutment_design(
     structural_states = without_bridge[:2] + extreme_without
     if not data.is_pure_wall:
         structural_states += with_bridge[:2] + extreme_with
-    stem_design, heel_design, toe_design = _structural_design(data, pressures, structural_states, selected)
+    stem_design, heel_design, heel_lower_design, toe_design = _structural_design(data, pressures, structural_states, selected)
     heel_moments = [_heel_design_demands(data, state)[0] for state in structural_states]
-    heel_design = replace(heel_design, signed_moment_envelope_tn_m_m=(min(heel_moments), max(heel_moments)), required_faces=("superior", "inferior"))
+    heel_design = replace(heel_design, signed_moment_envelope_tn_m_m=(min(heel_moments), max(heel_moments)), required_faces=("superior",))
+    heel_lower_design = replace(heel_lower_design, signed_moment_envelope_tn_m_m=(min(heel_moments), max(heel_moments)), required_faces=("inferior",))
     if toe_design is not None:
         toe_moments = [
             _toe_design_demands(data, state, toe_design.effective_depth_cm)[0]
@@ -993,7 +995,7 @@ def solve_abutment_design(
     key_design = _key_structural_design(data, key, selected)
     structural_cases = tuple(
         case
-        for case in (stem_design, heel_design, toe_design, key_design)
+        for case in (stem_design, heel_design, heel_lower_design, toe_design, key_design)
         if case is not None
     )
     service_checks = [_crack_checks(data, pressures, state, structural_cases)
@@ -1035,6 +1037,7 @@ def solve_abutment_design(
         stem_design=stem_design,
         stem_reinforcement_cut=stem_reinforcement_cut,
         heel_design=heel_design,
+        heel_lower_design=heel_lower_design,
         toe_design=toe_design,
         key_design=key_design,
         secondary_reinforcement=secondary_reinforcement,
@@ -2019,7 +2022,7 @@ def _structural_design(
     pressures: SoilPressureResult,
     states: tuple[StabilityStateResult, ...],
     selected_reinforcement: Mapping[str, ReinforcementSpacingOption],
-) -> tuple[StructuralDesignCase, StructuralDesignCase, StructuralDesignCase | None]:
+) -> tuple[StructuralDesignCase, StructuralDesignCase, StructuralDesignCase, StructuralDesignCase | None]:
     g = inputs.geometry
     r = inputs.reinforcement
     grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m, r.maximum_spacing_m)
@@ -2085,6 +2088,25 @@ def _structural_design(
         r.footing_main_bar_diameter_cm,
         heel_option,
     )
+    # Positive heel moments put the top face in tension; negative moments
+    # put the bottom face in tension. Keep the load state for each check.
+    lower_strength = max((max(0.0, -moment) for state, (moment, _) in zip(states, heel_demands)
+                          if state.load_factors and state.load_factors.limit_state == "strength"), default=0.0)
+    lower_extreme = max((max(0.0, -moment) for state, (moment, _) in zip(states, heel_demands)
+                         if state.load_factors and state.load_factors.limit_state == "extreme"), default=0.0)
+    heel_lower_design = _reinforce_at_adopted_depth(
+        lambda depth_cm, option: _reinforced_case(
+            "Zapata - talon inferior", max(lower_strength, lower_extreme), depth_cm,
+            footing_temperature_as, heel_vu, inputs, grid, r.footing_design_phi_for_as,
+            r.heel_main_bar_label, footing_temperature_as, option,
+            notes="Cara inferior: minimo por temperatura y demanda de flexion de signo correspondiente.",
+            shear_method="simplified",
+            limit_states=(("Resistencia I", lower_strength, r.footing_design_phi_for_as),
+                          ("Evento Extremo", lower_extreme, r.footing_design_phi_for_as)),
+            minimum_strength_only=True,
+        ), footing_gross_cm, r.footing_cover_cm, r.footing_main_bar_diameter_cm,
+        selected_reinforcement.get("Zapata - talon inferior"),
+    )
     toe_design = None
     if g.toe_length_m > 0.0:
         toe_option = selected_reinforcement.get("Zapata - puntera inferior")
@@ -2118,7 +2140,7 @@ def _structural_design(
             r.toe_main_bar_diameter_cm,
             toe_option,
         )
-    return stem_design, heel_design, toe_design
+    return stem_design, heel_design, heel_lower_design, toe_design
 
 
 def _section_effective_depth_cm(gross_depth_cm: float, cover_cm: float, bar_diameter_cm: float) -> float:
@@ -2246,6 +2268,7 @@ def _reinforced_case(
     notes: str = "Mr >= max(Mu, min(Mcr, 1.33Mu))",
     shear_method: str = "general",
     limit_states: tuple[tuple[str, float, float], ...] | None = None,
+    minimum_strength_only: bool = False,
 ) -> StructuralDesignCase:
     states = limit_states or (("Diseño", abs(mu_tn_m), design_phi_for_as),)
     flexural_as_by_state = tuple(
@@ -2269,15 +2292,20 @@ def _reinforced_case(
     governing_mu = governing_flexure[1]
     governing_phi = governing_flexure[2]
     gross_depth_cm = _section_depth_cm(inputs, name)
-    cracking_moment = _cracking_moment_tn_m(gross_depth_cm, inputs) if governing_mu > 0.0 else 0.0
+    cracking_moment = _cracking_moment_tn_m(gross_depth_cm, inputs) if governing_mu > 0.0 or minimum_strength_only else 0.0
+    minimum_mu = (next((mu for label, mu, _phi, _as in flexural_as_by_state
+                        if label == "Resistencia I"), 0.0)
+                  if minimum_strength_only else governing_mu)
     multiplier_minimum_moment = (
-        inputs.reinforcement.minimum_flexural_capacity_multiplier * governing_mu
-        if governing_mu > 0.0
+        inputs.reinforcement.minimum_flexural_capacity_multiplier * minimum_mu
+        if minimum_mu > 0.0
         else 0.0
     )
     minimum_moment = min(cracking_moment, multiplier_minimum_moment)
     capacity_minimum_as = 0.0
     for _label, state_mu, state_phi, _as_state in flexural_as_by_state:
+        if minimum_strength_only and _label != "Resistencia I":
+            continue
         state_minimum_moment = (
             min(
                 cracking_moment,
@@ -2323,9 +2351,9 @@ def _reinforced_case(
     as_phi_by_label: dict[str, float] = {}
     all_states_ok = True
     for label, state_mu, state_phi, as_state in flexural_as_by_state:
-        state_required = mtc_minimum_flexural_moment_tn_m(
-            state_mu, cracking_moment,
-            inputs.reinforcement.minimum_flexural_capacity_multiplier)
+        state_required = (state_mu if minimum_strength_only and label != "Resistencia I" else
+            mtc_minimum_flexural_moment_tn_m(state_mu, cracking_moment,
+            inputs.reinforcement.minimum_flexural_capacity_multiplier))
         state_phi_applied, state_resistance = _factored_flexural_resistance(
             provided_as,
             100.0,
@@ -3495,6 +3523,7 @@ def _service_moments(
     return {
         "Pantalla": _stem_service_moment(inputs, pressures),
         "Zapata - talon superior": _heel_service_moment(inputs, service_state),
+        "Zapata - talon inferior": max(0.0, -_heel_design_demands(inputs, service_state)[0]),
         "Zapata - puntera inferior": _toe_service_moment(inputs, service_state),
         "Diente de concreto": _key_base_moment_tn_m(inputs, _passive_key(inputs)),
     }
@@ -3651,7 +3680,7 @@ def _available_development_length_cm(inputs: AbutmentInputs, element: str) -> fl
     cover = inputs.reinforcement.footing_cover_cm
     if element == "Pantalla":
         return g.footing_thickness_m * 100.0 - cover
-    if element == "Zapata - talon superior":
+    if element in ("Zapata - talon superior", "Zapata - talon inferior"):
         return max(0.0, (g.footing_width_m-g.heel_length_m)*100.0-cover)
     if element == "Zapata - puntera inferior":
         return max(0.0, (g.footing_width_m-g.toe_length_m)*100.0-cover)
@@ -3668,7 +3697,7 @@ def _bar_detail_length_m(inputs: AbutmentInputs, element: str, required_ld_cm: f
             from bridge_design.domain.abutment_model_b import back_face_length_m
             return back_face_length_m(g, g.stem_height_above_footing_m) + ld_m
         return g.stem_height_above_footing_m / cos(radians(90.0 - inputs.soil.wall_backface_angle_deg)) + ld_m
-    if element == "Zapata - talon superior":
+    if element in ("Zapata - talon superior", "Zapata - talon inferior"):
         return g.heel_length_m + ld_m
     if element == "Zapata - puntera inferior":
         return g.toe_length_m + ld_m
@@ -3681,7 +3710,9 @@ def _detail_face(element: str) -> str:
     if element == "Pantalla":
         return "Cara relleno"
     if element == "Zapata - talon superior":
-        return "Ambas caras talon"
+        return "Superior talon"
+    if element == "Zapata - talon inferior":
+        return "Inferior talon"
     if element == "Zapata - puntera inferior":
         return "Ambas caras puntera"
     if element == "Diente de concreto":
@@ -3692,7 +3723,7 @@ def _detail_face(element: str) -> str:
 def _detail_note(element: str) -> str:
     if element == "Pantalla":
         return "Anclar en zapata"
-    if element == "Zapata - talon superior":
+    if element in ("Zapata - talon superior", "Zapata - talon inferior"):
         return "Prolongar hacia pantalla"
     if element == "Zapata - puntera inferior":
         return "Anclar hacia pantalla"

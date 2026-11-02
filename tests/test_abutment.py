@@ -113,6 +113,7 @@ def test_abutment_reinforcement_option_tables_group_stem_before_footing() -> Non
         "OPCIONES - Pantalla - horizontal relleno",
         "OPCIONES - Pantalla - horizontal exterior",
         "OPCIONES - Zapata - talon superior",
+        "OPCIONES - Zapata - talon inferior",
         "OPCIONES - Zapata - puntera inferior",
         "OPCIONES - Zapata - transversal superior",
         "OPCIONES - Zapata - transversal inferior",
@@ -687,7 +688,7 @@ def test_structural_design_matches_reference_workbook_with_original_cover() -> N
         assert case.shear_beta_method == "general"
         assert 12.0 <= case.shear_effective_crack_spacing_in <= 80.0
         assert case.controlling_moment_tn_m_m == pytest.approx(max(map(abs, case.signed_moment_envelope_tn_m_m)))
-        assert case.required_faces == ("superior", "inferior")
+        assert case.required_faces == (("superior",) if case is result.heel_design else ("superior", "inferior"))
         assert case.required_as_cm2_m >= case.minimum_as_cm2_m
         assert case.notes == "Refuerzo longitudinal dimensionado con la demanda gobernante de la envolvente."
     assert result.key_design is not None
@@ -841,6 +842,7 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
     assert {check.element for check in result.crack_checks} == {
         "Pantalla",
         "Zapata - talon superior",
+        "Zapata - talon inferior",
         "Zapata - puntera inferior",
         "Diente de concreto",
     }
@@ -866,6 +868,7 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
         "E7",
         "E8",
         "E9",
+        "E10",
     }
     assert [detail.element for detail in result.bar_details] == [
         "Pantalla",
@@ -873,6 +876,7 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
         "Pantalla",
         "Pantalla",
         "Zapata - talon superior",
+        "Zapata - talon inferior",
         "Zapata - puntera inferior",
         "Zapata",
         "Zapata",
@@ -888,6 +892,7 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
         "E7",
         "E8",
         "E9",
+        "E10",
     ]
     cut = result.stem_reinforcement_cut
     assert cut is not None and cut.status == "NO CONVIENE"

@@ -209,6 +209,11 @@ def test_pure_wall_without_toe_omits_nonexistent_structural_case() -> None:
 
     assert result.inputs.geometry.heel_length_m == pytest.approx(1.70)
     assert result.toe_design is None
+    lower = result.heel_lower_design
+    assert lower.required_as_cm2_m >= lower.temperature_as_cm2_m
+    assert any(detail.element == "Zapata - talon inferior" and detail.face == "Inferior talon"
+               for detail in result.bar_details)
+    assert "DISENO ESTRUCTURAL - Zapata - talon inferior" in report
     assert "Zapata - puntera" not in {
         component.name for component in result.concrete_components
     }
@@ -218,6 +223,20 @@ def test_pure_wall_without_toe_omits_nonexistent_structural_case() -> None:
     assert "Solo talon" in report
     assert "DISENO ESTRUCTURAL - Zapata - puntera inferior" not in report
     assert "OPCIONES - Zapata - puntera inferior" not in option_tables
+
+
+def test_heel_lower_face_accounts_for_reverse_moment(monkeypatch):
+    from bridge_design.domain import abutment as a
+
+    monkeypatch.setattr(a, "_heel_design_demands", lambda inputs, state: (-5.0, 0.0))
+    result = a.solve_abutment_design()
+    lower = result.heel_lower_design
+    assert lower.strength_limit_mu_tn_m_m == pytest.approx(5.0)
+    assert lower.extreme_limit_mu_tn_m_m == pytest.approx(5.0)
+    assert lower.minimum_capacity_moment_tn_m_m == pytest.approx(
+        min(lower.cracking_moment_tn_m_m, 1.33 * 5.0))
+    assert lower.required_as_cm2_m >= lower.capacity_minimum_as_cm2_m
+    assert lower.required_as_cm2_m >= lower.temperature_as_cm2_m
 
 
 def test_wall_geometry_rejects_negative_toe() -> None:

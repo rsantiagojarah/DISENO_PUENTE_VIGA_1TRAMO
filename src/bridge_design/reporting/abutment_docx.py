@@ -1063,6 +1063,7 @@ def _structural_cases(result: AbutmentDesignResult) -> tuple[StructuralDesignCas
         for case in (
             result.stem_design,
             result.heel_design,
+            result.heel_lower_design,
             result.toe_design,
             result.key_design,
         )

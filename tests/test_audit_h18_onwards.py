@@ -189,5 +189,6 @@ def test_h21_reverse_moments_have_two_face_reinforcement():
     assert result.heel_design.signed_moment_envelope_tn_m_m == pytest.approx((min(moments), max(moments)))
     assert result.heel_design.controlling_moment_tn_m_m == pytest.approx(max(map(abs, moments)))
     details = [row for row in result.bar_details if row.element.startswith("Zapata -")]
-    assert any(row.face == "Ambas caras talon" for row in details)
+    assert any(row.face == "Superior talon" for row in details)
+    assert any(row.face == "Inferior talon" for row in details)
     assert any(row.face == "Ambas caras puntera" for row in details)

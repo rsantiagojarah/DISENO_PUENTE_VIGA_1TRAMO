@@ -1128,6 +1128,9 @@ def cracking_and_temperature_trace(
         "El refuerzo adoptado no puede ser menor que los controles de resistencia, "
         "temperatura y capacidad mínima."
     )
+    if case.name == "Zapata - talon inferior":
+        comment += (" El mínimo de flexión utiliza el momento de Resistencia que tracciona "
+                    "esta cara; Evento Extremo se comprueba por su demanda propia.")
     return formula, legend, substitution, result_text, comment
 
 

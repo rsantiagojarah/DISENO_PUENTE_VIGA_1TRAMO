@@ -68,7 +68,7 @@ def format_abutment_design_result(
     if include_stem_reinforcement_cut:
         lines.extend(_format_stem_reinforcement_cut(result))
     lines.extend(_format_section_title("DISENO DE CIMENTACION"))
-    lines.extend(_format_structural_design(result, case_filter={"Zapata - talon superior", "Zapata - puntera inferior", "Diente de concreto"}))
+    lines.extend(_format_structural_design(result, case_filter={"Zapata - talon superior", "Zapata - talon inferior", "Zapata - puntera inferior", "Diente de concreto"}))
     lines.extend(_format_secondary_reinforcement(result))
     lines.extend(_format_crack_checks(result))
     lines.extend(_format_development_checks(result))
@@ -275,6 +275,7 @@ def _primary_structural_cases(
         for case in (
             result.stem_design,
             result.heel_design,
+            result.heel_lower_design,
             result.toe_design,
             result.key_design,
         )
