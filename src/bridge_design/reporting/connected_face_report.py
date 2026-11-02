@@ -1,6 +1,5 @@
 """Signed global envelope checks for the actual symmetric adopted reinforcement."""
 
-from bridge_design.domain.connected_reinforcement import section_demands
 from bridge_design.domain.connected_steel_audit import region_audit
 from bridge_design.reporting.connected_case_groups import case_label
 from bridge_design.reporting.deck_docx import _table, _body

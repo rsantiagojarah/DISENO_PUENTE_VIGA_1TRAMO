@@ -4,7 +4,6 @@ from dataclasses import asdict, dataclass
 from types import SimpleNamespace
 
 from bridge_design.domain.abutment import _concrete_components, _soil_components
-from bridge_design.domain.connected_reinforcement import section_demands
 from bridge_design.domain.connected_steel_audit import region_audit
 from bridge_design.domain.connected_2_inputs import is_connected_2
 from bridge_design.reporting.abutment_docx_detail import concrete_geometry_rows

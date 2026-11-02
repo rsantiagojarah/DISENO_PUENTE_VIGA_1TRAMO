@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from reportlab.lib import colors
 from reportlab.lib.units import mm
-from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyle, XPreformatted
+from reportlab.platypus import KeepTogether, Spacer, Table, TableStyle, XPreformatted
 
-from bridge_design.reporting.pdf_style import PALE, RULE, p, register_arial_narrow
+from bridge_design.reporting.pdf_style import RULE, p, register_arial_narrow
 from bridge_design.reporting.deck_report_notes import formal_audit_line
 
 

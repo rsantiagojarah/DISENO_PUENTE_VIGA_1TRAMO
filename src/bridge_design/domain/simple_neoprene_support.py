@@ -8,7 +8,7 @@ Incluye:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import pi, sqrt
+from math import pi
 from typing import Literal
 
 from bridge_design.domain.elastomeric_bearing import (

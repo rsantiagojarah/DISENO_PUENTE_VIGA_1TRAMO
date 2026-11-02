@@ -2,6 +2,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.tmp_pytest/
+.test-*/
+tmp/
+tmp_pdf_text/
 .coverage
 htmlcov/
 build/
