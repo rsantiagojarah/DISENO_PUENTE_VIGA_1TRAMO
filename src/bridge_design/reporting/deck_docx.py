@@ -719,7 +719,8 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         g_formula, g_legend, g_sub, g_result, g_comment = detail.interior_g_factor_trace(geometry)
     _calc(
         document,
-        "Cálculo de factores de distribución gM y gV",
+        ("Cálculo de factores de distribución base gM y gV (antes del esviaje)"
+         if geometry.skew_angle_deg else "Cálculo de factores de distribución gM y gV"),
         g_formula,
         g_legend,
         g_sub,
@@ -727,6 +728,11 @@ def _girder(document: Document, data: DeckReportData, *, exterior: bool, chart_d
         g_comment,
         REF_DISTRIBUTION_FACTORS,
     )
+    from bridge_design.reporting.skew import skew_shear_trace
+    from bridge_design.codes.skew import SKEW_SHEAR_REFERENCE
+    if geometry.skew_angle_deg:
+        _calc(document, "Correccion del cortante por esviaje",
+              *skew_shear_trace(geometry, analysis), SKEW_SHEAR_REFERENCE)
     materials = inputs.materials
     q_slab = (
         materials.concrete.specific_weight_tn_m3

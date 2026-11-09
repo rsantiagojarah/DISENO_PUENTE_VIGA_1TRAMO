@@ -1,10 +1,15 @@
 version_esquema: 1
 comando: diseno-tablero
+# Desde la perpendicular al eje del puente; rango admitido: 0 a 60 grados.
+angulo_esviaje_grados: 22.0
 nota: >
   Entradas reconstruidas de la corrida interactiva de diseno-tablero.
   Ancho total = 12.150 m; S = 2.5625 m; a = 0.950 m; 5 vigas.
   Tuberia DW: 180 kg/m en x = 0.350 m. Un diafragma interior en L/2 y
   diafragmas de extremo con h bajo losa = 0.900 m.
+  El esviaje es 22 grados. Los items de acero anotados corresponden a la
+  corrida anterior sin correccion por esviaje; revisar las opciones con las
+  nuevas demandas de cortante.
   El acero adoptado no es dato de ingreso; al repetir la corrida hay que
   volver a elegir las mismas opciones:
   losa negativo/positivo 5/8" @ 0.150 m; temperatura/distribucion 1/2" @ 0.200 m;
@@ -76,7 +81,7 @@ viga_interior:
   paso_muestreo_momentos_m: 0.10
 viga_exterior: {}
   # de y g se calculan: de = 0.95 - (1.65 + 0.375) = -1.075 m;
-  # g momento = g corte = 0.517.
+  # g momento = g corte base (antes del esviaje) = 0.517.
 diafragma:
   espesor_longitudinal_m: 0.35
   altura_bajo_losa_m: 0.70

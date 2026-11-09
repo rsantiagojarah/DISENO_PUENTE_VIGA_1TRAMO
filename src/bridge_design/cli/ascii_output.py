@@ -86,6 +86,7 @@ _LONGITUDINAL_SCHEME_LABEL_WIDTH = 35
 
 def format_input_summary(project_inputs: ProjectInputs) -> str:
     """Return an ASCII summary of collected inputs."""
+    from bridge_design.reporting.skew import skew_input_lines
     materials = project_inputs.materials
     loads = project_inputs.live_loads
     vehicle = loads.vehicular
@@ -94,6 +95,7 @@ def format_input_summary(project_inputs: ProjectInputs) -> str:
     barrier = project_inputs.barrier
 
     lines = [
+        *skew_input_lines(project_inputs),
         "=" * 60,
         "RESUMEN DE DATOS INGRESADOS",
         "=" * 60,
@@ -149,7 +151,9 @@ def format_input_summary(project_inputs: ProjectInputs) -> str:
         f"Ancho tributario exterior            : {project_inputs.exterior_girder.tributary_width_m:10.3f} m",
         f"de exterior                          : {project_inputs.exterior_girder.exterior_web_to_traffic_barrier_m:10.3f} m",
         f"g momento exterior                   : {project_inputs.exterior_girder.live_load_distribution_factor_g:10.3f}",
-        f"g corte exterior                     : {project_inputs.exterior_girder.live_load_shear_distribution_factor_g:10.3f}",
+        (f"g corte exterior base (sin esviaje)   : {project_inputs.exterior_girder.live_load_shear_distribution_factor_g:10.3f}"
+         if project_inputs.skew_angle_deg else
+         f"g corte exterior                     : {project_inputs.exterior_girder.live_load_shear_distribution_factor_g:10.3f}"),
         "=" * 60,
     ]
     from bridge_design.reporting.pipe_load_report import pipe_input_lines

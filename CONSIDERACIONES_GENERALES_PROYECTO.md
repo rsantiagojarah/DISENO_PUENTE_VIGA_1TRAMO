@@ -490,3 +490,40 @@ El empuje se considera siempre activo en ambos lados.
 
 La guia de datos, hipotesis, verificaciones y comandos esta en
 `ESTRIBOS_CONECTADOS.md`. Los comandos anteriores conservan su modalidad.
+
+## 20. Correccion de cortante vehicular por esviaje
+
+`diseno-tablero` solicita un unico angulo de esviaje de 0 a 60 grados, medido
+desde la perpendicular al eje longitudinal del puente. Se asumen lineas de
+apoyo paralelas con el mismo angulo. En YAML se usa la clave de raiz
+`angulo_esviaje_grados: 22.0`. Las plantillas nuevas usan 0.0; los archivos
+anteriores que omiten la clave conservan el calculo sin esviaje.
+
+Para vigas T monoliticas de concreto se aplica MTC 2018 Art. 2.6.4.2.2.3c,
+Tabla 2.6.4.2.2.3c-1 (AASHTO 4.6.2.2.3c):
+
+`Cv = 1 + 0.20 * (12 * L * ts^3 / Kg)^0.3 * tan(angulo)`
+
+L se convierte a ft, ts a in y Kg a in4. Se reutiliza Kg = n(I+A*eg^2),
+con n=1 para el concreto monolitico. Para esviaje distinto de cero se exige
+3.5 <= S <= 16 ft, 20 <= L <= 240 ft y al menos cuatro vigas; fuera de ese
+alcance se rechaza el calculo por este procedimiento.
+
+Se conserva Cv en todas las vigas y toda la luz, sin disminuirlo hacia el
+centro, como envolvente conservadora de ambos extremos. Se corrigen los
+factores de cortante vehicular de camion, tandem y fatiga antes de obtener
+las envolventes, combinaciones y el armado transversal. Los factores base
+se almacenan separados del factor corregido para evitar aplicaciones dobles.
+DC, DW y PL no se multiplican por Cv. No se reduce el momento por esviaje.
+Las reacciones globales de equilibrio no se multiplican por Cv; las reacciones
+vehiculares locales por viga si lo incorporan.
+
+La losa conserva el modelo transversal y la armadura principal perpendicular
+a las vigas. Consola y memorias Word/PDF identifican el angulo, Kg, Cv y el
+factor de distribucion utilizado. Esta correccion aproximada no representa
+la torsion espacial ni modifica el analisis de diafragmas. No se incorpora
+una verificacion de longitud minima de asiento o cajuela.
+
+Cuando el angulo se omite o es 0, la salida de resultados en consola y las
+memorias Word/PDF omiten las menciones y el desarrollo de esviaje. La pregunta
+de ingreso se mantiene para permitir activar la correccion en otros proyectos.

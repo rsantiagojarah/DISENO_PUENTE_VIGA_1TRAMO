@@ -543,6 +543,8 @@ def collect_pipe_load(geometry):
 def collect_project_inputs() -> ProjectInputs:
     """Collect all project inputs from terminal."""
     geometry = collect_transverse_geometry()
+    from bridge_design.cli.skew_input import collect_skew_angle
+    skew_angle_deg = collect_skew_angle()
     materials = collect_material_properties()
     barrier = collect_concrete_barrier_design_inputs()
     live_loads = collect_live_loads()
@@ -570,4 +572,5 @@ def collect_project_inputs() -> ProjectInputs:
         exterior_girder=exterior_girder,
         diaphragm=diaphragm,
         end_diaphragm=end_diaphragm,
+        skew_angle_deg=skew_angle_deg,
     )

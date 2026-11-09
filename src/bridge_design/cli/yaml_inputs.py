@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any
+from bridge_design.cli.skew_input import parse_skew_angle
 
 from bridge_design.cli.input_prompts import _default_diaphragm_positions
 from bridge_design.cli.wall_backface_input import resolve_wall_backface_angle
@@ -571,6 +572,7 @@ def project_yaml_template() -> YamlMap:
         "x se mide desde el borde exterior izquierdo de la losa. No se suma agua automaticamente."
     )
     data["tuberia"] = {"incluir": False, "peso_lineal_kg_m": 0.0, "x_desde_borde_izquierdo_m": 0.0}
+    data["angulo_esviaje_grados"] = 0.0
     return data
 
 
@@ -780,6 +782,7 @@ def project_inputs_from_yaml(data: YamlMap) -> ProjectInputs:
         materials=material_inputs,
         live_loads=live_loads,
         barrier=barrier_inputs,
+        skew_angle_deg=parse_skew_angle(_value(data, "angulo_esviaje_grados", 0.0)),
         transverse_slab=transverse_slab,
         interior_girder=interior_girder,
         exterior_girder=exterior_girder,

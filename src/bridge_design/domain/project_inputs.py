@@ -29,9 +29,12 @@ class ProjectInputs:
     end_diaphragm: DiaphragmBeamGeometry | None = None
     interior_girder_index: int = 1
     exterior_girder_index: int = 0
+    skew_angle_deg: float = 0.0
 
     def __post_init__(self) -> None:
         """Derive the barrier dead load from its resisting profile."""
+        from bridge_design.validation.input_validators import require_range
+        require_range(self.skew_angle_deg, "Angulo de esviaje (grados)", 0.0, 60.0)
         weight = self.barrier.geometry.cross_section_area_m2 * self.materials.concrete.specific_weight_tn_m3 * 1000.0
         object.__setattr__(self, "materials", replace(
             self.materials, barrier=replace(self.materials.barrier, weight_kg_m=weight)
@@ -50,6 +53,7 @@ class ProjectInputs:
         interior_load = tributaries[self.interior_girder_index]
         exterior = replace(
             self.exterior_girder,
+            skew_angle_deg=self.skew_angle_deg,
             sidewalk_start_m=layout.sidewalk_start_m,
             sidewalk_width_m=layout.sidewalk_width_m,
             exterior_web_to_traffic_barrier_m=self.transverse_slab.geometry.overhang_m - layout.barrier_left_m - layout.barrier_width_m,
@@ -58,6 +62,7 @@ class ProjectInputs:
             pipe_load_tn_m=self.girder_pipe_loads[self.exterior_girder_index],
         )
         interior = replace(self.interior_girder,
+                           skew_angle_deg=self.skew_angle_deg,
                            asphalt_tributary_width_m=interior_load.asphalt_m,
                            sidewalk_tributary_width_m=interior_load.sidewalk_m,
                            pipe_load_tn_m=self.girder_pipe_loads[self.interior_girder_index])

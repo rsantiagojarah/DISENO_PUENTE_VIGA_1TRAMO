@@ -5,6 +5,7 @@ from functools import lru_cache
 from math import ceil, floor
 from typing import Iterable, Literal
 
+from bridge_design.domain.skew import girder_skew_correction
 from bridge_design.codes.mtc_2018 import (
     DEFAULT_CRACK_CONTROL_EXPOSURE_FACTOR,
     DEFAULT_FLEXURAL_RESISTANCE_FACTOR,
@@ -115,6 +116,11 @@ class InteriorGirderGeometry:
     asphalt_tributary_width_m: float | None = None
     sidewalk_tributary_width_m: float = 0.0
     pipe_load_tn_m: float = 0.0
+    skew_angle_deg: float = 0.0
+
+    @property
+    def skew_correction(self):
+        return girder_skew_correction(self)
 
     def __post_init__(self) -> None:
         require_positive(self.span_length_m, "luz del puente")
@@ -124,6 +130,7 @@ class InteriorGirderGeometry:
         require_positive(self.slab_thickness_m, "espesor de losa")
         require_positive(self.girder_total_height_m, "altura de viga")
         require_positive(self.web_width_m, "ancho de alma")
+        girder_skew_correction(self)  # Validate before analysis.
         if self.asphalt_tributary_width_m is not None:
             require_non_negative(self.asphalt_tributary_width_m, "asfalto tributario")
         require_non_negative(self.sidewalk_tributary_width_m, "vereda tributaria")
@@ -581,7 +588,7 @@ def solve_interior_girder_design(
         fatigue_truck=fatigue,
         dynamic_load_allowance=mtc_dynamic_load_allowance_for_slab(),
         distribution_factor_g=geometry.live_load_distribution_factor_g,
-        shear_distribution_factor_g=geometry.live_load_shear_distribution_factor_g,
+        shear_distribution_factor_g=envelope.shear_distribution_factor_g,
         pl=pl,
     )
 
@@ -1582,6 +1589,7 @@ def _solve_moving_vehicle_case(
         if shear_distribution_factor_g is None
         else shear_distribution_factor_g
     )
+    shear_g *= geometry.skew_correction.factor
     require_positive(moment_g, "g momento carga movil")
     require_positive(shear_g, "g corte carga movil")
     for spacing_set in spacing_sets_m:

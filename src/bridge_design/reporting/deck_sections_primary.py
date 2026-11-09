@@ -209,8 +209,13 @@ def girder_story(data: DeckReportData, styles, *, exterior: bool, group_label: s
         - reinforcement.parameters.concrete_cover_cm
         - reinforcement.parameters.main_bar_diameter_cm / 2.0
     )
+    from bridge_design.reporting.skew import skew_shear_trace
+    from bridge_design.codes.skew import SKEW_SHEAR_REFERENCE
     story = [
         p(f"{'4' if exterior else '3'}. {name}", styles["h1"]),
+        *([formula_card("Correccion del cortante por esviaje",
+                        *skew_shear_trace(geometry, result), SKEW_SHEAR_REFERENCE, styles)]
+          if geometry.skew_angle_deg else []),
         p(
             "La viga se idealiza simplemente apoyada. Se desplazan el camion y el tandem junto "
             "con la carga de carril; en cada estacion se retiene el mayor efecto. Los factores de "
