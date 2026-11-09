@@ -1,4 +1,5 @@
 import re
+from dataclasses import replace
 
 import pytest
 from bridge_design.cli.abutment_input_prompts import _collect_materials, collect_abutment_key
@@ -19,6 +20,38 @@ from bridge_design.domain.abutment import (
 def test_abutment_rejects_nonunit_design_strip() -> None:
     with pytest.raises(ValueError, match="franja longitudinal del estribo debe ser unitaria"):
         AbutmentGeometryInputs(strip_width_m=2.0)
+
+
+@pytest.mark.parametrize("toe_length_m", [0.0, 0.01, 1.10])
+@pytest.mark.parametrize("model", ["A", "B", "wall"])
+def test_heel_lower_independent_design_only_without_toe(toe_length_m, model) -> None:
+    from bridge_design.cli.abutment_ascii_output import (
+        format_abutment_design_result,
+        format_abutment_reinforcement_option_tables,
+    )
+    from bridge_design.cli.abutment_input_prompts import _abutment_reinforcement_cases
+    from bridge_design.domain.abutment_model_b import model_b_geometry
+
+    geometry = model_b_geometry() if model == "B" else AbutmentGeometryInputs()
+    inputs = AbutmentInputs(
+        geometry=replace(geometry, toe_length_m=toe_length_m),
+        is_pure_wall=model == "wall",
+    )
+    result = solve_abutment_design(inputs)
+    lower_name = "Zapata - talon inferior"
+    without_toe = toe_length_m == 0.0
+
+    assert (result.heel_lower_design is not None) == without_toe
+    assert (result.toe_design is None) == without_toe
+    assert (lower_name in {case.label for _, case in _abutment_reinforcement_cases(result)}) == without_toe
+    assert (lower_name in format_abutment_reinforcement_option_tables(result)) == without_toe
+    assert (lower_name in format_abutment_design_result(result)) == without_toe
+    for checks in (result.crack_checks, result.development_checks, result.bar_details):
+        assert (lower_name in {check.element for check in checks}) == without_toe
+    if without_toe:
+        lower = result.heel_lower_design
+        assert lower.required_faces == ("inferior",)
+        assert lower.required_as_cm2_m >= lower.temperature_as_cm2_m
 
 
 def test_default_abutment_loads_match_reference_workbook() -> None:
@@ -113,7 +146,6 @@ def test_abutment_reinforcement_option_tables_group_stem_before_footing() -> Non
         "OPCIONES - Pantalla - horizontal relleno",
         "OPCIONES - Pantalla - horizontal exterior",
         "OPCIONES - Zapata - talon superior",
-        "OPCIONES - Zapata - talon inferior",
         "OPCIONES - Zapata - puntera inferior",
         "OPCIONES - Zapata - transversal superior",
         "OPCIONES - Zapata - transversal inferior",
@@ -842,7 +874,6 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
     assert {check.element for check in result.crack_checks} == {
         "Pantalla",
         "Zapata - talon superior",
-        "Zapata - talon inferior",
         "Zapata - puntera inferior",
         "Diente de concreto",
     }
@@ -868,7 +899,6 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
         "E7",
         "E8",
         "E9",
-        "E10",
     }
     assert [detail.element for detail in result.bar_details] == [
         "Pantalla",
@@ -876,7 +906,6 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
         "Pantalla",
         "Pantalla",
         "Zapata - talon superior",
-        "Zapata - talon inferior",
         "Zapata - puntera inferior",
         "Zapata",
         "Zapata",
@@ -892,7 +921,6 @@ def test_abutment_crack_development_and_detailing_are_complete() -> None:
         "E7",
         "E8",
         "E9",
-        "E10",
     ]
     cut = result.stem_reinforcement_cut
     assert cut is not None and cut.status == "NO CONVIENE"

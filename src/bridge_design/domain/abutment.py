@@ -812,7 +812,7 @@ class AbutmentDesignResult:
     stem_design: StructuralDesignCase
     stem_reinforcement_cut: AbutmentStemReinforcementCut | None
     heel_design: StructuralDesignCase
-    heel_lower_design: StructuralDesignCase
+    heel_lower_design: StructuralDesignCase | None
     toe_design: StructuralDesignCase | None
     key_design: StructuralDesignCase | None
     secondary_reinforcement: tuple[AbutmentSecondaryReinforcementCase, ...]
@@ -981,7 +981,8 @@ def solve_abutment_design(
     stem_design, heel_design, heel_lower_design, toe_design = _structural_design(data, pressures, structural_states, selected)
     heel_moments = [_heel_design_demands(data, state)[0] for state in structural_states]
     heel_design = replace(heel_design, signed_moment_envelope_tn_m_m=(min(heel_moments), max(heel_moments)), required_faces=("superior",))
-    heel_lower_design = replace(heel_lower_design, signed_moment_envelope_tn_m_m=(min(heel_moments), max(heel_moments)), required_faces=("inferior",))
+    if heel_lower_design is not None:
+        heel_lower_design = replace(heel_lower_design, signed_moment_envelope_tn_m_m=(min(heel_moments), max(heel_moments)), required_faces=("inferior",))
     if toe_design is not None:
         toe_moments = [
             _toe_design_demands(data, state, toe_design.effective_depth_cm)[0]
@@ -2022,7 +2023,7 @@ def _structural_design(
     pressures: SoilPressureResult,
     states: tuple[StabilityStateResult, ...],
     selected_reinforcement: Mapping[str, ReinforcementSpacingOption],
-) -> tuple[StructuralDesignCase, StructuralDesignCase, StructuralDesignCase, StructuralDesignCase | None]:
+) -> tuple[StructuralDesignCase, StructuralDesignCase, StructuralDesignCase | None, StructuralDesignCase | None]:
     g = inputs.geometry
     r = inputs.reinforcement
     grid = SpacingGrid(r.spacing_step_m, r.minimum_spacing_m, r.maximum_spacing_m)
@@ -2088,25 +2089,27 @@ def _structural_design(
         r.footing_main_bar_diameter_cm,
         heel_option,
     )
-    # Positive heel moments put the top face in tension; negative moments
-    # put the bottom face in tension. Keep the load state for each check.
-    lower_strength = max((max(0.0, -moment) for state, (moment, _) in zip(states, heel_demands)
-                          if state.load_factors and state.load_factors.limit_state == "strength"), default=0.0)
-    lower_extreme = max((max(0.0, -moment) for state, (moment, _) in zip(states, heel_demands)
-                         if state.load_factors and state.load_factors.limit_state == "extreme"), default=0.0)
-    heel_lower_design = _reinforce_at_adopted_depth(
-        lambda depth_cm, option: _reinforced_case(
-            "Zapata - talon inferior", max(lower_strength, lower_extreme), depth_cm,
-            footing_temperature_as, heel_vu, inputs, grid, r.footing_design_phi_for_as,
-            r.heel_main_bar_label, footing_temperature_as, option,
-            notes="Cara inferior: minimo por temperatura y demanda de flexion de signo correspondiente.",
-            shear_method="simplified",
-            limit_states=(("Resistencia I", lower_strength, r.footing_design_phi_for_as),
-                          ("Evento Extremo", lower_extreme, r.footing_design_phi_for_as)),
-            minimum_strength_only=True,
-        ), footing_gross_cm, r.footing_cover_cm, r.footing_main_bar_diameter_cm,
-        selected_reinforcement.get("Zapata - talon inferior"),
-    )
+    heel_lower_design = None
+    if g.toe_length_m == 0.0:
+        # Design the heel bottom independently only for footings without a toe.
+        # Negative heel moments put the bottom face in tension.
+        lower_strength = max((max(0.0, -moment) for state, (moment, _) in zip(states, heel_demands)
+                              if state.load_factors and state.load_factors.limit_state == "strength"), default=0.0)
+        lower_extreme = max((max(0.0, -moment) for state, (moment, _) in zip(states, heel_demands)
+                             if state.load_factors and state.load_factors.limit_state == "extreme"), default=0.0)
+        heel_lower_design = _reinforce_at_adopted_depth(
+            lambda depth_cm, option: _reinforced_case(
+                "Zapata - talon inferior", max(lower_strength, lower_extreme), depth_cm,
+                footing_temperature_as, heel_vu, inputs, grid, r.footing_design_phi_for_as,
+                r.heel_main_bar_label, footing_temperature_as, option,
+                notes="Cara inferior: minimo por temperatura y demanda de flexion de signo correspondiente.",
+                shear_method="simplified",
+                limit_states=(("Resistencia I", lower_strength, r.footing_design_phi_for_as),
+                              ("Evento Extremo", lower_extreme, r.footing_design_phi_for_as)),
+                minimum_strength_only=True,
+            ), footing_gross_cm, r.footing_cover_cm, r.footing_main_bar_diameter_cm,
+            selected_reinforcement.get("Zapata - talon inferior"),
+        )
     toe_design = None
     if g.toe_length_m > 0.0:
         toe_option = selected_reinforcement.get("Zapata - puntera inferior")

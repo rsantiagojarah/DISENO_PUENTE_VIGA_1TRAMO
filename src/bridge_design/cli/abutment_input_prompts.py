@@ -437,8 +437,9 @@ def _abutment_reinforcement_cases(
     options = [
         result.stem_design.spacing_options,
         result.heel_design.spacing_options,
-        result.heel_lower_design.spacing_options,
     ]
+    if result.heel_lower_design is not None:
+        options.append(result.heel_lower_design.spacing_options)
     if result.toe_design is not None:
         options.append(result.toe_design.spacing_options)
     if result.key_design is not None:

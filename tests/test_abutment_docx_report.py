@@ -68,6 +68,8 @@ def test_abutment_report_is_detailed_a4_word_memory(tmp_path: Path) -> None:
     assert "71.294" not in xml
     assert "Estado q" in xml
     assert "Diseño estructural" in xml
+    assert "Zapata - talon inferior" not in xml
+    assert "Zapata - puntera inferior" in xml
     assert "Control de fisuración" in xml
     assert "Cuadro de barras" in xml
     assert "Comentario técnico" not in xml
@@ -205,4 +207,5 @@ def test_pure_wall_without_toe_omits_toe_design_from_word_report(tmp_path: Path)
         xml = package.read("word/document.xml").decode("utf-8")
 
     assert "la geometría adoptada no tiene puntera" in xml
+    assert "Zapata - talon inferior" in xml
     assert "Zapata - puntera inferior" not in xml
